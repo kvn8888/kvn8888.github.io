@@ -75,14 +75,14 @@ a {
         font-size: 50px;
     }
     h3 {
-        font-size: 28px;
+        font-size: 24px;
     }
     p {
-        font-size: 20px;
+        font-size: 16px;
         color: rgb(100, 100, 100);
     }
     a {
-        font-size: 20px;
+        font-size: 16px;
     }
     #grid_container {
         display: grid;
