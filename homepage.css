@@ -24,6 +24,7 @@ h1 {
     text-align: center;
     font-family: 'Lato', sans-serif;
     padding-bottom: 20px;
+    font-size: 50px;
 }
 h1 > span {
     color: rgb(69, 85, 255);
@@ -33,12 +34,34 @@ h1 > span {
 }
 h3 {
     font-family: "Poppins", sans-serif;
+    padding-bottom: 10px;
 }
-a {
+#button {
     font-family: "Roboto";
     color: rgb(255, 255, 255);
     text-decoration: none;
     background-color: rgb(50, 50, 50);
     border-radius: 20px;
     padding: 10px;
+}
+p {
+    font-family: "Roboto";
+}
+a {
+    font-family: "Roboto";
+    color: rgb(0, 0, 0);
+    padding: 10px;
+}
+.material-symbols-outlined {
+    position: relative;
+    top: 6px;
+    font-variation-settings:
+    'FILL' 0,
+    'wght' 400,
+    'GRAD' 10,
+    'opsz' 38
+}
+.textWithIcon {
+    position: relative;
+    bottom: 9px;
 }
