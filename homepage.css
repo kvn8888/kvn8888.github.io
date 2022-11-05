@@ -10,10 +10,13 @@
     background-color: rgb(241, 241, 241);
     text-align: center;
     min-height: 200px;
+    border-radius: 20px;
+    box-shadow: 2px 2px 5px rgb(150, 150, 150);
 }
 #header {
     grid-column: 1/7;
     grid-row: 1;
+    justify-content: center;
 }
 h1 {
     background-color: rgb(247, 247, 247);
