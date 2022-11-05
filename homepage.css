@@ -1,3 +1,13 @@
+@media all and (max-width: 600px) {
+    body {
+        transform: scale(2);
+    }
+}
+/* @media all and (min-width: 600px) {
+    h1 {
+        font-size: 48px;
+    }
+} */
 #grid_container {
     display: grid;
     max-width: auto;
@@ -24,7 +34,7 @@ h1 {
     text-align: center;
     font-family: 'Lato', sans-serif;
     padding-bottom: 20px;
-    font-size: 50px;
+    /* font-size: 50px; */
 }
 h1 > span {
     color: rgb(69, 85, 255);
