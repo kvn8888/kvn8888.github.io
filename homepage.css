@@ -57,11 +57,13 @@ p {
     font-family: "Roboto";
     padding-left: 5px;
     padding-right: 5px;
+    font-size: 16px;
 }
 a {
     font-family: "Roboto";
     color: rgb(0, 0, 0);
     padding: 10px;
+    font-size: 16px;
 }
 .material-symbols-outlined {
     position: relative;
