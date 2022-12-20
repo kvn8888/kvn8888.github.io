@@ -1,5 +1,6 @@
 #navbar ul{
     list-style: none;
+    text-shadow: 2px 2px .9px rgb(203, 203, 203);
 }
 #branding {
     font-size: 20px;

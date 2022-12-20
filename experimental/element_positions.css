@@ -1,6 +1,12 @@
+html{
+    height: 100%;
+}
 body{
     display: grid;
     grid-template-columns: repeat(5, auto);
+    grid-template-rows: auto;
+    background: linear-gradient(-45deg,rgb(200, 200, 200), 30%, rgb(255, 255, 255));
+    background-repeat: no-repeat;
 }
 /* #navbar{
     background-color: rgb(82, 82, 82);
