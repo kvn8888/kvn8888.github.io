@@ -1,0 +1,17 @@
+#navbar ul{
+    list-style: none;
+}
+#branding {
+    font-size: 20px;
+    color: rgb(0, 0, 0);
+    text-decoration: none;
+    font-family: Georgia, 'Times New Roman', Times, serif;
+    font-weight: bold;
+}
+#navbar ul a {
+    color: rgb(0, 0, 0);
+    font-size: 16px;
+
+    font-family: Helvetica, sans-serif;
+    text-decoration: none;
+}
