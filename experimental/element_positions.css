@@ -67,6 +67,16 @@ button {
     background-color: rgb(200, 200, 200, 50%);
     color: black;
     border-radius: 5px;
-    border: 2px solid linear-gradient(-45deg, black, white);
+    /* border: 2px solid linear-gradient(-45deg, black, white); */
     padding: 6px 36px;
+    transition: background-color 0.2s ease-out, color 0.5s ease-in;
+}
+button:hover{
+    background-color: rgb(200, 200, 200);
+    /* animation: changeColors .5s ease-in;
+    transform: scale(1.05, 1.05); */
+}
+@keyframes changeColors {
+    from { background-color: rgb(200, 200, 200, 50%);}
+    to { background-color: rgb(200, 200, 200);}
 }
