@@ -60,3 +60,13 @@ body{
     text-decoration: none;
     white-space: nowrap; 
 }
+
+button {
+    display: grid;
+    grid-column: 3;
+    background-color: rgb(200, 200, 200, 50%);
+    color: black;
+    border-radius: 5px;
+    border: 2px solid linear-gradient(-45deg, black, white);
+    padding: 6px 36px;
+}
