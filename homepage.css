@@ -84,7 +84,7 @@ a {
     min-height: 200px;
     max-width: none;
 }
-#testing {
+#layouts {
     grid-row: 2;
     grid-column: 4/6;
     min-height: 200px;
@@ -134,7 +134,7 @@ a {
         grid-row: 2;
         grid-column: 1;
     }
-    #testing {
+    #layouts {
         grid-row: 3;
         grid-column: 1;
     }
