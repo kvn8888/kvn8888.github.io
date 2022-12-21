@@ -5,7 +5,7 @@ body{
     display: grid;
     grid-template-columns: repeat(5, auto);
     grid-template-rows: auto;
-    background: linear-gradient(-45deg,rgb(200, 200, 200), 30%, rgb(255, 255, 255));
+    background: linear-gradient(-45deg,rgb(163, 181, 195), 50%, rgb(255, 255, 255));
     background-repeat: no-repeat;
 }
 /* #navbar{
@@ -62,17 +62,31 @@ body{
 }
 
 button {
+    /* grid */
     display: grid;
-    grid-column: 3;
-    background-color: rgb(200, 200, 200, 50%);
+    grid-column: 3/4;
+
+    /* color */
+    /* background-color: rgba(255, 255, 255, 0.35); */
+    background: linear-gradient(rgba(255, 255, 255, 0.0), rgb(255, 255, 255, 0.8));
     color: black;
+    border: 1px solid rgb(255, 255, 255,  0.5);
+
+    /* style */
     border-radius: 5px;
-    /* border: 2px solid linear-gradient(-45deg, black, white); */
     padding: 6px 36px;
+    max-width: 200px;
+    /* text-shadow: 2px 1px 2px rgba(0, 0, 0, 0.2); */
+    box-shadow: 2px 2px 3px rgba(0, 0, 0, 0.1);
+
+    /* animation */
     transition: background-color 0.2s ease-out, color 0.5s ease-in;
 }
 button:hover{
     background-color: rgb(200, 200, 200);
+    /* the button hover color looks cool */
+
+
     /* animation: changeColors .5s ease-in;
     transform: scale(1.05, 1.05); */
 }
