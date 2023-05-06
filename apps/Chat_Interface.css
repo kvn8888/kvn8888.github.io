@@ -1,57 +1,55 @@
-.chatbox {
-    width: 400px;
-    height: 500px;
-    margin: 20px auto;
-    border: 2px solid #ccc;
-    border-radius: 10px;
-    box-shadow: 0 0 10px #ccc;
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+  
+  /* Add this to the style section */
+  .clear-button {
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+  }
+  
+  .clear-button::before {
+    content: url("https://upload.wikimedia.org/wikipedia/commons/thumb/4/43/Trash_font_awesome.svg/1200px-Trash_font_awesome.svg.png");
+    width: 20px;
+    height: 20px;
+    display: block;
+    margin: auto;
+    padding: 0;
+  }
+  
+  .input input {
+    border-radius: 25px;
   }
   
   .header {
+    background-color: #f1f1f1;
     height: 50px;
-    background-color: #eee;
     display: flex;
     align-items: center;
-    justify-content: center;
+  }
+  
+  .header button {
+    border: none;
+    background-color: transparent;
+    font-size: 20px;
+    margin-left: 10px;
   }
   
   .header h1 {
-    font-family: Arial, sans-serif;
-    font-size: 20px;
-    color: #333;
+    flex-grow: 1;
+    text-align: center;
   }
   
-  .messages {
-    height: 400px;
-    overflow-y: scroll;
-    padding: 10px;
+  .chatbox {
+    height: calc(100vh - 100px);
+    overflow-y: auto;
   }
   
-  .message {
-    margin-bottom: 10px;
-  }
-  
-  .message p {
-    padding: 10px;
-    border-radius: 10px;
-  }
-  
-  .user {
-    text-align: right;
-  }
-  
-  .user p {
-    background-color: #aaf;
-    color: #fff;
-  }
-  
-  .assistant {
-    text-align: left;
-  }
-  
-  .assistant p {
-    background-color: #faa;
-    color: #fff;
+  .chatbox p {
+    margin: 10px;
   }
   
   .input {
@@ -59,18 +57,27 @@
     display: flex;
   }
   
-  .input form {
-    width: 100%;
+  .input button {
+    border: none;
+    background-color: #f1f1f1;
+    font-size: 20px;
   }
   
   .input input {
-    width: 80%;
+    flex-grow: 1;
     border: none;
+  }
+  /* Add this to the style section */
+.popup {
+    position: fixed;
+    bottom: 100px;
+    right: 20px;
+    background-color: #f1f1f1;
+    border: 1px solid #ccc;
     padding: 10px;
+    display: none;
   }
   
-  .input button {
-    width: 20%;
-    border: none;
-    background-color: #eee;
+  .popup p {
+    margin: 0;
   }
