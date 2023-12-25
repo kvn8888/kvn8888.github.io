@@ -81,7 +81,7 @@ button {
     max-width: 200px;
     /* text-shadow: 2px 1px 2px rgba(0, 0, 0, 0.2); */
     box-shadow: 2px 2px 3px rgba(0, 0, 0, 0.1);
-    font-size: 14px;
+    font-size: 15px;
 
     /* animation */
     transition: background-color 0.2s ease-out, color 0.5s ease-in;
@@ -96,9 +96,9 @@ button:hover{
     transform: scale(1.05, 1.05); */
 }
 button:active {
-    font-size: 12px;
-    width: 140px;
-    height: 28px;
+    font-size: 14px;
+    width: 145px;
+    height: 29px;
 }
 
 @keyframes changeColors {
