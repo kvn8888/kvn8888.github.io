@@ -9,7 +9,7 @@
 
 
 .spinner2 {
-    animation: rotate 2s linear infinite;
+    /* animation: rotate 2s linear infinite; */
     z-index: 2;
     position: absolute;
     top: 50%;
@@ -22,51 +22,32 @@
 .spinner2 .path {
     stroke:rgb(80, 80, 80);
     stroke-linecap: round;
-    animation: dash 1.5s ease-in-out infinite, colors 6s infinite;
+    animation: dash 1.5s ease-in-out infinite;
+}
+
+
+/* Define the gap variable */
+:root {
+    --gap: 20;
 }
 
 @keyframes rotate {
-    100% {
-        transform: rotate(360deg);
-    }
+        100% {
+                transform: rotate(360deg);
+        }
 }
 @keyframes dash {
-    0% {
-      stroke-dasharray: 1, 150;
-      stroke-dashoffset: 0;
-    }
-    50% {
-      stroke-dasharray: 90, 150;
-      stroke-dashoffset: -35;
-    }
-    100% {
-      stroke-dasharray: 90, 150;
-      stroke-dashoffset: -124;
-    }
+        0% {
+            stroke-dasharray: 1, var(--gap);
+            stroke-dashoffset: 0;
+        }
+        50% {
+            stroke-dasharray: 125, var(--gap);
+            /* stroke-dashoffset: -35; */
+        }
+        100% {
+            stroke-dasharray: 12, var(--gap);
+            /* stroke-dashoffset: -124; */
+        }
+        /* The gap has no meaningful effect on the visualization */
 }
-/* @keyframes colors {
-    0% {
-      stroke: rgb(0, 100, 50);
-    }
-    25% {
-      stroke: rgb(0, 100, 50);
-    }
-    26% {
-      stroke: rgb(50, 100, 45);
-    }
-    50% {
-      stroke: rgb(50, 100, 45);
-    }
-    51% {
-      stroke: rgb(100, 100, 30);
-    }  
-    75% {
-      stroke: rgb(100, 100, 30);
-    }
-    76% {
-      stroke: rgb(190, 100, 37);
-    }
-    100% {
-      stroke: rgb(190, 100, 37);
-    }
-} */
