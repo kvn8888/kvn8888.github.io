@@ -1,6 +1,13 @@
 <!DOCTYPE html>
 <html>
     <head>
+        <title>Spinner</title>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width,initial-scale=1">
+        <meta name="author" content="Kevin Chen">
+        <meta name="description" content="A spinner">
+        <meta name="keywords" content="spinner">
+        <link rel="icon" href="favicon.ico">
         <link rel="stylesheet" href="spinner.css">
         <script>
             // function restartAnimation(elementClass, toggleClass) {
@@ -10,13 +17,27 @@
             //     element.classList.add(toggleClass);
             // }
 
+            // function restartAnimation(elementClass, toggleClass) {
+            //     var element = document.querySelector(elementClass);
+            //     var speed = document.querySelector('#speed').value;
+            //     var animationString = 'animate ' + speed + 's linear infinite';
+                
+            //     var newElement = element.cloneNode(true); // Clone the element
+            //     element.parentNode.replaceChild(newElement, element); // Replace the old element with the clone
+            //     // Optionally, re-add the class if it's not part of the initial HTML structure
+            //     newElement.classList.add(toggleClass);
+            // }
             function restartAnimation(elementClass, toggleClass) {
                 var element = document.querySelector(elementClass);
+                var speed = document.querySelector('#speed').value; // Get the speed from the input
+                var animationString = 'dash ' + speed + 's ease-in-out 1'; // Use the correct @keyframes name here
+
                 var newElement = element.cloneNode(true); // Clone the element
+                newElement.style.animation = animationString; // Apply the new animation settings
                 element.parentNode.replaceChild(newElement, element); // Replace the old element with the clone
-                // Optionally, re-add the class if it's not part of the initial HTML structure
-                newElement.classList.add(toggleClass);
+                newElement.classList.add(toggleClass); // Add the toggleClass if necessary
             }
+
 
 
             window.onload = function() {
@@ -34,5 +55,7 @@
             <circle class="path" cx="25" cy="25" r="20" fill="none" stroke-width="2"></circle>
         </svg>
         <button>Play</button>
+        <label for="speed">Speed:</label>
+        <input tyoe="text" id="speed" value="1.5">
     </body>
 </html>
