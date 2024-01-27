@@ -22,9 +22,8 @@
 .spinner2 .path {
     stroke:rgb(80, 80, 80);
     stroke-linecap: round;
-    animation: dash 1.5s ease-in-out infinite;
+    animation: dash 1.5s ease-in-out 1;
 }
-
 
 /* Define the gap variable */
 :root {
@@ -42,11 +41,11 @@
             stroke-dashoffset: 0;
         }
         50% {
-            stroke-dasharray: 125, var(--gap);
+            stroke-dasharray: 150, var(--gap);
             /* stroke-dashoffset: -35; */
         }
         100% {
-            stroke-dasharray: 12, var(--gap);
+            stroke-dasharray: 180, var(--gap);
             /* stroke-dashoffset: -124; */
         }
         /* The gap has no meaningful effect on the visualization */

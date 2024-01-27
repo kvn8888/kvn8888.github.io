@@ -2,11 +2,37 @@
 <html>
     <head>
         <link rel="stylesheet" href="spinner.css">
+        <script>
+            // function restartAnimation(elementClass, toggleClass) {
+            //     var element = document.querySelector(elementClass);
+            //     element.classList.remove(toggleClass);
+            //     void element.offsetHeight;
+            //     element.classList.add(toggleClass);
+            // }
+
+            function restartAnimation(elementClass, toggleClass) {
+                var element = document.querySelector(elementClass);
+                var newElement = element.cloneNode(true); // Clone the element
+                element.parentNode.replaceChild(newElement, element); // Replace the old element with the clone
+                // Optionally, re-add the class if it's not part of the initial HTML structure
+                newElement.classList.add(toggleClass);
+            }
+
+
+            window.onload = function() {
+                var button = document.querySelector('button');
+
+                button.addEventListener('click', function() {
+                    restartAnimation('.spinner2 .path', 'animate');
+                });
+            };
+        </script>
     </head>
     <body>
         <div class="spinner"></div>
         <svg class="spinner2" viewBox="0 0 50 50">
             <circle class="path" cx="25" cy="25" r="20" fill="none" stroke-width="2"></circle>
         </svg>
+        <button>Play</button>
     </body>
 </html>
