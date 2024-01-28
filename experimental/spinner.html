@@ -14,26 +14,58 @@
             //TODO: disable rotation with disable/enable rotation button
             //TODO: button that enables/disables pulse animation
 
-            function restartAnimation(elementClass, toggleClass) {
+            function playAnimation(elementClass) {
+                var element = document.querySelector(elementClass);
+                var speed = document.querySelector('#speed').value
+                element.style.strokeDasharray = "50, 0"
+                element.style.animation = 'uponCompletion ' + speed + 's cubic-bezier(0.16, 1, 0.3, 1) 1, disappear '+ speed +'s cubic-bezier(0,.68,.29,1) 1';
+                element.style.opacity = "0";
+            }
+            
+            function resetSpinner(elementClass) {
+                // var element = document.querySelector(elementClass);
+                // // var speed = document.querySelector('#speed').value; // Get the speed from the input
+                // // var animationString = 'uponCompletion ' + speed + 's cubic-bezier(0.16, 1, 0.3, 1) 1, disappear '+ speed +'s cubic-bezier(0,.68,.29,1) 1'; // Use the correct @keyframes name here
+                
+                // var newElement = element.cloneNode(true); // Clone the element
+                // // newElement.style.animation = animationString; // Apply the new animation settings
+                // element.style.animation = 'none';
+                // element.style.opacity = "1";
+                // element.style.strokeDasharray = "50, 250";
+
+                // element.parentNode.replaceChild(newElement, element); // Replace the old element with the clone
+                // newElement.classList.add(toggleClass); // Add the toggleClass if necessary
+
+                
+
+                //copilot
                 var element = document.querySelector(elementClass);
                 var speed = document.querySelector('#speed').value; // Get the speed from the input
-                var animationString = 'uponCompletion ' + speed + 's cubic-bezier(0.16, 1, 0.3, 1) 1, disappear '+ speed +'s cubic-bezier(0,.68,.29,1) 1'; // Use the correct @keyframes name here
 
-                var newElement = element.cloneNode(true); // Clone the element
-                newElement.style.animation = animationString; // Apply the new animation settings
-                element.parentNode.replaceChild(newElement, element); // Replace the old element with the clone
-                newElement.classList.add(toggleClass); // Add the toggleClass if necessary
+                element.style.animation = 'none'; // Reset the animation
+                element.style.opacity = "1"; // Reset the opacity
+                element.style.strokeDasharray = "50, 250"; // Reset the stroke dash array
+
+                // Trigger a reflow to apply the style changes immediately
+                element.offsetHeight;
+
+                // element.style.animation = 'none'; // Apply the animation settings
             }
 
             window.onload = function() {
-                var button = document.querySelector('button');
+                var playButton = document.querySelector('.play');
+                var resetButton = document.querySelector('.reset')
                 var dashlengthSlider = document.querySelector('#dashlength');
                 var gaplengthSlider = document.querySelector('#gaplength');
                 var completionButton = document.querySelector('#Complete');
 
-                button.addEventListener('click', function() {
-                    restartAnimation('.static circle', 'animate');
+                playButton.addEventListener('click', function() {
+                    playAnimation('.static circle');
                 });
+
+                resetButton.addEventListener('click', function() {
+                    resetSpinner('.static circle');
+                })
 
                 dashlengthSlider.addEventListener('input', function() {
                     var dashlength = document.querySelector('#dashlength').value;
@@ -81,7 +113,8 @@
         <p id="gaplengthValue">Current gaplength value: 250</p>
         <label for="speed">Speed:</label>
         <input type="text" id="speed" value="1.5">
-        <button>Play completion animation</button>
+        <button class="play">Play completion animation</button>
+        <button class="reset">reset</button>
         
         <div>
             <!-- <svg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 50 50">
