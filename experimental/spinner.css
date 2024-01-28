@@ -38,9 +38,9 @@
 
 .static circle {
     fill: transparent;
-    cx: 150;
+    /* cx: 150;
     cy: 150;
-    r: 50;
+    r: 50; */
     
     stroke-dasharray: 50, 250; /* spinning */
 
