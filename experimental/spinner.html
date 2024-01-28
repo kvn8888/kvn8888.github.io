@@ -75,7 +75,7 @@
                     staticCircle.style.strokeDasharray = dashlength + ' ' + staticCircleGap;
 
                     var dashlengthValue = document.querySelector('#dashlengthValue');
-                    dashlengthValue.textContent = 'Current dashlength value: ' + dashlength;
+                    dashlengthValue.textContent = 'Current value: ' + dashlength;
                 })
 
                 gaplengthSlider.addEventListener('input', function() {
@@ -86,7 +86,7 @@
                     staticCircle.style.strokeDasharray = staticCircleDash + ' ' + gaplength;
 
                     var gaplengthValue = document.querySelector('#gaplengthValue');
-                    gaplengthValue.textContent = 'Current gaplength value: ' + gaplength;
+                    gaplengthValue.textContent = 'Current value: ' + gaplength;
                 })
 
                 // completionButton.addEventListener('click', function() {
@@ -105,16 +105,30 @@
             <circle class="path" cx="25" cy="25" r="20" fill="none" stroke-width="2"></circle>
         </svg> -->
         <h1>Custom Spinner Animation</h1>
-        <label for="dashlengthSlider">Dash Length:</label>
-        <input type="range" id="dashlength" value="50" max="250">
-        <p id="dashlengthValue">Current dashlength value: 50</p>
-        <label for="gaplengthSlider">GapLength:</label>
-        <input type="range" id="gaplength" value="250" max="300">
-        <p id="gaplengthValue">Current gaplength value: 250</p>
-        <label for="speed">Speed:</label>
-        <input type="text" id="speed" value="1.5">
-        <button class="play">Play completion animation</button>
-        <button class="reset">reset</button>
+        <div>
+            <label for="dashlengthSlider">Dash Length:</label>
+            <input type="range" id="dashlength" value="50" max="250">
+            <p id="dashlengthValue">Current value: 50</p>
+        </div>
+        <div>
+            <label for="gaplengthSlider">Gap Length:</label>
+            <input type="range" id="gaplength" value="250" max="300">
+            <p id="gaplengthValue">Current value: 250</p>
+        </div>
+        <div>
+            <label for="speed">Completion Animation Speed: </label>
+            <input type="text" id="speed" value="1.5">
+            <button class="play">Play </button>
+            <button class="reset">reset</button>
+        </div>
+        <div>
+            <label for="rotationSpeed">Rotation Speed: </label>
+            <input type="range" id="rotationSpeed" value = 2>
+        </div>
+        <div>
+            <p>Presets:</p>
+            <button>Google spinner</button>
+        </div>
         
         <div>
             <!-- <svg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 50 50">
