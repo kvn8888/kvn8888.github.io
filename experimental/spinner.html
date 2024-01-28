@@ -10,23 +10,6 @@
         <link rel="icon" href="favicon.ico">
         <link rel="stylesheet" href="spinner.css">
         <script>
-            // function restartAnimation(elementClass, toggleClass) {
-            //     var element = document.querySelector(elementClass);
-            //     element.classList.remove(toggleClass);
-            //     void element.offsetHeight;
-            //     element.classList.add(toggleClass);
-            // }
-
-            // function restartAnimation(elementClass, toggleClass) {
-            //     var element = document.querySelector(elementClass);
-            //     var speed = document.querySelector('#speed').value;
-            //     var animationString = 'animate ' + speed + 's linear infinite';
-                
-            //     var newElement = element.cloneNode(true); // Clone the element
-            //     element.parentNode.replaceChild(newElement, element); // Replace the old element with the clone
-            //     // Optionally, re-add the class if it's not part of the initial HTML structure
-            //     newElement.classList.add(toggleClass);
-            // }
             function restartAnimation(elementClass, toggleClass) {
                 var element = document.querySelector(elementClass);
                 var speed = document.querySelector('#speed').value; // Get the speed from the input
@@ -38,14 +21,37 @@
                 newElement.classList.add(toggleClass); // Add the toggleClass if necessary
             }
 
-
-
             window.onload = function() {
                 var button = document.querySelector('button');
+                var dashlengthSlider = document.querySelector('#dashlength');
+                var gaplengthSlider = document.querySelector('#gaplength');
 
                 button.addEventListener('click', function() {
                     restartAnimation('.spinner2 .path', 'animate');
                 });
+
+                dashlengthSlider.addEventListener('input', function() {
+                    var dashlength = document.querySelector('#dashlength').value;
+                    var staticCircle = document.querySelector('.static circle');
+                    var staticCircleGap = document.querySelector('#gaplength').value;
+
+                    staticCircle.style.strokeDasharray = dashlength + ' ' + staticCircleGap;
+
+                    var dashlengthValue = document.querySelector('#dashlengthValue');
+                    dashlengthValue.textContent = 'Current dashlength value: ' + dashlength;
+                })
+
+                gaplengthSlider.addEventListener('input', function() {
+                    var gaplength = document.querySelector('#gaplength').value;
+                    var staticCircle = document.querySelector('.static circle');
+                    var staticCircleDash = document.querySelector('#dashlength').value;
+
+                    staticCircle.style.strokeDasharray = staticCircleDash + ' ' + gaplength;
+
+                    var gaplengthValue = document.querySelector('#gaplengthValue');
+                    gaplengthValue.textContent = 'Current gaplength value: ' + gaplength;
+                })
+
             };
         </script>
     </head>
@@ -56,6 +62,15 @@
         </svg>
         <button>Play</button>
         <label for="speed">Speed:</label>
-        <input tyoe="text" id="speed" value="1.5">
+        <input type="text" id="speed" value="1.5">
+        <svg class = "static">
+            <circle/>
+        </svg>
+        <label for="dashlengthSlider">Dash Length:</label>
+        <input type="range" id="dashlength" value="1">
+        <p id="dashlengthValue">Current dashlength value: </p>
+        <label for="gaplengthSlider">GapLength:</label>
+        <input type="range" id="gaplength" value="1">
+        <p id="gaplengthValue">Current gaplength value: </p>
     </body>
 </html>

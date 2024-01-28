@@ -25,9 +25,31 @@
     animation: dash 1.5s ease-in-out 1;
 }
 
+.static {
+    z-index: 1;
+    position: absolute;
+    top: 20%;
+    left: 20%;
+    margin: -15px 0 0 -15px;
+    width: 300px;
+    height: 300px;
+}
+
+.static circle {
+    fill: transparent;
+    cx: 150;
+    cy: 150;
+    r: 50;
+    
+    stroke-dasharray: 17,20;
+    stroke: rgb(0, 0, 0);
+    stroke-width: 4;
+    stroke-linecap: round;
+}
+
 /* Define the gap variable */
 :root {
-    --gap: 20;
+    --gap: 100;
 }
 
 @keyframes rotate {
@@ -41,12 +63,11 @@
             stroke-dashoffset: 0;
         }
         50% {
-            stroke-dasharray: 150, var(--gap);
+            stroke-dasharray: 50, var(--gap);
             /* stroke-dashoffset: -35; */
         }
         100% {
             stroke-dasharray: 180, var(--gap);
             /* stroke-dashoffset: -124; */
         }
-        /* The gap has no meaningful effect on the visualization */
 }
