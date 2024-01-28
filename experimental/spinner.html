@@ -17,7 +17,7 @@
             function restartAnimation(elementClass, toggleClass) {
                 var element = document.querySelector(elementClass);
                 var speed = document.querySelector('#speed').value; // Get the speed from the input
-                var animationString = 'dash ' + speed + 's ease-in-out 1'; // Use the correct @keyframes name here
+                var animationString = 'uponCompletion ' + speed + 's cubic-bezier(0.16, 1, 0.3, 1) 1, disappear 1.5s cubic-bezier(0,.68,.29,1) 1'; // Use the correct @keyframes name here
 
                 var newElement = element.cloneNode(true); // Clone the element
                 newElement.style.animation = animationString; // Apply the new animation settings
@@ -32,7 +32,7 @@
                 var completionButton = document.querySelector('#Complete');
 
                 button.addEventListener('click', function() {
-                    restartAnimation('.spinner2 .path', 'animate');
+                    restartAnimation('.static circle', 'animate');
                 });
 
                 dashlengthSlider.addEventListener('input', function() {
@@ -57,12 +57,12 @@
                     gaplengthValue.textContent = 'Current gaplength value: ' + gaplength;
                 })
 
-                completionButton.addEventListener('click', function() {
-                    var staticCircle = document.querySelector('.static circle');
-                    staticCircle.style.strokeDasharray = "50, 0"
-                    staticCircle.style.animation = "uponCompletion 1.5s cubic-bezier(0.16, 1, 0.3, 1) 1, disappear 1.5s cubic-bezier(0,.68,.29,1) 1";
-                    staticCircle.style.opacity = "0";
-                })
+                // completionButton.addEventListener('click', function() {
+                //     var staticCircle = document.querySelector('.static circle');
+                //     staticCircle.style.strokeDasharray = "50, 0"
+                //     staticCircle.style.animation = "uponCompletion 1.5s cubic-bezier(0.16, 1, 0.3, 1) 1, disappear 1.5s cubic-bezier(0,.68,.29,1) 1";
+                //     staticCircle.style.opacity = "0";
+                // })
 
             };
         </script>
@@ -80,7 +80,7 @@
                 <polyline id="checkmark" points="10,20 20,30 40,10" stroke="black" stroke-width="4" fill="none" />
             </svg>
             <svg class = "static">
-                <circle cx="150" cy="150" r="50"/>
+                <circle cx="55" cy="55" r="50"/>
             </svg>
         </div>
         <label for="dashlengthSlider">Dash Length:</label>
@@ -90,7 +90,7 @@
         <input type="range" id="gaplength" value="250" max="300">
         <p id="gaplengthValue">Current gaplength value: </p>
         
-        <button id="Complete">Complete</button>
+        <!-- <button id="Complete">Complete</button> -->
         
     </body>
 </html>
