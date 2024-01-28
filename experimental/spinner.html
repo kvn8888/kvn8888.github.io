@@ -60,7 +60,8 @@
                 completionButton.addEventListener('click', function() {
                     var staticCircle = document.querySelector('.static circle');
                     staticCircle.style.strokeDasharray = "50, 0"
-                    staticCircle.style.animation = "uponCompletion 1.5s cubic-bezier(0.16, 1, 0.3, 1) 1";
+                    staticCircle.style.animation = "uponCompletion 1.5s cubic-bezier(0.16, 1, 0.3, 1) 1, disappear 1.5s cubic-bezier(0,.68,.29,1) 1";
+                    staticCircle.style.opacity = "0";
                 })
 
             };
@@ -83,10 +84,10 @@
             </svg>
         </div>
         <label for="dashlengthSlider">Dash Length:</label>
-        <input type="range" id="dashlength" value="1" max="250">
+        <input type="range" id="dashlength" value="50" max="250">
         <p id="dashlengthValue">Current dashlength value: </p>
         <label for="gaplengthSlider">GapLength:</label>
-        <input type="range" id="gaplength" value="1" max="250">
+        <input type="range" id="gaplength" value="250" max="250">
         <p id="gaplengthValue">Current gaplength value: </p>
         
         <button id="Complete">Complete</button>
