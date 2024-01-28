@@ -7,6 +7,10 @@
     animation: spin 1.5s linear infinite;
 } */
 
+body {
+    overscroll-behavior: none;
+}
+
 
 .spinner2 {
     /* animation: rotate 2s linear infinite; */
@@ -61,6 +65,10 @@
     stroke-dasharray: 50;
     stroke-dashoffset: 50;
     animation: draw 2s forwards;
+}
+
+#gaplength {
+    touch-action: manipulation;
 }
 
 /* Define the gap variable */
