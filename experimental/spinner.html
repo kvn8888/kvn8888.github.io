@@ -10,6 +10,10 @@
         <link rel="icon" href="favicon.ico">
         <link rel="stylesheet" href="spinner.css">
         <script>
+
+            //TODO: disable rotation with disable/enable rotation button
+            //TODO: button that enables/disables pulse animation
+
             function restartAnimation(elementClass, toggleClass) {
                 var element = document.querySelector(elementClass);
                 var speed = document.querySelector('#speed').value; // Get the speed from the input
@@ -25,6 +29,7 @@
                 var button = document.querySelector('button');
                 var dashlengthSlider = document.querySelector('#dashlength');
                 var gaplengthSlider = document.querySelector('#gaplength');
+                var completionButton = document.querySelector('#Complete');
 
                 button.addEventListener('click', function() {
                     restartAnimation('.spinner2 .path', 'animate');
@@ -52,6 +57,12 @@
                     gaplengthValue.textContent = 'Current gaplength value: ' + gaplength;
                 })
 
+                completionButton.addEventListener('click', function() {
+                    var staticCircle = document.querySelector('.static circle');
+                    staticCircle.style.strokeDasharray = "50, 0"
+                    staticCircle.style.animation = "uponCompletion 1.5s cubic-bezier(0.16, 1, 0.3, 1) 1";
+                })
+
             };
         </script>
     </head>
@@ -63,14 +74,22 @@
         <button>Play</button>
         <label for="speed">Speed:</label>
         <input type="text" id="speed" value="1.5">
-        <svg class = "static">
-            <circle/>
-        </svg>
+        <div>
+            <svg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 50 50">
+                <polyline id="checkmark" points="10,20 20,30 40,10" stroke="black" stroke-width="4" fill="none" />
+            </svg>
+            <svg class = "static">
+                <circle/>
+            </svg>
+        </div>
         <label for="dashlengthSlider">Dash Length:</label>
-        <input type="range" id="dashlength" value="1">
+        <input type="range" id="dashlength" value="1" max="250">
         <p id="dashlengthValue">Current dashlength value: </p>
         <label for="gaplengthSlider">GapLength:</label>
-        <input type="range" id="gaplength" value="1">
+        <input type="range" id="gaplength" value="1" max="250">
         <p id="gaplengthValue">Current gaplength value: </p>
+        
+        <button id="Complete">Complete</button>
+        
     </body>
 </html>

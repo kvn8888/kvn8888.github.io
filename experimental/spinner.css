@@ -33,6 +33,7 @@
     margin: -15px 0 0 -15px;
     width: 300px;
     height: 300px;
+    animation: rotate 2s linear infinite;
 }
 
 .static circle {
@@ -41,10 +42,25 @@
     cy: 150;
     r: 50;
     
-    stroke-dasharray: 17,20;
+    stroke-dasharray: 50, 250; /* spinning */
+
+    /* stroke-dasharray: 50, 0; uponCompletion */
+
     stroke: rgb(0, 0, 0);
     stroke-width: 4;
     stroke-linecap: round;
+
+    /* animation: uponCompletion 1.5s linear 1;*/
+}
+
+#checkmark {
+    position: absolute;
+    top: 20%;
+    left: 20%;
+
+    stroke-dasharray: 50;
+    stroke-dashoffset: 50;
+    animation: draw 2s forwards;
 }
 
 /* Define the gap variable */
@@ -53,21 +69,54 @@
 }
 
 @keyframes rotate {
-        100% {
-                transform: rotate(360deg);
-        }
+    100% {
+        transform: rotate(360deg);
+    }
 }
+
+@keyframes pulse {
+    0% {
+        opacity: 0.25;
+    }
+    50% {
+        opacity: 1;
+    }
+    100% {
+        opacity: 0.25;
+    }
+}
+
 @keyframes dash {
-        0% {
-            stroke-dasharray: 1, var(--gap);
-            stroke-dashoffset: 0;
-        }
-        50% {
-            stroke-dasharray: 50, var(--gap);
-            /* stroke-dashoffset: -35; */
-        }
-        100% {
-            stroke-dasharray: 180, var(--gap);
-            /* stroke-dashoffset: -124; */
-        }
+    0% {
+        stroke-dasharray: 1, var(--gap);
+        stroke-dashoffset: 0;
+    }
+    50% {
+        stroke-dasharray: 50, var(--gap);
+        /* stroke-dashoffset: -35; */
+    }
+    100% {
+        stroke-dasharray: 180, var(--gap);
+        /* stroke-dashoffset: -124; */
+    }
+}
+
+@keyframes uponCompletion {
+    0% {
+        stroke-dasharray: 50, 250;
+    }
+    50% {
+        stroke-dasharray: 50, 50;
+        stroke-dashoffset: -100;
+    }
+    100% {
+        stroke-dasharray: 50, 0;
+        stroke-dashoffset: -200;
+    }
+}
+
+@keyframes draw {
+    to {
+        stroke-dashoffset: 0;
+    }
 }
