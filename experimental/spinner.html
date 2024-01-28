@@ -17,7 +17,7 @@
             function restartAnimation(elementClass, toggleClass) {
                 var element = document.querySelector(elementClass);
                 var speed = document.querySelector('#speed').value; // Get the speed from the input
-                var animationString = 'uponCompletion ' + speed + 's cubic-bezier(0.16, 1, 0.3, 1) 1, disappear 1.5s cubic-bezier(0,.68,.29,1) 1'; // Use the correct @keyframes name here
+                var animationString = 'uponCompletion ' + speed + 's cubic-bezier(0.16, 1, 0.3, 1) 1, disappear '+ speed +'s cubic-bezier(0,.68,.29,1) 1'; // Use the correct @keyframes name here
 
                 var newElement = element.cloneNode(true); // Clone the element
                 newElement.style.animation = animationString; // Apply the new animation settings
@@ -72,14 +72,7 @@
         <!-- <svg class="spinner2" viewBox="0 0 50 50">
             <circle class="path" cx="25" cy="25" r="20" fill="none" stroke-width="2"></circle>
         </svg> -->
-        <div>
-            <!-- <svg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 50 50">
-                <polyline id="checkmark" points="10,20 20,30 40,10" stroke="black" stroke-width="4" fill="none" />
-            </svg> -->
-            <svg class = "static">
-                <circle cx="55" cy="55" r="50"/>
-            </svg>
-        </div>
+        <h1>Custom Spinner Animation</h1>
         <label for="dashlengthSlider">Dash Length:</label>
         <input type="range" id="dashlength" value="50" max="250">
         <p id="dashlengthValue">Current dashlength value: 50</p>
@@ -88,8 +81,16 @@
         <p id="gaplengthValue">Current gaplength value: 250</p>
         <label for="speed">Speed:</label>
         <input type="text" id="speed" value="1.5">
-        <button>Play</button>
+        <button>Play completion animation</button>
         
+        <div>
+            <!-- <svg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 50 50">
+                <polyline id="checkmark" points="10,20 20,30 40,10" stroke="black" stroke-width="4" fill="none" />
+            </svg> -->
+            <svg class = "static">
+                <circle cx="55" cy="55" r="50"/>
+            </svg>
+        </div>
         <!-- <button id="Complete">Complete</button> -->
         
     </body>

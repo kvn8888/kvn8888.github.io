@@ -11,6 +11,13 @@ body {
     overscroll-behavior: none;
 }
 
+h3 {
+    font-weight: 500;
+    font-size: 1.2rem;
+    color: rgb(80, 80, 80);
+    margin: 20;
+    padding: 0;
+}
 
 .spinner2 {
     /* animation: rotate 2s linear infinite; */
@@ -32,7 +39,7 @@ body {
 .static {
     z-index: 1;
     position: absolute;
-    top: 50%;
+    top: 60%;
     left: 50%;
     margin: -15px 0 0 -15px;
     width: 110px;
