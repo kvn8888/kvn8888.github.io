@@ -16,16 +16,16 @@
 
             function playAnimation(elementClass) {
                 var element = document.querySelector(elementClass);
-                var speed = document.querySelector('#speed').value
+                var animationSpeed = document.querySelector('#animationSpeed').value
                 element.style.strokeDasharray = "50, 0"
-                element.style.animation = 'uponCompletion ' + speed + 's cubic-bezier(0.16, 1, 0.3, 1) 1, disappear '+ speed +'s cubic-bezier(0,.68,.29,1) 1';
+                element.style.animation = 'uponCompletion ' + animationSpeed + 's cubic-bezier(0.16, 1, 0.3, 1) 1, disappear '+ animationSpeed +'s cubic-bezier(0,.68,.29,1) 1';
                 element.style.opacity = "0";
             }
             
             function resetSpinner(elementClass) {
                 // var element = document.querySelector(elementClass);
-                // // var speed = document.querySelector('#speed').value; // Get the speed from the input
-                // // var animationString = 'uponCompletion ' + speed + 's cubic-bezier(0.16, 1, 0.3, 1) 1, disappear '+ speed +'s cubic-bezier(0,.68,.29,1) 1'; // Use the correct @keyframes name here
+                // // var animationSpeed = document.querySelector('#animationSpeed').value; // Get the animationSpeed from the input
+                // // var animationString = 'uponCompletion ' + animationSpeed + 's cubic-bezier(0.16, 1, 0.3, 1) 1, disappear '+ animationSpeed +'s cubic-bezier(0,.68,.29,1) 1'; // Use the correct @keyframes name here
                 
                 // var newElement = element.cloneNode(true); // Clone the element
                 // // newElement.style.animation = animationString; // Apply the new animation settings
@@ -40,7 +40,7 @@
 
                 //copilot
                 var element = document.querySelector(elementClass);
-                var speed = document.querySelector('#speed').value; // Get the speed from the input
+                var animationSpeed = document.querySelector('#animationSpeed').value; // Get the animationSpeed from the input
 
                 element.style.animation = 'none'; // Reset the animation
                 element.style.opacity = "1"; // Reset the opacity
@@ -57,7 +57,8 @@
                 var resetButton = document.querySelector('.reset')
                 var dashlengthSlider = document.querySelector('#dashlength');
                 var gaplengthSlider = document.querySelector('#gaplength');
-                var completionButton = document.querySelector('#Complete');
+                // var completionButton = document.querySelector('#Complete');
+                var rotationSpeedSlider = document.querySelector('#rotationSpeed');
 
                 playButton.addEventListener('click', function() {
                     playAnimation('.static circle');
@@ -89,6 +90,36 @@
                     gaplengthValue.textContent = 'Current value: ' + gaplength;
                 })
 
+                rotationSpeedSlider.addEventListener('input', function() {
+                    // var rotationSpeed = document.querySelector('#rotationSpeed').value;
+                    // var min = rotationSpeed.min;
+                    // var max = rotationSpeed.max;
+                    // var static = document.querySelector('.static');
+                    // slider.oninput = function() {
+                    //     let invertedValue = max - (rotationSpeed - min)
+                    // }
+
+                    // static.style.animation = 'rotate ' + rotationSpeed + 's linear infinite';
+
+                    //copilot
+                    //copilot fixed the line of code by retrieving the values from the slider
+                    // var rotationSpeedSlider = document.querySelector('#rotationSpeed');
+                    // var rotationSpeed = rotationSpeedSlider.value;
+                    // var rotationSpeedCurrentValueDisplay = document.querySelector('#rotationSpeedValue');
+                    // var min = rotationSpeedSlider.min;
+                    // var max = rotationSpeedSlider.max;
+                    // var static = document.querySelector('.static');
+
+                    // let invertedValue = max - (rotationSpeed - min);
+
+                    var rotationSpeed = document.querySelector('#rotationSpeed').value;
+                    var static = document.querySelector('.static');
+                    static.style.animation = "rotate "+rotationSpeed+"s linear infinite"
+                    
+                    // static.style.animation = 'rotate ' + invertedValue + 's linear infinite';
+                })
+                
+
                 // completionButton.addEventListener('click', function() {
                 //     var staticCircle = document.querySelector('.static circle');
                 //     staticCircle.style.strokeDasharray = "50, 0"
@@ -116,18 +147,22 @@
             <p id="gaplengthValue">Current value: 250</p>
         </div>
         <div>
-            <label for="speed">Completion Animation Speed: </label>
-            <input type="text" id="speed" value="1.5">
+            <label for="animationSpeed">Completion Animation Speed: </label>
+            <input type="text" id="animationSpeed" value="1.5">
             <button class="play">Play </button>
             <button class="reset">reset</button>
         </div>
-        <div>
+        <div id="rotationSpeedDiv">
             <label for="rotationSpeed">Rotation Speed: </label>
-            <input type="range" id="rotationSpeed" value = 2>
+            <input type="text" id="rotationSpeed" value="2">
+            <!-- <input type="range" id="rotationSpeed" value=2, min="0" max="10" step="0.1"> -->
+            <!-- <p id="rotationSpeedValue">Current value: 2</p> -->
         </div>
         <div>
             <p>Presets:</p>
-            <button>Google spinner</button>
+            <button disabled>Google spinner</button>
+            <button disabled>Loading</button>
+            <button disabled>iOS</button>
         </div>
         
         <div>

@@ -24,6 +24,9 @@ h3 {
     padding-top: 15px;
     padding-bottom: 15px;
 }
+#rotationSpeedDiv {
+    margin-top: 15px;
+}
 
 div {
     display: flex;
@@ -31,15 +34,11 @@ div {
     align-items: center;
 }
 
-button {
+button, input {
     margin-left: 10px;
 }
 
-#gaplengthValue {
-    margin-left: 10px;
-}
-
-#dashlengthValue {
+#gaplengthValue, #dashlengthValue {
     margin-left: 10px;
 }
 
@@ -63,7 +62,7 @@ button {
 .static {
     z-index: 1;
     position: absolute;
-    top: 60%;
+    bottom: 10%;
     left: 50%;
     margin: -15px 0 0 -15px;
     width: 110px;
