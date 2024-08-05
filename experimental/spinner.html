@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Spinner</title>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width,initial-scale=1">
+        <meta name="author" content="Kevin Chen">
+        <meta name="description" content="A spinner">
+        <meta name="keywords" content="spinner">
+        <link rel="icon" href="favicon.ico">
+        <link rel="stylesheet" href="spinner.css">
+        <script>
+
+            //TODO: disable rotation with disable/enable rotation button
+            //TODO: button that enables/disables pulse animation
+
+            function playAnimation(elementClass) {
+                var element = document.querySelector(elementClass);
+                var speed = document.querySelector('#speed').value
+                element.style.strokeDasharray = "50, 0"
+                element.style.animation = 'uponCompletion ' + speed + 's cubic-bezier(0.16, 1, 0.3, 1) 1, disappear '+ speed +'s cubic-bezier(0,.68,.29,1) 1';
+                element.style.opacity = "0";
+            }
+            
+            function resetSpinner(elementClass) {
+                // var element = document.querySelector(elementClass);
+                // // var speed = document.querySelector('#speed').value; // Get the speed from the input
+                // // var animationString = 'uponCompletion ' + speed + 's cubic-bezier(0.16, 1, 0.3, 1) 1, disappear '+ speed +'s cubic-bezier(0,.68,.29,1) 1'; // Use the correct @keyframes name here
+                
+                // var newElement = element.cloneNode(true); // Clone the element
+                // // newElement.style.animation = animationString; // Apply the new animation settings
+                // element.style.animation = 'none';
+                // element.style.opacity = "1";
+                // element.style.strokeDasharray = "50, 250";
+
+                // element.parentNode.replaceChild(newElement, element); // Replace the old element with the clone
+                // newElement.classList.add(toggleClass); // Add the toggleClass if necessary
+
+                
+
+                //copilot
+                var element = document.querySelector(elementClass);
+                var speed = document.querySelector('#speed').value; // Get the speed from the input
+
+                element.style.animation = 'none'; // Reset the animation
+                element.style.opacity = "1"; // Reset the opacity
+                element.style.strokeDasharray = "50, 250"; // Reset the stroke dash array
+
+                // Trigger a reflow to apply the style changes immediately
+                element.offsetHeight;
+
+                // element.style.animation = 'none'; // Apply the animation settings
+            }
+
+            window.onload = function() {
+                var playButton = document.querySelector('.play');
+                var resetButton = document.querySelector('.reset')
+                var dashlengthSlider = document.querySelector('#dashlength');
+                var gaplengthSlider = document.querySelector('#gaplength');
+                var completionButton = document.querySelector('#Complete');
+
+                playButton.addEventListener('click', function() {
+                    playAnimation('.static circle');
+                });
+
+                resetButton.addEventListener('click', function() {
+                    resetSpinner('.static circle');
+                })
+
+                dashlengthSlider.addEventListener('input', function() {
+                    var dashlength = document.querySelector('#dashlength').value;
+                    var staticCircle = document.querySelector('.static circle');
+                    var staticCircleGap = document.querySelector('#gaplength').value;
+
+                    staticCircle.style.strokeDasharray = dashlength + ' ' + staticCircleGap;
+
+                    var dashlengthValue = document.querySelector('#dashlengthValue');
+                    dashlengthValue.textContent = 'Current value: ' + dashlength;
+                })
+
+                gaplengthSlider.addEventListener('input', function() {
+                    var gaplength = document.querySelector('#gaplength').value;
+                    var staticCircle = document.querySelector('.static circle');
+                    var staticCircleDash = document.querySelector('#dashlength').value;
+
+                    staticCircle.style.strokeDasharray = staticCircleDash + ' ' + gaplength;
+
+                    var gaplengthValue = document.querySelector('#gaplengthValue');
+                    gaplengthValue.textContent = 'Current value: ' + gaplength;
+                })
+
+                // completionButton.addEventListener('click', function() {
+                //     var staticCircle = document.querySelector('.static circle');
+                //     staticCircle.style.strokeDasharray = "50, 0"
+                //     staticCircle.style.animation = "uponCompletion 1.5s cubic-bezier(0.16, 1, 0.3, 1) 1, disappear 1.5s cubic-bezier(0,.68,.29,1) 1";
+                //     staticCircle.style.opacity = "0";
+                // })
+
+            };
+        </script>
+    </head>
+    <body>
+        <!-- <div class="spinner"></div> -->
+        <!-- <svg class="spinner2" viewBox="0 0 50 50">
+            <circle class="path" cx="25" cy="25" r="20" fill="none" stroke-width="2"></circle>
+        </svg> -->
+        <h1>Custom Spinner Animation</h1>
+        <label for="dashlengthSlider">Dash Length:</label>
+        <input type="range" id="dashlength" value="50" max="250">
+        <p id="dashlengthValue">Current dashlength value: 50</p>
+        <label for="gaplengthSlider">GapLength:</label>
+        <input type="range" id="gaplength" value="250" max="300">
+        <p id="gaplengthValue">Current gaplength value: 250</p>
+        <label for="speed">Speed:</label>
+        <input type="text" id="speed" value="1.5">
+        <button class="play">Play completion animation</button>
+        <button class="reset">reset</button>
+        
+        <div>
+            <!-- <svg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 50 50">
+                <polyline id="checkmark" points="10,20 20,30 40,10" stroke="black" stroke-width="4" fill="none" />
+            </svg> -->
+            <svg class = "static">
+                <circle cx="55" cy="55" r="50"/>
+            </svg>
+        </div>
+        <!-- <button id="Complete">Complete</button> -->
+        
+    </body>
+</html>
