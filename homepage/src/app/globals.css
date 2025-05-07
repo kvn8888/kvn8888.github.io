@@ -45,3 +45,25 @@ body {
     width: 100%;
   }
 }
+.hover-animate-underline {
+  position: relative;
+  display: inline-block;
+  text-decoration: none;
+}
+
+.hover-animate-underline::after {
+  content: '';
+  position: absolute;
+  width: 100%;
+  transform: scaleX(0);
+  height: 2px;
+  bottom: -2px;
+  left: 0;
+  background-color: currentColor;
+  transform-origin: left;
+  transition: transform 0.3s ease-out;
+}
+
+.hover-animate-underline:hover::after {
+  transform: scaleX(1);
+}
