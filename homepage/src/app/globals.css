@@ -37,7 +37,7 @@ body {
   width: 0%;
   background-color: rgba(0, 8, 255, 0.09);
   z-index: -1;
-  animation: highlight-sweep 0.5s ease-in-out forwards;
+  animation: highlight-sweep 0.3s ease-out forwards;
 }
 
 @keyframes highlight-sweep {
@@ -47,8 +47,6 @@ body {
 }
 .hover-animate-underline {
   position: relative;
-  display: inline-block;
-  text-decoration: none;
 }
 
 .hover-animate-underline::after {
@@ -66,4 +64,10 @@ body {
 
 .hover-animate-underline:hover::after {
   transform: scaleX(1);
+}
+.hover-animate-underline .material-symbols-outlined {
+  transition: transform 0.2s ease-in-out;
+}
+.hover-animate-underline:active .material-symbols-outlined {
+  transform: translate(0.25em, -0.25em);
 }
