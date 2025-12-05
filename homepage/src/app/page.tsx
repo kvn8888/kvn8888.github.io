@@ -7,13 +7,13 @@ export default function Home() {
       <p className="mt-6 text-center text-lg text-gray-700 max-w-2xl mx-auto" style={{ fontFamily: 'var(--font-geist-sans)' }}>I'm a software engineering student at the Rochester Institute of Technology. I'm currently on an internship at Ivalua, Inc. Here are some of my projects:</p>
       
       <div className="mt-10 flex flex-col items-center gap-4">
-        <a href="#" className="w-80 px-8 py-3 bg-[#D97757] text-white font-medium rounded-lg hover:bg-[#c4654a] transition-colors text-center">
+        <a href="#" className="w-80 px-8 py-3 border-2 border-[#D97757] text-[black] font-medium hover:bg-[#D97757] hover:text-white transition-colors text-center">
           Project One
         </a>
-        <a href="#" className="w-80 px-8 py-3 bg-[#D97757] text-white font-medium rounded-lg hover:bg-[#c4654a] transition-colors text-center">
+        <a href="#" className="w-80 px-8 py-3 border-2 border-[#D97757] text-[black] font-medium hover:bg-[#D97757] hover:text-white transition-colors text-center">
           Project Two
         </a>
-        <a href="#" className="w-80 px-8 py-3 bg-[#D97757] text-white font-medium rounded-lg hover:bg-[#c4654a] transition-colors text-center">
+        <a href="#" className="w-80 px-8 py-3 border-2 border-[#D97757] text-[black] font-medium hover:bg-[#D97757] hover:text-white transition-colors text-center">
           Project Three
         </a>
       </div>
