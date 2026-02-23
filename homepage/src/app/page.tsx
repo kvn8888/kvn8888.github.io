@@ -8,13 +8,13 @@ export default function Home() {
       
       <div className="mt-10 flex flex-col items-center gap-4">
         <a href="#" className="w-80 px-8 py-3 border-2 border-[#D97757] text-[black] font-medium hover:bg-[#D97757] hover:text-white transition-colors text-center">
-          Project One
+          Project One <span className="material-symbols-outlined align-middle text-base">arrow_outward</span>
         </a>
         <a href="#" className="w-80 px-8 py-3 border-2 border-[#D97757] text-[black] font-medium hover:bg-[#D97757] hover:text-white transition-colors text-center">
-          Project Two
+          Project Two <span className="material-symbols-outlined align-middle text-base">arrow_outward</span>
         </a>
         <a href="#" className="w-80 px-8 py-3 border-2 border-[#D97757] text-[black] font-medium hover:bg-[#D97757] hover:text-white transition-colors text-center">
-          Project Three
+          Project Three <span className="material-symbols-outlined align-middle text-base">arrow_outward</span>
         </a>
       </div>
     </div>
