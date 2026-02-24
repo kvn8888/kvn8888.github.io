@@ -15,10 +15,9 @@ export default function Home() {
           Software Engineer & Builder
         </p>
 
-        {/* Main headline with shimmer effect */}
-        <h1 className="text-5xl sm:text-6xl md:text-7xl font-medium tracking-tight mb-8">
-          <span className="text-black">Welcome to</span>{" "}
-          <span className="shimmer-text">KevinC.dev</span>
+        {/* Main headline */}
+        <h1 className="text-5xl sm:text-6xl md:text-7xl font-medium tracking-tight mb-8 text-black">
+          Welcome to KevinC.dev
         </h1>
 
         {/* Bio text */}
