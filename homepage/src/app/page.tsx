@@ -42,15 +42,17 @@ const projects: Project[] = [
   },
 ];
 
-// Popup card component with morphing animation
+// Popup card component with cursor-origin animation
 function PopupCard({
   project,
   position,
+  cursorOrigin,
   isExiting,
   isEntering,
 }: {
   project: Project;
   position: { x: number; y: number };
+  cursorOrigin: { x: number; y: number };
   isExiting: boolean;
   isEntering: boolean;
 }) {
@@ -60,12 +62,17 @@ function PopupCard({
     ? 'popup-exit'
     : 'popup-morph';
 
+  // Calculate transform origin relative to the popup card position
+  const originX = cursorOrigin.x - position.x;
+  const originY = cursorOrigin.y - position.y;
+
   return (
     <div
       className={`hidden md:block fixed z-50 w-80 p-6 bg-white/95 backdrop-blur-sm rounded-2xl shadow-2xl border border-gray-200 pointer-events-none ${animationClass}`}
       style={{
         left: `${position.x}px`,
         top: `${position.y}px`,
+        transformOrigin: `${originX}px ${originY}px`,
       }}
     >
       <div className="flex items-center justify-between mb-3">
@@ -107,11 +114,13 @@ export default function Home() {
   const [popupState, setPopupState] = useState<{
     project: Project | null;
     position: { x: number; y: number };
+    cursorOrigin: { x: number; y: number };
     status: 'hidden' | 'entering' | 'visible' | 'exiting' | 'morphing';
     previousProject: Project | null;
   }>({
     project: null,
     position: { x: 0, y: 0 },
+    cursorOrigin: { x: 0, y: 0 },
     status: 'hidden',
     previousProject: null,
   });
@@ -134,6 +143,7 @@ export default function Home() {
   const handleMouseEnter = useCallback((project: Project, e: React.MouseEvent) => {
     clearTimeouts();
 
+    const cursorOrigin = { x: e.clientX, y: e.clientY };
     const position = { x: e.clientX + 20, y: e.clientY - 50 };
 
     setPopupState((prev) => {
@@ -142,6 +152,7 @@ export default function Home() {
         return {
           project,
           position,
+          cursorOrigin,
           status: 'morphing',
           previousProject: prev.project,
         };
@@ -151,6 +162,7 @@ export default function Home() {
       return {
         project,
         position,
+        cursorOrigin,
         status: 'entering',
         previousProject: null,
       };
@@ -191,10 +203,11 @@ export default function Home() {
       setPopupState({
         project: null,
         position: { x: 0, y: 0 },
+        cursorOrigin: { x: 0, y: 0 },
         status: 'hidden',
         previousProject: null,
       });
-    }, 250);
+    }, 300);
   }, []);
 
   const handleClick = useCallback((projectId: string) => {
@@ -311,6 +324,7 @@ export default function Home() {
         <PopupCard
           project={popupState.project!}
           position={popupState.position}
+          cursorOrigin={popupState.cursorOrigin}
           isExiting={popupState.status === 'exiting'}
           isEntering={popupState.status === 'entering'}
         />
