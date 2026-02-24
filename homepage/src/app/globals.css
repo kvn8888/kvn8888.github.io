@@ -151,3 +151,19 @@ body {
 .popup-morph {
   animation: popupMorph 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
+
+/* Header blur reveal animation - 0.2s */
+@keyframes blurReveal {
+  0% {
+    filter: blur(10px);
+    opacity: 0;
+  }
+  100% {
+    filter: blur(0);
+    opacity: 1;
+  }
+}
+
+.header-blur-reveal {
+  animation: blurReveal 0.2s ease-out forwards;
+}

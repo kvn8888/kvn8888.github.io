@@ -235,8 +235,8 @@ export default function Home() {
         {/* Small tagline */}
         <p className="text-sm text-gray-500 mb-4 tracking-wide">Software Engineer & Builder</p>
 
-        {/* Main headline */}
-        <h1 className="text-5xl sm:text-6xl md:text-7xl font-medium tracking-tight mb-8 text-black">
+        {/* Main headline with blur reveal animation */}
+        <h1 className="text-5xl sm:text-6xl md:text-7xl font-medium tracking-tight mb-8 text-black header-blur-reveal">
           Welcome to KevinC.dev
         </h1>
 
