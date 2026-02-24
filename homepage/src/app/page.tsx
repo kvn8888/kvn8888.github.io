@@ -49,27 +49,62 @@ const projects: Project[] = [
   },
 ];
 
-// Expanding Modal that morphs from the card
+// FLIP Animation Modal
 function ProjectModal({
   project,
   isOpen,
-  isClosing,
   sourceRect,
   onClose,
 }: {
   project: Project | null;
   isOpen: boolean;
-  isClosing: boolean;
   sourceRect: Rect | null;
   onClose: () => void;
 }) {
   const overlayRef = useRef<HTMLDivElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [animationPhase, setAnimationPhase] = useState<'entering' | 'idle' | 'exiting'>('entering');
+  const [showContent, setShowContent] = useState(false);
+
+  // Handle close with FLIP exit animation
+  const handleClose = useCallback(() => {
+    if (animationPhase !== 'idle') return;
+    setAnimationPhase('exiting');
+    setShowContent(false);
+
+    const card = cardRef.current;
+    if (card && sourceRect) {
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+
+      // Recalculate source rect (in case of scroll/resize)
+      const targetWidth = Math.min(512, vw * 0.9);
+      const targetHeight = card.offsetHeight || 400;
+      const targetX = (vw - targetWidth) / 2;
+      const targetY = Math.max(40, (vh - targetHeight) / 2);
+
+      const scaleX = sourceRect.width / targetWidth;
+      const scaleY = sourceRect.height / targetHeight;
+      const translateX = sourceRect.x - targetX + (sourceRect.width - targetWidth) / 2;
+      const translateY = sourceRect.y - targetY + (sourceRect.height - targetHeight) / 2;
+
+      // Animate back to source
+      card.style.transition = 'transform 0.35s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease';
+      card.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scaleX}, ${scaleY})`;
+      card.style.opacity = '0';
+    }
+
+    setTimeout(() => {
+      onClose();
+      setAnimationPhase('entering');
+    }, 350);
+  }, [animationPhase, sourceRect, onClose]);
 
   // Handle ESC key
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen && !isClosing) {
-        onClose();
+      if (e.key === 'Escape' && isOpen && animationPhase === 'idle') {
+        handleClose();
       }
     };
 
@@ -82,66 +117,97 @@ function ProjectModal({
       document.removeEventListener('keydown', handleKeyDown);
       document.body.style.overflow = '';
     };
-  }, [isOpen, isClosing, onClose]);
+  }, [isOpen, animationPhase, handleClose]);
+
+  // FLIP Animation on open
+  useEffect(() => {
+    if (isOpen && sourceRect && cardRef.current && animationPhase === 'entering') {
+      const card = cardRef.current;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+
+      // Target: centered modal
+      const targetWidth = Math.min(512, vw * 0.9); // max-w-lg = 512px
+      const targetHeight = card.scrollHeight || 400;
+      const targetX = (vw - targetWidth) / 2;
+      const targetY = Math.max(40, (vh - targetHeight) / 2);
+
+      // Calculate transforms (source to target)
+      const scaleX = sourceRect.width / targetWidth;
+      const scaleY = sourceRect.height / targetHeight;
+      const translateX = sourceRect.x - targetX + (sourceRect.width - targetWidth) / 2;
+      const translateY = sourceRect.y - targetY + (sourceRect.height - targetHeight) / 2;
+
+      // Set initial position (source)
+      card.style.width = `${targetWidth}px`;
+      card.style.position = 'fixed';
+      card.style.left = `${targetX}px`;
+      card.style.top = `${targetY}px`;
+      card.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scaleX}, ${scaleY})`;
+      card.style.opacity = '1';
+
+      // Force reflow
+      void card.offsetHeight;
+
+      // Animate to target (centered modal)
+      card.style.transition = 'transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s ease';
+      card.style.transform = 'translate(0, 0) scale(1, 1)';
+
+      // Show content after expansion
+      const contentTimer = setTimeout(() => {
+        setShowContent(true);
+        setAnimationPhase('idle');
+      }, 300);
+
+      return () => clearTimeout(contentTimer);
+    }
+  }, [isOpen, sourceRect, animationPhase]);
 
   // Handle click outside
   const handleOverlayClick = (e: React.MouseEvent) => {
-    if (e.target === overlayRef.current && !isClosing) {
-      onClose();
-    }
-  };
-
-  // Handle close button click
-  const handleCloseClick = () => {
-    if (!isClosing) {
-      onClose();
+    if (e.target === overlayRef.current && animationPhase === 'idle') {
+      handleClose();
     }
   };
 
   if (!isOpen || !project) return null;
 
-  // Calculate initial position from source rect
-  const initialStyle = sourceRect
-    ? {
-        position: 'fixed' as const,
-        left: sourceRect.x,
-        top: sourceRect.y,
-        width: sourceRect.width,
-        height: sourceRect.height,
-      }
-    : {};
-
-  const modalClasses = isClosing
-    ? 'modal-shrink-to-card'
-    : sourceRect
-    ? 'modal-expand-from-card'
-    : 'modal-fade-scale-in';
-
   return (
     <div
       ref={overlayRef}
       onClick={handleOverlayClick}
-      className="fixed inset-0 z-50 flex items-center justify-center"
+      className="fixed inset-0 z-50"
     >
-      {/* Backdrop with blur and white tint */}
-      <div className={`absolute inset-0 bg-white/70 backdrop-blur-xl ${isClosing ? 'modal-backdrop-fade-out' : 'modal-backdrop-fade-in'}`} />
-
-      {/* Modal card that morphs */}
+      {/* Backdrop with blur */}
       <div
-        className={`relative z-10 bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden ${modalClasses}`}
-        style={isClosing ? undefined : initialStyle}
+        className={`absolute inset-0 bg-white/70 backdrop-blur-xl transition-opacity duration-300 ${
+          animationPhase === 'exiting' ? 'opacity-0' : 'opacity-100'
+        }`}
+      />
+
+      {/* Morphing card */}
+      <div
+        ref={cardRef}
+        className="relative z-10 bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden origin-center"
+        style={{ opacity: 0 }}
       >
-        {/* Close button - circular X */}
+        {/* Close button */}
         <button
-          onClick={handleCloseClick}
-          className="absolute top-4 right-4 z-20 w-10 h-10 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition-colors"
+          onClick={handleClose}
+          className={`absolute top-4 right-4 z-20 w-10 h-10 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition-all duration-200 ${
+            showContent ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'
+          }`}
           aria-label="Close"
         >
           <span className="material-symbols-outlined text-gray-600">close</span>
         </button>
 
-        {/* Content - fades in after expansion */}
-        <div className={`p-8 ${isClosing ? 'modal-content-fade-out' : 'modal-content-fade-in'}`}>
+        {/* Content */}
+        <div
+          className={`p-8 transition-all duration-200 ${
+            showContent ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
+          }`}
+        >
           <div className="mb-6">
             <h3 className="text-2xl font-medium text-gray-900 mb-2">{project.title}</h3>
             <p className="text-gray-500">{project.shortDesc}</p>
@@ -189,8 +255,8 @@ function ProjectModal({
 export default function Home() {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isModalClosing, setIsModalClosing] = useState(false);
   const [sourceRect, setSourceRect] = useState<Rect | null>(null);
+  const [animatingCardId, setAnimatingCardId] = useState<string | null>(null);
   const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
   // Store refs for cards
@@ -200,7 +266,7 @@ export default function Home() {
     }
   }, []);
 
-  // Click to open modal with morph animation
+  // Click to open modal with FLIP animation
   const handleProjectClick = useCallback((project: Project) => {
     const cardEl = cardRefs.current.get(project.id);
     if (cardEl) {
@@ -211,21 +277,20 @@ export default function Home() {
         width: rect.width,
         height: rect.height,
       });
+      setAnimatingCardId(project.id);
     }
     setSelectedProject(project);
     setIsModalOpen(true);
-    setIsModalClosing(false);
   }, []);
 
   const handleCloseModal = useCallback(() => {
-    setIsModalClosing(true);
-    // Wait for shrink animation to complete
+    setIsModalOpen(false);
+    setAnimatingCardId(null);
+    // Delay clearing selected project for animation
     setTimeout(() => {
-      setIsModalOpen(false);
-      setIsModalClosing(false);
       setSelectedProject(null);
       setSourceRect(null);
-    }, 350);
+    }, 400);
   }, []);
 
   return (
@@ -274,7 +339,7 @@ export default function Home() {
                   ref={setCardRef(project.id)}
                   onClick={() => handleProjectClick(project)}
                   className={`p-4 rounded-xl border transition-all duration-300 cursor-pointer bg-white/50 border-white/20 hover:bg-white/80 hover:scale-[1.02] group ${
-                    isModalOpen && selectedProject?.id === project.id ? 'opacity-0' : ''
+                    animatingCardId === project.id ? 'opacity-0' : ''
                   }`}
                 >
                   <div className="flex items-center justify-between">
@@ -296,7 +361,6 @@ export default function Home() {
       <ProjectModal
         project={selectedProject}
         isOpen={isModalOpen}
-        isClosing={isModalClosing}
         sourceRect={sourceRect}
         onClose={handleCloseModal}
       />
