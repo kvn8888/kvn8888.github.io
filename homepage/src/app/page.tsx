@@ -62,7 +62,7 @@ export default function Home() {
       {/* Content with staggered blur reveal animation */}
       <div className="text-center max-w-4xl mx-auto relative z-10">
         {/* Small tagline */}
-        <p className="text-sm text-gray-500 mb-4 tracking-wide blur-reveal">Software Engineering Student '27</p>
+        <p className="text-sm text-gray-500 mb-4 tracking-wide blur-reveal">Software Engineering Student &apos;27</p>
 
         {/* Main headline */}
         <h1 className="text-5xl sm:text-6xl md:text-7xl font-medium tracking-tight mb-8 text-black blur-reveal-1">
