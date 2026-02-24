@@ -99,8 +99,8 @@
 .aurora-blob-1 {
   width: 60vw;
   height: 60vw;
-  background: radial-gradient(circle, rgba(236, 72, 153, 0.3) 0%, transparent 70%);
-  top: -20%;
+  background: radial-gradient(circle, rgba(255, 110, 13, 0.639) 0%, transparent 70%);
+  top: -80%;
   left: -10%;
   animation-delay: 0s;
 }
@@ -108,17 +108,17 @@
 .aurora-blob-2 {
   width: 50vw;
   height: 50vw;
-  background: radial-gradient(circle, rgba(147, 197, 253, 0.25) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(255, 239, 20, 0.33) 0%, transparent 70%);
   top: 10%;
-  right: -15%;
+  right: -30%;
   animation-delay: -7s;
 }
 
 .aurora-blob-3 {
   width: 45vw;
   height: 45vw;
-  background: radial-gradient(circle, rgba(251, 207, 232, 0.3) 0%, transparent 70%);
-  bottom: -10%;
+  background: radial-gradient(circle, rgba(82, 99, 226, 0.3) 0%, transparent 70%);
+  bottom: -30%;
   left: 20%;
   animation-delay: -14s;
 }
