@@ -165,5 +165,7 @@ body {
 }
 
 .blur-reveal {
-  animation: blurReveal 0.2s ease-out forwards;
+  filter: blur(10px);
+  opacity: 0;
+  animation: blurReveal 0.2s ease-out 0.1s forwards;
 }
