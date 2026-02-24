@@ -1,17 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-
-interface Project {
-  id: string;
-  title: string;
-  shortDesc: string;
-  tags: string[];
-  fullDesc: string;
-  demoUrl: string;
-  githubUrl: string;
-}
+import { AnimatePresence } from 'framer-motion';
+import { AuroraBackground, ProjectCard, ProjectModal, type Project } from './components';
 
 const projects: Project[] = [
   {
@@ -66,17 +57,12 @@ export default function Home() {
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-4 relative">
-      {/* Aurora Background */}
-      <div className="aurora-bg">
-        <div className="aurora-blob aurora-blob-1"></div>
-        <div className="aurora-blob aurora-blob-2"></div>
-        <div className="aurora-blob aurora-blob-3"></div>
-      </div>
+      <AuroraBackground />
 
       {/* Content with staggered blur reveal animation */}
       <div className="text-center max-w-4xl mx-auto relative z-10">
         {/* Small tagline */}
-        <p className="text-sm text-gray-500 mb-4 tracking-wide blur-reveal">Software Engineer & Builder</p>
+        <p className="text-sm text-gray-500 mb-4 tracking-wide blur-reveal">Software Engineering Student '27</p>
 
         {/* Main headline */}
         <h1 className="text-5xl sm:text-6xl md:text-7xl font-medium tracking-tight mb-8 text-black blur-reveal-1">
@@ -104,24 +90,11 @@ export default function Home() {
           {/* Project List */}
           <div className="space-y-3 relative">
             {projects.map((project) => (
-              <motion.div
+              <ProjectCard
                 key={project.id}
-                layoutId={`card-${project.id}`}
+                project={project}
                 onClick={() => setSelectedProject(project)}
-                className="p-4 rounded-xl border bg-white/50 border-white/20 hover:bg-white/80 transition-colors cursor-pointer group"
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                transition={{type: "spring", stiffness: 500, damping: 30}}
-                >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <motion.span layoutId={`icon-${project.id}`} className="material-symbols-outlined text-gray-400 group-hover:text-gray-600 transition-colors">folder_open</motion.span>
-                    <motion.span layoutId={`title-${project.id}`} className="font-medium text-gray-900">{project.title}</motion.span>
-                  </div>
-                  <span className="material-symbols-outlined text-gray-400 group-hover:text-gray-900 transition-colors">arrow_outward</span>
-                </div>
-                <motion.p layoutId={`desc-${project.id}`} className="text-sm text-gray-500 mt-1 ml-[36px]">{project.shortDesc}</motion.p>
-              </motion.div>
+              />
             ))}
           </div>
         </div>
@@ -130,72 +103,10 @@ export default function Home() {
       {/* Framer Motion Modal */}
       <AnimatePresence>
         {selectedProject && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 pointer-events-none">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              onClick={() => setSelectedProject(null)}
-              className="absolute inset-0 bg-white/60 backdrop-blur-xl pointer-events-auto"
-            />
-            
-            <motion.div
-              layoutId={`card-${selectedProject.id}`}
-              transition={{ type: "spring", stiffness: 500, damping: 30 }}
-              className="bg-white rounded-2xl w-full max-w-lg p-6 sm:p-8 shadow-2xl relative border border-gray-100 flex flex-col z-10 overflow-hidden pointer-events-auto"
-            >
-              <button
-                onClick={() => setSelectedProject(null)}
-                className="absolute top-4 right-4 w-10 h-10 flex items-center justify-center rounded-full bg-gray-50 hover:bg-gray-100 transition-colors z-20"
-              >
-                <span className="material-symbols-outlined text-gray-500">close</span>
-              </button>
-
-              <div className="mb-6 pr-12">
-                <div className="flex items-center gap-3 mb-2">
-                  <motion.span layoutId={`icon-${selectedProject.id}`} className="material-symbols-outlined text-gray-400">folder_open</motion.span>
-                  <motion.h3 layoutId={`title-${selectedProject.id}`} className="text-2xl font-medium text-gray-900 m-0">{selectedProject.title}</motion.h3>
-                </div>
-                <motion.p layoutId={`desc-${selectedProject.id}`} className="text-gray-500 ml-[36px]">{selectedProject.shortDesc}</motion.p>
-              </div>
-
-              <motion.div 
-                initial={{ opacity: 0, filter: 'blur(10px)', y: 10 }}
-                animate={{ opacity: 1, filter: 'blur(0px)', y: 0 }}
-                exit={{ opacity: 0, filter: 'blur(10px)', y: -10 }}
-                transition={{ delay: 0.1, duration: 0.2 }}
-                className="flex flex-col flex-grow ml-[36px]"
-              >
-                <div className="flex flex-wrap gap-2 mb-6">
-                  {selectedProject.tags.map((tag) => (
-                    <span key={tag} className="px-3 py-1 text-sm bg-gray-100 rounded-full text-gray-600">
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-                <p className="text-gray-600 leading-relaxed mb-8">{selectedProject.fullDesc}</p>
-                
-                <div className="flex items-center gap-4 mt-auto">
-                  <a
-                    href={selectedProject.demoUrl}
-                    className="inline-flex items-center justify-center px-6 py-3 bg-black text-white rounded-full font-medium hover:bg-gray-900 transition-colors"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    View Demo
-                    <span className="material-symbols-outlined ml-1 text-sm">arrow_outward</span>
-                  </a>
-                  <a
-                    href={selectedProject.githubUrl}
-                    className="px-6 py-3 text-gray-600 hover:text-gray-900 font-medium transition-colors"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    GitHub
-                  </a>
-                </div>
-              </motion.div>
-            </motion.div>
-          </div>
+          <ProjectModal
+            project={selectedProject}
+            onClose={() => setSelectedProject(null)}
+          />
         )}
       </AnimatePresence>
     </div>
