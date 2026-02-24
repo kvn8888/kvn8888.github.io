@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 :root {
-  --background: #fafafa;
+  --background: #ffffff;
   --foreground: #0a0a0a;
 }
 
@@ -193,5 +193,3 @@ body {
   opacity: 0;
   animation: blurReveal 0.2s ease-out 0.4s forwards;
 }
-
-/* Modal animations are handled via inline styles and JS FLIP technique in page.tsx */

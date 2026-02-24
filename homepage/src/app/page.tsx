@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 interface Project {
   id: string;
@@ -10,13 +11,6 @@ interface Project {
   fullDesc: string;
   demoUrl: string;
   githubUrl: string;
-}
-
-interface Rect {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
 }
 
 const projects: Project[] = [
@@ -49,266 +43,25 @@ const projects: Project[] = [
   },
 ];
 
-// FLIP Animation Modal
-function ProjectModal({
-  project,
-  isOpen,
-  sourceRect,
-  getCurrentCardRect,
-  onClose,
-}: {
-  project: Project | null;
-  isOpen: boolean;
-  sourceRect: Rect | null;
-  getCurrentCardRect: () => Rect | null;
-  onClose: () => void;
-}) {
-  const overlayRef = useRef<HTMLDivElement>(null);
-  const cardRef = useRef<HTMLDivElement>(null);
-  const [animationPhase, setAnimationPhase] = useState<'entering' | 'idle' | 'exiting'>('entering');
-  const [showContent, setShowContent] = useState(false);
-
-  // Handle close with FLIP exit animation
-  const handleClose = useCallback(() => {
-    if (animationPhase !== 'idle') return;
-    setAnimationPhase('exiting');
-    setShowContent(false);
-
-    const card = cardRef.current;
-    if (card && sourceRect) {
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
-
-      // Recalculate source rect (in case of scroll/resize)
-      const targetWidth = Math.min(512, vw * 0.9);
-      const targetHeight = card.offsetHeight || 400;
-      const targetX = (vw - targetWidth) / 2;
-      const targetY = Math.max(40, (vh - targetHeight) / 2);
-
-      const scaleX = sourceRect.width / targetWidth;
-      const scaleY = sourceRect.height / targetHeight;
-      const translateX = sourceRect.x - targetX + (sourceRect.width - targetWidth) / 2;
-      const translateY = sourceRect.y - targetY + (sourceRect.height - targetHeight) / 2;
-
-      // Animate back to source
-      card.style.transition = 'transform 0.35s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease';
-      card.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scaleX}, ${scaleY})`;
-      card.style.opacity = '0';
-    }
-
-    setTimeout(() => {
-      onClose();
-      setAnimationPhase('entering');
-    }, 350);
-  }, [animationPhase, sourceRect, onClose]);
+export default function Home() {
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
 
   // Handle ESC key
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen && animationPhase === 'idle') {
-        handleClose();
-      }
+      if (e.key === 'Escape') setSelectedProject(null);
     };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
-    if (isOpen) {
-      document.addEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = 'hidden';
-    }
-
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = '';
-    };
-  }, [isOpen, animationPhase, handleClose]);
-
-  // FLIP Animation on open
+  // Lock body scroll when modal is open
   useEffect(() => {
-    if (isOpen && sourceRect && cardRef.current && animationPhase === 'entering') {
-      const card = cardRef.current;
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
-
-      // Target: centered modal
-      const targetWidth = Math.min(512, vw * 0.9); // max-w-lg = 512px
-      const targetHeight = card.scrollHeight || 400;
-      const targetX = (vw - targetWidth) / 2;
-      const targetY = Math.max(40, (vh - targetHeight) / 2);
-
-      // Calculate transforms (source to target)
-      const scaleX = sourceRect.width / targetWidth;
-      const scaleY = sourceRect.height / targetHeight;
-      const translateX = sourceRect.x - targetX + (sourceRect.width - targetWidth) / 2;
-      const translateY = sourceRect.y - targetY + (sourceRect.height - targetHeight) / 2;
-
-      // Set initial position (source)
-      card.style.width = `${targetWidth}px`;
-      card.style.position = 'fixed';
-      card.style.left = `${targetX}px`;
-      card.style.top = `${targetY}px`;
-      card.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scaleX}, ${scaleY})`;
-      card.style.opacity = '1';
-
-      // Force reflow
-      void card.offsetHeight;
-
-      // Animate to target (centered modal)
-      card.style.transition = 'transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s ease';
-      card.style.transform = 'translate(0, 0) scale(1, 1)';
-
-      // Show content after expansion
-      const contentTimer = setTimeout(() => {
-        setShowContent(true);
-        setAnimationPhase('idle');
-      }, 300);
-
-      return () => clearTimeout(contentTimer);
+    if (selectedProject) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
     }
-  }, [isOpen, sourceRect, animationPhase]);
-
-  // Handle click outside
-  const handleOverlayClick = (e: React.MouseEvent) => {
-    if (e.target === overlayRef.current && animationPhase === 'idle') {
-      handleClose();
-    }
-  };
-
-  if (!isOpen || !project) return null;
-
-  return (
-    <div
-      ref={overlayRef}
-      onClick={handleOverlayClick}
-      className="fixed inset-0 z-50"
-    >
-      {/* Backdrop with blur */}
-      <div
-        className={`absolute inset-0 bg-white/70 backdrop-blur-xl transition-opacity duration-300 ${
-          animationPhase === 'exiting' ? 'opacity-0' : 'opacity-100'
-        }`}
-      />
-
-      {/* Morphing card */}
-      <div
-        ref={cardRef}
-        className="relative z-10 bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden origin-center"
-        style={{ opacity: 0 }}
-      >
-        {/* Close button */}
-        <button
-          onClick={handleClose}
-          className={`absolute top-4 right-4 z-20 w-10 h-10 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition-all duration-200 ${
-            showContent ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'
-          }`}
-          aria-label="Close"
-        >
-          <span className="material-symbols-outlined text-gray-600">close</span>
-        </button>
-
-        {/* Content */}
-        <div
-          className={`p-8 transition-all duration-200 ${
-            showContent ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
-          }`}
-        >
-          <div className="mb-6">
-            <h3 className="text-2xl font-medium text-gray-900 mb-2">{project.title}</h3>
-            <p className="text-gray-500">{project.shortDesc}</p>
-          </div>
-
-          {/* Tags */}
-          <div className="flex flex-wrap gap-2 mb-6">
-            {project.tags.map((tag) => (
-              <span key={tag} className="px-3 py-1 text-sm bg-gray-100 rounded-full text-gray-600">
-                {tag}
-              </span>
-            ))}
-          </div>
-
-          {/* Full description */}
-          <p className="text-gray-600 leading-relaxed mb-8">{project.fullDesc}</p>
-
-          {/* Actions */}
-          <div className="flex items-center gap-4">
-            <a
-              href={project.demoUrl}
-              className="inline-flex items-center justify-center px-6 py-3 bg-black text-white rounded-full font-medium hover:bg-gray-900 transition-colors"
-              onClick={(e) => e.stopPropagation()}
-            >
-              View Demo
-              <span className="material-symbols-outlined ml-1 text-sm">arrow_outward</span>
-            </a>
-            <a
-              href={project.githubUrl}
-              className="px-6 py-3 text-gray-600 hover:text-gray-900 font-medium transition-colors"
-              onClick={(e) => e.stopPropagation()}
-            >
-              GitHub
-            </a>
-          </div>
-
-          {/* Keyboard hint */}
-          <p className="mt-6 text-xs text-gray-400 text-center">Press ESC or click outside to close</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export default function Home() {
-  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [sourceRect, setSourceRect] = useState<Rect | null>(null);
-  const [animatingCardId, setAnimatingCardId] = useState<string | null>(null);
-  const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-
-  // Store refs for cards
-  const setCardRef = useCallback((id: string) => (el: HTMLDivElement | null) => {
-    if (el) {
-      cardRefs.current.set(id, el);
-    }
-  }, []);
-
-  // Click to open modal with FLIP animation
-  const handleProjectClick = useCallback((project: Project) => {
-    const cardEl = cardRefs.current.get(project.id);
-    if (cardEl) {
-      const rect = cardEl.getBoundingClientRect();
-      setSourceRect({
-        x: rect.x,
-        y: rect.y,
-        width: rect.width,
-        height: rect.height,
-      });
-      setAnimatingCardId(project.id);
-    }
-    setSelectedProject(project);
-    setIsModalOpen(true);
-  }, []);
-
-  const handleCloseModal = useCallback(() => {
-    setIsModalOpen(false);
-    setAnimatingCardId(null);
-    // Delay clearing selected project for animation
-    setTimeout(() => {
-      setSelectedProject(null);
-      setSourceRect(null);
-    }, 400);
-  }, []);
-
-  // Get current position of the card (for exit animation)
-  const getCurrentCardRect = useCallback(() => {
-    if (!selectedProject) return null;
-    const cardEl = cardRefs.current.get(selectedProject.id);
-    if (cardEl) {
-      const rect = cardEl.getBoundingClientRect();
-      return {
-        x: rect.x,
-        y: rect.y,
-        width: rect.width,
-        height: rect.height,
-      };
-    }
-    return null;
   }, [selectedProject]);
 
   return (
@@ -349,40 +102,102 @@ export default function Home() {
           <h2 className="text-2xl font-medium text-gray-900 mb-8">Projects</h2>
 
           {/* Project List */}
-          <div className="space-y-3">
+          <div className="space-y-3 relative">
             {projects.map((project) => (
-              <div key={project.id} className="relative">
-                {/* Project Card - morphs into modal on click */}
-                <div
-                  ref={setCardRef(project.id)}
-                  onClick={() => handleProjectClick(project)}
-                  className={`p-4 rounded-xl border transition-all duration-300 cursor-pointer bg-white/50 border-white/20 hover:bg-white/80 hover:scale-[1.02] group ${
-                    animatingCardId === project.id ? 'opacity-0' : ''
-                  }`}
+              <motion.div
+                key={project.id}
+                layoutId={`card-${project.id}`}
+                onClick={() => setSelectedProject(project)}
+                className="p-4 rounded-xl border bg-white/50 border-white/20 hover:bg-white/80 transition-colors cursor-pointer group"
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                transition={{type: "spring", stiffness: 500, damping: 30}}
                 >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <span className="material-symbols-outlined text-gray-400 group-hover:text-gray-600 transition-colors">folder_open</span>
-                      <span className="font-medium text-gray-900">{project.title}</span>
-                    </div>
-                    <span className="material-symbols-outlined text-gray-400 group-hover:text-gray-900 transition-colors">arrow_outward</span>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <motion.span layoutId={`icon-${project.id}`} className="material-symbols-outlined text-gray-400 group-hover:text-gray-600 transition-colors">folder_open</motion.span>
+                    <motion.span layoutId={`title-${project.id}`} className="font-medium text-gray-900">{project.title}</motion.span>
                   </div>
-                  <p className="text-sm text-gray-500 mt-1 ml-8">{project.shortDesc}</p>
+                  <span className="material-symbols-outlined text-gray-400 group-hover:text-gray-900 transition-colors">arrow_outward</span>
                 </div>
-              </div>
+                <motion.p layoutId={`desc-${project.id}`} className="text-sm text-gray-500 mt-1 ml-[36px]">{project.shortDesc}</motion.p>
+              </motion.div>
             ))}
           </div>
         </div>
       </div>
 
-      {/* Modal - morphs from clicked card */}
-      <ProjectModal
-        project={selectedProject}
-        isOpen={isModalOpen}
-        sourceRect={sourceRect}
-        getCurrentCardRect={getCurrentCardRect}
-        onClose={handleCloseModal}
-      />
+      {/* Framer Motion Modal */}
+      <AnimatePresence>
+        {selectedProject && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 pointer-events-none">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              onClick={() => setSelectedProject(null)}
+              className="absolute inset-0 bg-white/60 backdrop-blur-xl pointer-events-auto"
+            />
+            
+            <motion.div
+              layoutId={`card-${selectedProject.id}`}
+              transition={{ type: "spring", stiffness: 500, damping: 30 }}
+              className="bg-white rounded-2xl w-full max-w-lg p-6 sm:p-8 shadow-2xl relative border border-gray-100 flex flex-col z-10 overflow-hidden pointer-events-auto"
+            >
+              <button
+                onClick={() => setSelectedProject(null)}
+                className="absolute top-4 right-4 w-10 h-10 flex items-center justify-center rounded-full bg-gray-50 hover:bg-gray-100 transition-colors z-20"
+              >
+                <span className="material-symbols-outlined text-gray-500">close</span>
+              </button>
+
+              <div className="mb-6 pr-12">
+                <div className="flex items-center gap-3 mb-2">
+                  <motion.span layoutId={`icon-${selectedProject.id}`} className="material-symbols-outlined text-gray-400">folder_open</motion.span>
+                  <motion.h3 layoutId={`title-${selectedProject.id}`} className="text-2xl font-medium text-gray-900 m-0">{selectedProject.title}</motion.h3>
+                </div>
+                <motion.p layoutId={`desc-${selectedProject.id}`} className="text-gray-500 ml-[36px]">{selectedProject.shortDesc}</motion.p>
+              </div>
+
+              <motion.div 
+                initial={{ opacity: 0, filter: 'blur(10px)', y: 10 }}
+                animate={{ opacity: 1, filter: 'blur(0px)', y: 0 }}
+                exit={{ opacity: 0, filter: 'blur(10px)', y: -10 }}
+                transition={{ delay: 0.1, duration: 0.2 }}
+                className="flex flex-col flex-grow ml-[36px]"
+              >
+                <div className="flex flex-wrap gap-2 mb-6">
+                  {selectedProject.tags.map((tag) => (
+                    <span key={tag} className="px-3 py-1 text-sm bg-gray-100 rounded-full text-gray-600">
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+                <p className="text-gray-600 leading-relaxed mb-8">{selectedProject.fullDesc}</p>
+                
+                <div className="flex items-center gap-4 mt-auto">
+                  <a
+                    href={selectedProject.demoUrl}
+                    className="inline-flex items-center justify-center px-6 py-3 bg-black text-white rounded-full font-medium hover:bg-gray-900 transition-colors"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    View Demo
+                    <span className="material-symbols-outlined ml-1 text-sm">arrow_outward</span>
+                  </a>
+                  <a
+                    href={selectedProject.githubUrl}
+                    className="px-6 py-3 text-gray-600 hover:text-gray-900 font-medium transition-colors"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    GitHub
+                  </a>
+                </div>
+              </motion.div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
