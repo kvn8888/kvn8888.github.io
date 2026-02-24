@@ -36,9 +36,9 @@ export default function Home() {
 
         {/* Projects Section */}
         <div id="projects" className="mt-20 grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-3xl mx-auto">
-          <a 
-            href="#" 
-            className="group p-6 bg-white/50 backdrop-blur-sm rounded-2xl border border-white/20 hover:bg-white/80 transition-all duration-300 hover:shadow-lg"
+          <a
+            href="#"
+            className="group p-6 bg-white/50 backdrop-blur-sm rounded-2xl border border-white/20 hover:bg-white/80 transition-all duration-300"
           >
             <div className="flex items-center justify-between mb-2">
               <span className="font-medium text-gray-900">Project One</span>
@@ -47,9 +47,9 @@ export default function Home() {
             <p className="text-sm text-gray-500">A brief description of the first project</p>
           </a>
 
-          <a 
-            href="#" 
-            className="group p-6 bg-white/50 backdrop-blur-sm rounded-2xl border border-white/20 hover:bg-white/80 transition-all duration-300 hover:shadow-lg"
+          <a
+            href="#"
+            className="group p-6 bg-white/50 backdrop-blur-sm rounded-2xl border border-white/20 hover:bg-white/80 transition-all duration-300"
           >
             <div className="flex items-center justify-between mb-2">
               <span className="font-medium text-gray-900">Project Two</span>
@@ -58,9 +58,9 @@ export default function Home() {
             <p className="text-sm text-gray-500">A brief description of the second project</p>
           </a>
 
-          <a 
-            href="#" 
-            className="group p-6 bg-white/50 backdrop-blur-sm rounded-2xl border border-white/20 hover:bg-white/80 transition-all duration-300 hover:shadow-lg"
+          <a
+            href="#"
+            className="group p-6 bg-white/50 backdrop-blur-sm rounded-2xl border border-white/20 hover:bg-white/80 transition-all duration-300"
           >
             <div className="flex items-center justify-between mb-2">
               <span className="font-medium text-gray-900">Project Three</span>
