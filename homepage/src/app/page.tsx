@@ -1,4 +1,124 @@
+'use client';
+
+import { useState, useRef, useCallback } from 'react';
+
+interface ProjectCardProps {
+  title: string;
+  shortDesc: string;
+  tags: string[];
+  fullDesc: string;
+  demoUrl: string;
+  githubUrl: string;
+}
+
+function ProjectCard({ title, shortDesc, tags, fullDesc, demoUrl, githubUrl }: ProjectCardProps) {
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [isActive, setIsActive] = useState(false);
+  const [transformOrigin, setTransformOrigin] = useState('center center');
+
+  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!cardRef.current) return;
+    const rect = cardRef.current.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
+    setTransformOrigin(`${x}% ${y}%`);
+  }, []);
+
+  const handleMouseEnter = useCallback(() => {
+    setIsActive(true);
+  }, []);
+
+  const handleMouseLeave = useCallback(() => {
+    setIsActive(false);
+  }, []);
+
+  const handleClick = useCallback(() => {
+    setIsActive(!isActive);
+  }, [isActive]);
+
+  return (
+    <div
+      ref={cardRef}
+      onMouseMove={handleMouseMove}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      onClick={handleClick}
+      className="relative cursor-pointer"
+      style={{ transformOrigin }}
+    >
+      <div
+        className={`
+          p-6 bg-white/50 backdrop-blur-sm rounded-2xl border border-white/20
+          transition-all duration-500 ease-out overflow-hidden
+          ${isActive ? 'bg-white/95 scale-105 shadow-2xl z-20' : 'hover:bg-white/70'}
+        `}
+        style={{
+          transformOrigin: transformOrigin,
+        }}
+      >
+        {/* Header - always visible */}
+        <div className="flex items-center justify-between mb-2">
+          <span className="font-medium text-gray-900">{title}</span>
+          <span className={`material-symbols-outlined transition-colors ${isActive ? 'text-gray-900' : 'text-gray-400'}`}>
+            arrow_outward
+          </span>
+        </div>
+        <p className="text-sm text-gray-500">{shortDesc}</p>
+
+        {/* Expanded content - appears on hover/tap */}
+        <div
+          className={`grid transition-all duration-500 ease-out ${isActive ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
+        >
+          <div className="overflow-hidden">
+            <div className="pt-4 mt-4 border-t border-gray-200">
+              <div className="flex flex-wrap gap-2 mb-3">
+                {tags.map((tag) => (
+                  <span key={tag} className="px-2 py-1 text-xs bg-gray-100 rounded-full text-gray-600">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+              <p className="text-sm text-gray-600 leading-relaxed">{fullDesc}</p>
+              <div className="mt-3 flex items-center gap-4 text-sm">
+                <a href={demoUrl} className="text-blue-600 hover:underline">View Demo →</a>
+                <a href={githubUrl} className="text-gray-500 hover:text-gray-900">GitHub</a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Home() {
+  const projects: ProjectCardProps[] = [
+    {
+      title: 'Password Entropy Checker',
+      shortDesc: 'Security tool for analyzing password strength',
+      tags: ['React', 'TypeScript', 'Cryptography'],
+      fullDesc: 'A web application that calculates password entropy and provides real-time feedback on password strength using Shannon entropy calculations.',
+      demoUrl: '#',
+      githubUrl: '#',
+    },
+    {
+      title: 'Google TTS UI',
+      shortDesc: 'Text-to-speech interface with voice selection',
+      tags: ['Next.js', 'API', 'Audio'],
+      fullDesc: 'A polished UI for Google Cloud Text-to-Speech API with voice preview, speed control, and batch processing capabilities.',
+      demoUrl: '#',
+      githubUrl: '#',
+    },
+    {
+      title: 'Receipt Automator',
+      shortDesc: 'Automated receipt processing with OCR',
+      tags: ['Python', 'OCR', 'Automation'],
+      fullDesc: 'An intelligent system that extracts data from receipt images using OCR and automatically populates expense tracking spreadsheets.',
+      demoUrl: '#',
+      githubUrl: '#',
+    },
+  ];
+
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-4 relative">
       {/* Aurora Background */}
@@ -36,101 +156,9 @@ export default function Home() {
 
         {/* Projects Section */}
         <div id="projects" className="mt-20 grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-3xl mx-auto items-start">
-          {/* Project Card 1 */}
-          <div className="group relative">
-            <div className="p-6 bg-white/50 backdrop-blur-sm rounded-2xl border border-white/20 transition-all duration-500 ease-out group-hover:bg-white/90 group-hover:scale-105 group-hover:-translate-y-2 group-hover:z-10 cursor-pointer overflow-hidden">
-              {/* Header - always visible */}
-              <div className="flex items-center justify-between mb-2">
-                <span className="font-medium text-gray-900">Password Entropy Checker</span>
-                <span className="material-symbols-outlined text-gray-400 group-hover:text-gray-900 transition-colors">arrow_outward</span>
-              </div>
-              <p className="text-sm text-gray-500">Security tool for analyzing password strength</p>
-
-              {/* Expanded content - appears on hover */}
-              <div className="grid grid-rows-[0fr] group-hover:grid-rows-[1fr] transition-all duration-500 ease-out">
-                <div className="overflow-hidden">
-                  <div className="pt-4 mt-4 border-t border-gray-200">
-                    <div className="flex flex-wrap gap-2 mb-3">
-                      <span className="px-2 py-1 text-xs bg-gray-100 rounded-full text-gray-600">React</span>
-                      <span className="px-2 py-1 text-xs bg-gray-100 rounded-full text-gray-600">TypeScript</span>
-                      <span className="px-2 py-1 text-xs bg-gray-100 rounded-full text-gray-600">Cryptography</span>
-                    </div>
-                    <p className="text-sm text-gray-600 leading-relaxed">
-                      A web application that calculates password entropy and provides real-time feedback on password strength using Shannon entropy calculations.
-                    </p>
-                    <div className="mt-3 flex items-center gap-4 text-sm">
-                      <a href="#" className="text-blue-600 hover:underline">View Demo →</a>
-                      <a href="#" className="text-gray-500 hover:text-gray-900">GitHub</a>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Project Card 2 */}
-          <div className="group relative">
-            <div className="p-6 bg-white/50 backdrop-blur-sm rounded-2xl border border-white/20 transition-all duration-500 ease-out group-hover:bg-white/90 group-hover:scale-105 group-hover:-translate-y-2 group-hover:z-10 cursor-pointer overflow-hidden">
-              {/* Header - always visible */}
-              <div className="flex items-center justify-between mb-2">
-                <span className="font-medium text-gray-900">Google TTS UI</span>
-                <span className="material-symbols-outlined text-gray-400 group-hover:text-gray-900 transition-colors">arrow_outward</span>
-              </div>
-              <p className="text-sm text-gray-500">Text-to-speech interface with voice selection</p>
-
-              {/* Expanded content - appears on hover */}
-              <div className="grid grid-rows-[0fr] group-hover:grid-rows-[1fr] transition-all duration-500 ease-out">
-                <div className="overflow-hidden">
-                  <div className="pt-4 mt-4 border-t border-gray-200">
-                    <div className="flex flex-wrap gap-2 mb-3">
-                      <span className="px-2 py-1 text-xs bg-gray-100 rounded-full text-gray-600">Next.js</span>
-                      <span className="px-2 py-1 text-xs bg-gray-100 rounded-full text-gray-600">API</span>
-                      <span className="px-2 py-1 text-xs bg-gray-100 rounded-full text-gray-600">Audio</span>
-                    </div>
-                    <p className="text-sm text-gray-600 leading-relaxed">
-                      A polished UI for Google Cloud Text-to-Speech API with voice preview, speed control, and batch processing capabilities.
-                    </p>
-                    <div className="mt-3 flex items-center gap-4 text-sm">
-                      <a href="#" className="text-blue-600 hover:underline">View Demo →</a>
-                      <a href="#" className="text-gray-500 hover:text-gray-900">GitHub</a>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Project Card 3 */}
-          <div className="group relative">
-            <div className="p-6 bg-white/50 backdrop-blur-sm rounded-2xl border border-white/20 transition-all duration-500 ease-out group-hover:bg-white/90 group-hover:scale-105 group-hover:-translate-y-2 group-hover:z-10 cursor-pointer overflow-hidden">
-              {/* Header - always visible */}
-              <div className="flex items-center justify-between mb-2">
-                <span className="font-medium text-gray-900">Receipt Automator</span>
-                <span className="material-symbols-outlined text-gray-400 group-hover:text-gray-900 transition-colors">arrow_outward</span>
-              </div>
-              <p className="text-sm text-gray-500">Automated receipt processing with OCR</p>
-
-              {/* Expanded content - appears on hover */}
-              <div className="grid grid-rows-[0fr] group-hover:grid-rows-[1fr] transition-all duration-500 ease-out">
-                <div className="overflow-hidden">
-                  <div className="pt-4 mt-4 border-t border-gray-200">
-                    <div className="flex flex-wrap gap-2 mb-3">
-                      <span className="px-2 py-1 text-xs bg-gray-100 rounded-full text-gray-600">Python</span>
-                      <span className="px-2 py-1 text-xs bg-gray-100 rounded-full text-gray-600">OCR</span>
-                      <span className="px-2 py-1 text-xs bg-gray-100 rounded-full text-gray-600">Automation</span>
-                    </div>
-                    <p className="text-sm text-gray-600 leading-relaxed">
-                      An intelligent system that extracts data from receipt images using OCR and automatically populates expense tracking spreadsheets.
-                    </p>
-                    <div className="mt-3 flex items-center gap-4 text-sm">
-                      <a href="#" className="text-blue-600 hover:underline">View Demo →</a>
-                      <a href="#" className="text-gray-500 hover:text-gray-900">GitHub</a>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          {projects.map((project) => (
+            <ProjectCard key={project.title} {...project} />
+          ))}
         </div>
       </div>
     </div>
