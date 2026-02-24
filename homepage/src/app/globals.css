@@ -191,3 +191,13 @@ body {
   backface-visibility: hidden;
   animation: blurReveal 0.2s ease-out 0.4s forwards;
 }
+
+.blur-reveal-5 {
+  -webkit-filter: blur(10px);
+  filter: blur(10px);
+  opacity: 0;
+  will-change: filter, opacity;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  animation: blurReveal 0.2s ease-out 0.5s forwards;
+}
