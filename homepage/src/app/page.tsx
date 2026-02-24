@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 
 interface Project {
   id: string;
@@ -42,29 +42,171 @@ const projects: Project[] = [
   },
 ];
 
+// Popup card component with morphing animation
+function PopupCard({
+  project,
+  position,
+  isExiting,
+  isEntering,
+}: {
+  project: Project;
+  position: { x: number; y: number };
+  isExiting: boolean;
+  isEntering: boolean;
+}) {
+  const animationClass = isEntering
+    ? 'popup-enter'
+    : isExiting
+    ? 'popup-exit'
+    : 'popup-morph';
+
+  return (
+    <div
+      className={`hidden md:block fixed z-50 w-80 p-6 bg-white/95 backdrop-blur-sm rounded-2xl shadow-2xl border border-gray-200 pointer-events-none ${animationClass}`}
+      style={{
+        left: `${position.x}px`,
+        top: `${position.y}px`,
+      }}
+    >
+      <div className="flex items-center justify-between mb-3">
+        <span className="font-medium text-gray-900">{project.title}</span>
+        <span className="material-symbols-outlined text-gray-400">arrow_outward</span>
+      </div>
+
+      <div className="flex flex-wrap gap-2 mb-3">
+        {project.tags.map((tag) => (
+          <span key={tag} className="px-2 py-1 text-xs bg-gray-100 rounded-full text-gray-600">
+            {tag}
+          </span>
+        ))}
+      </div>
+
+      <p className="text-sm text-gray-600 leading-relaxed mb-4">{project.fullDesc}</p>
+
+      <div className="flex items-center gap-4 text-sm pointer-events-auto">
+        <a
+          href={project.demoUrl}
+          className="text-blue-600 hover:underline"
+          onClick={(e) => e.stopPropagation()}
+        >
+          View Demo →
+        </a>
+        <a
+          href={project.githubUrl}
+          className="text-gray-500 hover:text-gray-900"
+          onClick={(e) => e.stopPropagation()}
+        >
+          GitHub
+        </a>
+      </div>
+    </div>
+  );
+}
+
 export default function Home() {
-  const [hoveredProject, setHoveredProject] = useState<Project | null>(null);
-  const [popupPosition, setPopupPosition] = useState({ x: 0, y: 0 });
+  const [popupState, setPopupState] = useState<{
+    project: Project | null;
+    position: { x: number; y: number };
+    status: 'hidden' | 'entering' | 'visible' | 'exiting' | 'morphing';
+    previousProject: Project | null;
+  }>({
+    project: null,
+    position: { x: 0, y: 0 },
+    status: 'hidden',
+    previousProject: null,
+  });
   const [clickedProject, setClickedProject] = useState<string | null>(null);
 
+  const exitTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const enterTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const clearTimeouts = () => {
+    if (exitTimeoutRef.current) {
+      clearTimeout(exitTimeoutRef.current);
+      exitTimeoutRef.current = null;
+    }
+    if (enterTimeoutRef.current) {
+      clearTimeout(enterTimeoutRef.current);
+      enterTimeoutRef.current = null;
+    }
+  };
+
   const handleMouseEnter = useCallback((project: Project, e: React.MouseEvent) => {
-    setHoveredProject(project);
-    setPopupPosition({ x: e.clientX + 20, y: e.clientY - 50 });
+    clearTimeouts();
+
+    const position = { x: e.clientX + 20, y: e.clientY - 50 };
+
+    setPopupState((prev) => {
+      // If we're already showing a different project, morph to the new one
+      if (prev.project && prev.project.id !== project.id && prev.status !== 'hidden') {
+        return {
+          project,
+          position,
+          status: 'morphing',
+          previousProject: prev.project,
+        };
+      }
+
+      // Otherwise, enter fresh
+      return {
+        project,
+        position,
+        status: 'entering',
+        previousProject: null,
+      };
+    });
+
+    // After enter animation, set to visible
+    enterTimeoutRef.current = setTimeout(() => {
+      setPopupState((prev) => ({
+        ...prev,
+        status: 'visible',
+        previousProject: null,
+      }));
+    }, 300);
   }, []);
 
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (hoveredProject) {
-      setPopupPosition({ x: e.clientX + 20, y: e.clientY - 50 });
-    }
-  }, [hoveredProject]);
+  const handleMouseMove = useCallback(
+    (e: React.MouseEvent) => {
+      if (popupState.status !== 'hidden') {
+        setPopupState((prev) => ({
+          ...prev,
+          position: { x: e.clientX + 20, y: e.clientY - 50 },
+        }));
+      }
+    },
+    [popupState.status]
+  );
 
   const handleMouseLeave = useCallback(() => {
-    setHoveredProject(null);
+    clearTimeouts();
+
+    setPopupState((prev) => ({
+      ...prev,
+      status: 'exiting',
+    }));
+
+    // Remove from DOM after exit animation
+    exitTimeoutRef.current = setTimeout(() => {
+      setPopupState({
+        project: null,
+        position: { x: 0, y: 0 },
+        status: 'hidden',
+        previousProject: null,
+      });
+    }, 250);
   }, []);
 
   const handleClick = useCallback((projectId: string) => {
-    setClickedProject(prev => prev === projectId ? null : projectId);
+    setClickedProject((prev) => (prev === projectId ? null : projectId));
   }, []);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => clearTimeouts();
+  }, []);
+
+  const showPopup = popupState.status !== 'hidden' && popupState.project;
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-4 relative">
@@ -78,9 +220,7 @@ export default function Home() {
       {/* Content */}
       <div className="text-center max-w-4xl mx-auto relative z-10">
         {/* Small tagline */}
-        <p className="text-sm text-gray-500 mb-4 tracking-wide">
-          Software Engineer & Builder
-        </p>
+        <p className="text-sm text-gray-500 mb-4 tracking-wide">Software Engineer & Builder</p>
 
         {/* Main headline */}
         <h1 className="text-5xl sm:text-6xl md:text-7xl font-medium tracking-tight mb-8 text-black">
@@ -124,9 +264,7 @@ export default function Home() {
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <span className="material-symbols-outlined text-gray-400">
-                        folder_open
-                      </span>
+                      <span className="material-symbols-outlined text-gray-400">folder_open</span>
                       <span className="font-medium text-gray-900">{project.title}</span>
                     </div>
                     <span className="material-symbols-outlined text-gray-400">
@@ -141,7 +279,10 @@ export default function Home() {
                   <div className="md:hidden mt-2 p-4 bg-white/95 rounded-xl border border-gray-200">
                     <div className="flex flex-wrap gap-2 mb-3">
                       {project.tags.map((tag) => (
-                        <span key={tag} className="px-2 py-1 text-xs bg-gray-100 rounded-full text-gray-600">
+                        <span
+                          key={tag}
+                          className="px-2 py-1 text-xs bg-gray-100 rounded-full text-gray-600"
+                        >
                           {tag}
                         </span>
                       ))}
@@ -150,8 +291,12 @@ export default function Home() {
                       {project.fullDesc}
                     </p>
                     <div className="flex items-center gap-4 text-sm">
-                      <a href={project.demoUrl} className="text-blue-600 hover:underline">View Demo →</a>
-                      <a href={project.githubUrl} className="text-gray-500 hover:text-gray-900">GitHub</a>
+                      <a href={project.demoUrl} className="text-blue-600 hover:underline">
+                        View Demo →
+                      </a>
+                      <a href={project.githubUrl} className="text-gray-500 hover:text-gray-900">
+                        GitHub
+                      </a>
                     </div>
                   </div>
                 )}
@@ -161,49 +306,14 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Desktop: Floating Popup Card */}
-      {hoveredProject && (
-        <div
-          className="hidden md:block fixed z-50 w-80 p-6 bg-white/95 backdrop-blur-sm rounded-2xl shadow-2xl border border-gray-200 pointer-events-none"
-          style={{
-            left: `${popupPosition.x}px`,
-            top: `${popupPosition.y}px`,
-          }}
-        >
-          <div className="flex items-center justify-between mb-3">
-            <span className="font-medium text-gray-900">{hoveredProject.title}</span>
-            <span className="material-symbols-outlined text-gray-400">arrow_outward</span>
-          </div>
-
-          <div className="flex flex-wrap gap-2 mb-3">
-            {hoveredProject.tags.map((tag) => (
-              <span key={tag} className="px-2 py-1 text-xs bg-gray-100 rounded-full text-gray-600">
-                {tag}
-              </span>
-            ))}
-          </div>
-
-          <p className="text-sm text-gray-600 leading-relaxed mb-4">
-            {hoveredProject.fullDesc}
-          </p>
-
-          <div className="flex items-center gap-4 text-sm pointer-events-auto">
-            <a
-              href={hoveredProject.demoUrl}
-              className="text-blue-600 hover:underline"
-              onClick={(e) => e.stopPropagation()}
-            >
-              View Demo →
-            </a>
-            <a
-              href={hoveredProject.githubUrl}
-              className="text-gray-500 hover:text-gray-900"
-              onClick={(e) => e.stopPropagation()}
-            >
-              GitHub
-            </a>
-          </div>
-        </div>
+      {/* Desktop: Animated Popup Card */}
+      {showPopup && (
+        <PopupCard
+          project={popupState.project!}
+          position={popupState.position}
+          isExiting={popupState.status === 'exiting'}
+          isEntering={popupState.status === 'entering'}
+        />
       )}
     </div>
   );
