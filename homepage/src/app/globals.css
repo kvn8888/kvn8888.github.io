@@ -77,6 +77,30 @@
   animation-delay: -14s;
 }
 
+/* Mobile aurora adjustments */
+@media (max-width: 768px) {
+  .aurora-blob-1 {
+    width: 80vw;
+    height: 80vw;
+    top: -40%;
+    left: -20%;
+  }
+
+  .aurora-blob-2 {
+    width: 70vw;
+    height: 70vw;
+    top: 5%;
+    right: -20%;
+  }
+
+  .aurora-blob-3 {
+    width: 65vw;
+    height: 65vw;
+    bottom: -20%;
+    left: 10%;
+  }
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
