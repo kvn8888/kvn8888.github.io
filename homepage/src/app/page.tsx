@@ -64,8 +64,6 @@ function ProjectModal({
   onClose: () => void;
 }) {
   const overlayRef = useRef<HTMLDivElement>(null);
-  const modalRef = useRef<HTMLDivElement>(null);
-  const [isAnimating, setIsAnimating] = useState(false);
 
   // Handle ESC key
   useEffect(() => {
@@ -123,14 +121,13 @@ function ProjectModal({
     <div
       ref={overlayRef}
       onClick={handleOverlayClick}
-      className="fixed inset-0 z-50 flex items-center justify-center modal-overlay"
+      className="fixed inset-0 z-50 flex items-center justify-center"
     >
       {/* Backdrop with blur and white tint */}
       <div className={`absolute inset-0 bg-white/70 backdrop-blur-xl ${isClosing ? 'modal-backdrop-fade-out' : 'modal-backdrop-fade-in'}`} />
 
       {/* Modal card that morphs */}
       <div
-        ref={modalRef}
         className={`relative z-10 bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden ${modalClasses}`}
         style={isClosing ? undefined : initialStyle}
       >
@@ -194,8 +191,6 @@ export default function Home() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isModalClosing, setIsModalClosing] = useState(false);
   const [sourceRect, setSourceRect] = useState<Rect | null>(null);
-  const [hoveredProject, setHoveredProject] = useState<Project | null>(null);
-  const [popupPosition, setPopupPosition] = useState({ x: 0, y: 0 });
   const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
   // Store refs for cards
@@ -203,27 +198,6 @@ export default function Home() {
     if (el) {
       cardRefs.current.set(id, el);
     }
-  }, []);
-
-  // Hover popup handlers (for desktop)
-  const handleMouseEnter = useCallback((project: Project, e: React.MouseEvent) => {
-    if (window.innerWidth >= 768 && !isModalOpen) {
-      setHoveredProject(project);
-      setPopupPosition({ x: e.clientX + 20, y: e.clientY - 50 });
-    }
-  }, [isModalOpen]);
-
-  const handleMouseMove = useCallback(
-    (e: React.MouseEvent) => {
-      if (hoveredProject && window.innerWidth >= 768 && !isModalOpen) {
-        setPopupPosition({ x: e.clientX + 20, y: e.clientY - 50 });
-      }
-    },
-    [hoveredProject, isModalOpen]
-  );
-
-  const handleMouseLeave = useCallback(() => {
-    setHoveredProject(null);
   }, []);
 
   // Click to open modal with morph animation
@@ -241,7 +215,6 @@ export default function Home() {
     setSelectedProject(project);
     setIsModalOpen(true);
     setIsModalClosing(false);
-    setHoveredProject(null);
   }, []);
 
   const handleCloseModal = useCallback(() => {
@@ -296,12 +269,9 @@ export default function Home() {
           <div className="space-y-3">
             {projects.map((project) => (
               <div key={project.id} className="relative">
-                {/* Project Trigger */}
+                {/* Project Card - morphs into modal on click */}
                 <div
                   ref={setCardRef(project.id)}
-                  onMouseEnter={(e) => handleMouseEnter(project, e)}
-                  onMouseMove={handleMouseMove}
-                  onMouseLeave={handleMouseLeave}
                   onClick={() => handleProjectClick(project)}
                   className={`p-4 rounded-xl border transition-all duration-300 cursor-pointer bg-white/50 border-white/20 hover:bg-white/80 hover:scale-[1.02] group ${
                     isModalOpen && selectedProject?.id === project.id ? 'opacity-0' : ''
@@ -322,35 +292,7 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Desktop: Hover Popup */}
-      {hoveredProject && !isModalOpen && (
-        <div
-          className="hidden md:block fixed z-40 w-80 p-6 bg-white/95 backdrop-blur-sm rounded-2xl shadow-2xl border border-gray-200 pointer-events-none popup-enter"
-          style={{
-            left: `${popupPosition.x}px`,
-            top: `${popupPosition.y}px`,
-          }}
-        >
-          <div className="flex items-center justify-between mb-3">
-            <span className="font-medium text-gray-900">{hoveredProject.title}</span>
-            <span className="material-symbols-outlined text-gray-400">arrow_outward</span>
-          </div>
-
-          <div className="flex flex-wrap gap-2 mb-3">
-            {hoveredProject.tags.map((tag) => (
-              <span key={tag} className="px-2 py-1 text-xs bg-gray-100 rounded-full text-gray-600">
-                {tag}
-              </span>
-            ))}
-          </div>
-
-          <p className="text-sm text-gray-600 leading-relaxed">{hoveredProject.fullDesc}</p>
-
-          <p className="mt-3 text-xs text-gray-400">Click to expand</p>
-        </div>
-      )}
-
-      {/* Modal */}
+      {/* Modal - morphs from clicked card */}
       <ProjectModal
         project={selectedProject}
         isOpen={isModalOpen}
