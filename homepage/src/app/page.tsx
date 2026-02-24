@@ -230,18 +230,18 @@ export default function Home() {
         <div className="aurora-blob aurora-blob-3"></div>
       </div>
 
-      {/* Content with blur reveal animation */}
-      <div className="text-center max-w-4xl mx-auto relative z-10 blur-reveal">
+      {/* Content with staggered blur reveal animation */}
+      <div className="text-center max-w-4xl mx-auto relative z-10">
         {/* Small tagline */}
-        <p className="text-sm text-gray-500 mb-4 tracking-wide">Software Engineer & Builder</p>
+        <p className="text-sm text-gray-500 mb-4 tracking-wide blur-reveal">Software Engineer & Builder</p>
 
         {/* Main headline */}
-        <h1 className="text-5xl sm:text-6xl md:text-7xl font-medium tracking-tight mb-8 text-black">
+        <h1 className="text-5xl sm:text-6xl md:text-7xl font-medium tracking-tight mb-8 text-black blur-reveal-1">
           Welcome to KevinC.dev
         </h1>
 
         {/* Bio text */}
-        <p className="text-lg text-gray-600 max-w-xl mx-auto mb-8 leading-relaxed">
+        <p className="text-lg text-gray-600 max-w-xl mx-auto mb-8 leading-relaxed blur-reveal-2">
           I&apos;m a software engineering student at the Rochester Institute of Technology.
           Currently on an internship at Ivalua, Inc.
         </p>
@@ -249,13 +249,13 @@ export default function Home() {
         {/* CTA Button */}
         <a
           href="#projects"
-          className="inline-flex items-center justify-center px-8 py-4 bg-black text-white rounded-full font-medium hover:bg-gray-900 transition-colors shadow-lg hover:shadow-xl"
+          className="inline-flex items-center justify-center px-8 py-4 bg-black text-white rounded-full font-medium hover:bg-gray-900 transition-colors shadow-lg hover:shadow-xl blur-reveal-3"
         >
           See my projects
         </a>
 
         {/* Projects Section */}
-        <div id="projects" className="mt-20 w-full max-w-xl mx-auto">
+        <div id="projects" className="mt-20 w-full max-w-xl mx-auto blur-reveal-4">
           <h2 className="text-2xl font-medium text-gray-900 mb-8">Projects</h2>
 
           {/* Project List */}

@@ -167,5 +167,29 @@ body {
 .blur-reveal {
   filter: blur(10px);
   opacity: 0;
+  animation: blurReveal 0.2s ease-out forwards;
+}
+
+.blur-reveal-1 {
+  filter: blur(10px);
+  opacity: 0;
   animation: blurReveal 0.2s ease-out 0.1s forwards;
+}
+
+.blur-reveal-2 {
+  filter: blur(10px);
+  opacity: 0;
+  animation: blurReveal 0.2s ease-out 0.2s forwards;
+}
+
+.blur-reveal-3 {
+  filter: blur(10px);
+  opacity: 0;
+  animation: blurReveal 0.2s ease-out 0.3s forwards;
+}
+
+.blur-reveal-4 {
+  filter: blur(10px);
+  opacity: 0;
+  animation: blurReveal 0.2s ease-out 0.4s forwards;
 }
