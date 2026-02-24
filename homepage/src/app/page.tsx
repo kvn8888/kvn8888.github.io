@@ -54,11 +54,13 @@ function ProjectModal({
   project,
   isOpen,
   sourceRect,
+  getCurrentCardRect,
   onClose,
 }: {
   project: Project | null;
   isOpen: boolean;
   sourceRect: Rect | null;
+  getCurrentCardRect: () => Rect | null;
   onClose: () => void;
 }) {
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -293,6 +295,22 @@ export default function Home() {
     }, 400);
   }, []);
 
+  // Get current position of the card (for exit animation)
+  const getCurrentCardRect = useCallback(() => {
+    if (!selectedProject) return null;
+    const cardEl = cardRefs.current.get(selectedProject.id);
+    if (cardEl) {
+      const rect = cardEl.getBoundingClientRect();
+      return {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+      };
+    }
+    return null;
+  }, [selectedProject]);
+
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-4 relative">
       {/* Aurora Background */}
@@ -362,6 +380,7 @@ export default function Home() {
         project={selectedProject}
         isOpen={isModalOpen}
         sourceRect={sourceRect}
+        getCurrentCardRect={getCurrentCardRect}
         onClose={handleCloseModal}
       />
     </div>
