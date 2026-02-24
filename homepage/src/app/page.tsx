@@ -42,184 +42,147 @@ const projects: Project[] = [
   },
 ];
 
-// Popup card component with cursor-origin animation
-function PopupCard({
+// Modal component with backdrop blur
+function ProjectModal({
   project,
-  position,
-  cursorOrigin,
-  isExiting,
-  isEntering,
+  isOpen,
+  onClose,
 }: {
-  project: Project;
-  position: { x: number; y: number };
-  cursorOrigin: { x: number; y: number };
-  isExiting: boolean;
-  isEntering: boolean;
+  project: Project | null;
+  isOpen: boolean;
+  onClose: () => void;
 }) {
-  const animationClass = isEntering
-    ? 'popup-enter'
-    : isExiting
-    ? 'popup-exit'
-    : 'popup-morph';
+  const overlayRef = useRef<HTMLDivElement>(null);
 
-  // Calculate transform origin relative to the popup card position
-  const originX = cursorOrigin.x - position.x;
-  const originY = cursorOrigin.y - position.y;
+  // Handle ESC key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose();
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = 'hidden';
+    }
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = '';
+    };
+  }, [isOpen, onClose]);
+
+  // Handle click outside
+  const handleOverlayClick = (e: React.MouseEvent) => {
+    if (e.target === overlayRef.current) {
+      onClose();
+    }
+  };
+
+  if (!isOpen || !project) return null;
 
   return (
     <div
-      className={`hidden md:block fixed z-50 w-80 p-6 bg-white/95 backdrop-blur-sm rounded-2xl shadow-2xl border border-gray-200 pointer-events-none ${animationClass}`}
-      style={{
-        left: `${position.x}px`,
-        top: `${position.y}px`,
-        transformOrigin: `${originX}px ${originY}px`,
-      }}
+      ref={overlayRef}
+      onClick={handleOverlayClick}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop"
     >
-      <div className="flex items-center justify-between mb-3">
-        <span className="font-medium text-gray-900">{project.title}</span>
-        <span className="material-symbols-outlined text-gray-400">arrow_outward</span>
-      </div>
+      {/* Backdrop with blur and white tint */}
+      <div className="absolute inset-0 bg-white/60 backdrop-blur-xl modal-fade-in" />
 
-      <div className="flex flex-wrap gap-2 mb-3">
-        {project.tags.map((tag) => (
-          <span key={tag} className="px-2 py-1 text-xs bg-gray-100 rounded-full text-gray-600">
-            {tag}
-          </span>
-        ))}
-      </div>
-
-      <p className="text-sm text-gray-600 leading-relaxed mb-4">{project.fullDesc}</p>
-
-      <div className="flex items-center gap-4 text-sm pointer-events-auto">
-        <a
-          href={project.demoUrl}
-          className="text-blue-600 hover:underline"
-          onClick={(e) => e.stopPropagation()}
+      {/* Modal card */}
+      <div className="relative z-10 w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-gray-200 p-8 modal-scale-in">
+        {/* Close button - circular X */}
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 w-10 h-10 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition-colors"
+          aria-label="Close"
         >
-          View Demo →
-        </a>
-        <a
-          href={project.githubUrl}
-          className="text-gray-500 hover:text-gray-900"
-          onClick={(e) => e.stopPropagation()}
-        >
-          GitHub
-        </a>
+          <span className="material-symbols-outlined text-gray-600">close</span>
+        </button>
+
+        {/* Content */}
+        <div className="mb-6">
+          <h3 className="text-2xl font-medium text-gray-900 mb-2">{project.title}</h3>
+          <p className="text-gray-500">{project.shortDesc}</p>
+        </div>
+
+        {/* Tags */}
+        <div className="flex flex-wrap gap-2 mb-6">
+          {project.tags.map((tag) => (
+            <span key={tag} className="px-3 py-1 text-sm bg-gray-100 rounded-full text-gray-600">
+              {tag}
+            </span>
+          ))}
+        </div>
+
+        {/* Full description */}
+        <p className="text-gray-600 leading-relaxed mb-8">{project.fullDesc}</p>
+
+        {/* Actions */}
+        <div className="flex items-center gap-4">
+          <a
+            href={project.demoUrl}
+            className="inline-flex items-center justify-center px-6 py-3 bg-black text-white rounded-full font-medium hover:bg-gray-900 transition-colors"
+          >
+            View Demo
+            <span className="material-symbols-outlined ml-1 text-sm">arrow_outward</span>
+          </a>
+          <a
+            href={project.githubUrl}
+            className="px-6 py-3 text-gray-600 hover:text-gray-900 font-medium transition-colors"
+          >
+            GitHub
+          </a>
+        </div>
+
+        {/* Keyboard hint */}
+        <p className="mt-6 text-xs text-gray-400 text-center">Press ESC or click outside to close</p>
       </div>
     </div>
   );
 }
 
 export default function Home() {
-  const [popupState, setPopupState] = useState<{
-    project: Project | null;
-    position: { x: number; y: number };
-    cursorOrigin: { x: number; y: number };
-    status: 'hidden' | 'entering' | 'visible' | 'exiting' | 'morphing';
-    previousProject: Project | null;
-  }>({
-    project: null,
-    position: { x: 0, y: 0 },
-    cursorOrigin: { x: 0, y: 0 },
-    status: 'hidden',
-    previousProject: null,
-  });
-  const [clickedProject, setClickedProject] = useState<string | null>(null);
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [hoveredProject, setHoveredProject] = useState<Project | null>(null);
+  const [popupPosition, setPopupPosition] = useState({ x: 0, y: 0 });
 
-  const exitTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const enterTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  const clearTimeouts = () => {
-    if (exitTimeoutRef.current) {
-      clearTimeout(exitTimeoutRef.current);
-      exitTimeoutRef.current = null;
-    }
-    if (enterTimeoutRef.current) {
-      clearTimeout(enterTimeoutRef.current);
-      enterTimeoutRef.current = null;
-    }
-  };
-
+  // Hover popup handlers (for desktop)
   const handleMouseEnter = useCallback((project: Project, e: React.MouseEvent) => {
-    clearTimeouts();
-
-    const cursorOrigin = { x: e.clientX, y: e.clientY };
-    const position = { x: e.clientX + 20, y: e.clientY - 50 };
-
-    setPopupState((prev) => {
-      // If we're already showing a different project, morph to the new one
-      if (prev.project && prev.project.id !== project.id && prev.status !== 'hidden') {
-        return {
-          project,
-          position,
-          cursorOrigin,
-          status: 'morphing',
-          previousProject: prev.project,
-        };
-      }
-
-      // Otherwise, enter fresh
-      return {
-        project,
-        position,
-        cursorOrigin,
-        status: 'entering',
-        previousProject: null,
-      };
-    });
-
-    // After enter animation, set to visible
-    enterTimeoutRef.current = setTimeout(() => {
-      setPopupState((prev) => ({
-        ...prev,
-        status: 'visible',
-        previousProject: null,
-      }));
-    }, 300);
+    if (window.innerWidth >= 768) {
+      setHoveredProject(project);
+      setPopupPosition({ x: e.clientX + 20, y: e.clientY - 50 });
+    }
   }, []);
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
-      if (popupState.status !== 'hidden') {
-        setPopupState((prev) => ({
-          ...prev,
-          position: { x: e.clientX + 20, y: e.clientY - 50 },
-        }));
+      if (hoveredProject && window.innerWidth >= 768) {
+        setPopupPosition({ x: e.clientX + 20, y: e.clientY - 50 });
       }
     },
-    [popupState.status]
+    [hoveredProject]
   );
 
   const handleMouseLeave = useCallback(() => {
-    clearTimeouts();
-
-    setPopupState((prev) => ({
-      ...prev,
-      status: 'exiting',
-    }));
-
-    // Remove from DOM after exit animation
-    exitTimeoutRef.current = setTimeout(() => {
-      setPopupState({
-        project: null,
-        position: { x: 0, y: 0 },
-        cursorOrigin: { x: 0, y: 0 },
-        status: 'hidden',
-        previousProject: null,
-      });
-    }, 300);
+    setHoveredProject(null);
   }, []);
 
-  const handleClick = useCallback((projectId: string) => {
-    setClickedProject((prev) => (prev === projectId ? null : projectId));
+  // Click to open modal
+  const handleProjectClick = useCallback((project: Project) => {
+    setSelectedProject(project);
+    setIsModalOpen(true);
+    setHoveredProject(null); // Close hover popup
   }, []);
 
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => clearTimeouts();
+  const handleCloseModal = useCallback(() => {
+    setIsModalOpen(false);
+    // Delay clearing the project to allow exit animation
+    setTimeout(() => setSelectedProject(null), 300);
   }, []);
-
-  const showPopup = popupState.status !== 'hidden' && popupState.project;
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-4 relative">
@@ -259,76 +222,62 @@ export default function Home() {
           <h2 className="text-2xl font-medium text-gray-900 mb-8">Projects</h2>
 
           {/* Project List */}
-          <div className="space-y-2">
+          <div className="space-y-3">
             {projects.map((project) => (
               <div key={project.id} className="relative">
-                {/* Project Trigger - Desktop: hover, Mobile: click */}
+                {/* Project Trigger */}
                 <div
                   onMouseEnter={(e) => handleMouseEnter(project, e)}
                   onMouseMove={handleMouseMove}
                   onMouseLeave={handleMouseLeave}
-                  onClick={() => handleClick(project.id)}
-                  className={`
-                    p-4 rounded-xl border transition-all duration-300 cursor-pointer
-                    ${clickedProject === project.id
-                      ? 'bg-white/90 border-gray-300'
-                      : 'bg-white/50 border-white/20 hover:bg-white/70'}
-                  `}
+                  onClick={() => handleProjectClick(project)}
+                  className="p-4 rounded-xl border transition-all duration-300 cursor-pointer bg-white/50 border-white/20 hover:bg-white/80 hover:scale-[1.02] group"
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <span className="material-symbols-outlined text-gray-400">folder_open</span>
+                      <span className="material-symbols-outlined text-gray-400 group-hover:text-gray-600 transition-colors">folder_open</span>
                       <span className="font-medium text-gray-900">{project.title}</span>
                     </div>
-                    <span className="material-symbols-outlined text-gray-400">
-                      {clickedProject === project.id ? 'expand_less' : 'expand_more'}
-                    </span>
+                    <span className="material-symbols-outlined text-gray-400 group-hover:text-gray-900 transition-colors">arrow_outward</span>
                   </div>
                   <p className="text-sm text-gray-500 mt-1 ml-8">{project.shortDesc}</p>
                 </div>
-
-                {/* Mobile: Inline expanded content */}
-                {clickedProject === project.id && (
-                  <div className="md:hidden mt-2 p-4 bg-white/95 rounded-xl border border-gray-200">
-                    <div className="flex flex-wrap gap-2 mb-3">
-                      {project.tags.map((tag) => (
-                        <span
-                          key={tag}
-                          className="px-2 py-1 text-xs bg-gray-100 rounded-full text-gray-600"
-                        >
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                    <p className="text-sm text-gray-600 leading-relaxed mb-3">
-                      {project.fullDesc}
-                    </p>
-                    <div className="flex items-center gap-4 text-sm">
-                      <a href={project.demoUrl} className="text-blue-600 hover:underline">
-                        View Demo →
-                      </a>
-                      <a href={project.githubUrl} className="text-gray-500 hover:text-gray-900">
-                        GitHub
-                      </a>
-                    </div>
-                  </div>
-                )}
               </div>
             ))}
           </div>
         </div>
       </div>
 
-      {/* Desktop: Animated Popup Card */}
-      {showPopup && (
-        <PopupCard
-          project={popupState.project!}
-          position={popupState.position}
-          cursorOrigin={popupState.cursorOrigin}
-          isExiting={popupState.status === 'exiting'}
-          isEntering={popupState.status === 'entering'}
-        />
+      {/* Desktop: Hover Popup */}
+      {hoveredProject && !isModalOpen && (
+        <div
+          className="hidden md:block fixed z-40 w-80 p-6 bg-white/95 backdrop-blur-sm rounded-2xl shadow-2xl border border-gray-200 pointer-events-none popup-enter"
+          style={{
+            left: `${popupPosition.x}px`,
+            top: `${popupPosition.y}px`,
+          }}
+        >
+          <div className="flex items-center justify-between mb-3">
+            <span className="font-medium text-gray-900">{hoveredProject.title}</span>
+            <span className="material-symbols-outlined text-gray-400">arrow_outward</span>
+          </div>
+
+          <div className="flex flex-wrap gap-2 mb-3">
+            {hoveredProject.tags.map((tag) => (
+              <span key={tag} className="px-2 py-1 text-xs bg-gray-100 rounded-full text-gray-600">
+                {tag}
+              </span>
+            ))}
+          </div>
+
+          <p className="text-sm text-gray-600 leading-relaxed">{hoveredProject.fullDesc}</p>
+
+          <p className="mt-3 text-xs text-gray-400">Click to expand</p>
+        </div>
       )}
+
+      {/* Modal */}
+      <ProjectModal project={selectedProject} isOpen={isModalOpen} onClose={handleCloseModal} />
     </div>
   );
 }
