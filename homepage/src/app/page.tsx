@@ -12,13 +12,13 @@ export default function Home() {
       <div className="text-center max-w-4xl mx-auto relative z-10">
         {/* Small tagline */}
         <p className="text-sm text-gray-500 mb-4 tracking-wide">
-          A new AI browser from the makers of Arc
+          Software Engineer & Builder
         </p>
-        
+
         {/* Main headline with shimmer effect */}
         <h1 className="text-5xl sm:text-6xl md:text-7xl font-medium tracking-tight mb-8">
-          <span className="gradient-text">Shop</span>{" "}
-          <span className="shimmer-text">with your tabs</span>
+          <span className="text-black">Welcome to</span>{" "}
+          <span className="shimmer-text">KevinC.dev</span>
         </h1>
 
         {/* Bio text */}
