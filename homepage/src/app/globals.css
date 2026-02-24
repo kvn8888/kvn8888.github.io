@@ -222,3 +222,76 @@ body {
 .modal-scale-in {
   animation: modalScaleIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }
+
+/* Morphing modal animations */
+.modal-expand-from-card {
+  animation: modalExpand 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.modal-shrink-to-card {
+  animation: modalShrink 0.35s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.modal-backdrop-fade-in {
+  animation: backdropFade 0.3s ease-out forwards;
+}
+
+.modal-backdrop-fade-out {
+  animation: backdropFade 0.25s ease-out reverse forwards;
+}
+
+.modal-content-fade-in {
+  animation: contentFade 0.2s ease-out 0.25s forwards;
+  opacity: 0;
+}
+
+.modal-content-fade-out {
+  animation: contentFade 0.15s ease-out reverse forwards;
+}
+
+@keyframes modalExpand {
+  0% {
+    /* Start from the card's position/size (set via inline styles) */
+  }
+  100% {
+    left: 50% !important;
+    top: 50% !important;
+    transform: translate(-50%, -50%);
+    width: min(32rem, 90vw) !important;
+    height: auto !important;
+    max-height: 90vh;
+  }
+}
+
+@keyframes modalShrink {
+  0% {
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: min(32rem, 90vw);
+    height: auto;
+  }
+  100% {
+    /* Target rect will be set via inline styles when closing */
+  }
+}
+
+@keyframes backdropFade {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes contentFade {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

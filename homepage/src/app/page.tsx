@@ -12,6 +12,13 @@ interface Project {
   githubUrl: string;
 }
 
+interface Rect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 const projects: Project[] = [
   {
     id: 'password-entropy',
@@ -42,22 +49,28 @@ const projects: Project[] = [
   },
 ];
 
-// Modal component with backdrop blur
+// Expanding Modal that morphs from the card
 function ProjectModal({
   project,
   isOpen,
+  isClosing,
+  sourceRect,
   onClose,
 }: {
   project: Project | null;
   isOpen: boolean;
+  isClosing: boolean;
+  sourceRect: Rect | null;
   onClose: () => void;
 }) {
   const overlayRef = useRef<HTMLDivElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+  const [isAnimating, setIsAnimating] = useState(false);
 
   // Handle ESC key
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
+      if (e.key === 'Escape' && isOpen && !isClosing) {
         onClose();
       }
     };
@@ -71,74 +84,106 @@ function ProjectModal({
       document.removeEventListener('keydown', handleKeyDown);
       document.body.style.overflow = '';
     };
-  }, [isOpen, onClose]);
+  }, [isOpen, isClosing, onClose]);
 
   // Handle click outside
   const handleOverlayClick = (e: React.MouseEvent) => {
-    if (e.target === overlayRef.current) {
+    if (e.target === overlayRef.current && !isClosing) {
+      onClose();
+    }
+  };
+
+  // Handle close button click
+  const handleCloseClick = () => {
+    if (!isClosing) {
       onClose();
     }
   };
 
   if (!isOpen || !project) return null;
 
+  // Calculate initial position from source rect
+  const initialStyle = sourceRect
+    ? {
+        position: 'fixed' as const,
+        left: sourceRect.x,
+        top: sourceRect.y,
+        width: sourceRect.width,
+        height: sourceRect.height,
+      }
+    : {};
+
+  const modalClasses = isClosing
+    ? 'modal-shrink-to-card'
+    : sourceRect
+    ? 'modal-expand-from-card'
+    : 'modal-fade-scale-in';
+
   return (
     <div
       ref={overlayRef}
       onClick={handleOverlayClick}
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop"
+      className="fixed inset-0 z-50 flex items-center justify-center modal-overlay"
     >
       {/* Backdrop with blur and white tint */}
-      <div className="absolute inset-0 bg-white/60 backdrop-blur-xl modal-fade-in" />
+      <div className={`absolute inset-0 bg-white/70 backdrop-blur-xl ${isClosing ? 'modal-backdrop-fade-out' : 'modal-backdrop-fade-in'}`} />
 
-      {/* Modal card */}
-      <div className="relative z-10 w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-gray-200 p-8 modal-scale-in">
+      {/* Modal card that morphs */}
+      <div
+        ref={modalRef}
+        className={`relative z-10 bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden ${modalClasses}`}
+        style={isClosing ? undefined : initialStyle}
+      >
         {/* Close button - circular X */}
         <button
-          onClick={onClose}
-          className="absolute top-4 right-4 w-10 h-10 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition-colors"
+          onClick={handleCloseClick}
+          className="absolute top-4 right-4 z-20 w-10 h-10 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition-colors"
           aria-label="Close"
         >
           <span className="material-symbols-outlined text-gray-600">close</span>
         </button>
 
-        {/* Content */}
-        <div className="mb-6">
-          <h3 className="text-2xl font-medium text-gray-900 mb-2">{project.title}</h3>
-          <p className="text-gray-500">{project.shortDesc}</p>
+        {/* Content - fades in after expansion */}
+        <div className={`p-8 ${isClosing ? 'modal-content-fade-out' : 'modal-content-fade-in'}`}>
+          <div className="mb-6">
+            <h3 className="text-2xl font-medium text-gray-900 mb-2">{project.title}</h3>
+            <p className="text-gray-500">{project.shortDesc}</p>
+          </div>
+
+          {/* Tags */}
+          <div className="flex flex-wrap gap-2 mb-6">
+            {project.tags.map((tag) => (
+              <span key={tag} className="px-3 py-1 text-sm bg-gray-100 rounded-full text-gray-600">
+                {tag}
+              </span>
+            ))}
+          </div>
+
+          {/* Full description */}
+          <p className="text-gray-600 leading-relaxed mb-8">{project.fullDesc}</p>
+
+          {/* Actions */}
+          <div className="flex items-center gap-4">
+            <a
+              href={project.demoUrl}
+              className="inline-flex items-center justify-center px-6 py-3 bg-black text-white rounded-full font-medium hover:bg-gray-900 transition-colors"
+              onClick={(e) => e.stopPropagation()}
+            >
+              View Demo
+              <span className="material-symbols-outlined ml-1 text-sm">arrow_outward</span>
+            </a>
+            <a
+              href={project.githubUrl}
+              className="px-6 py-3 text-gray-600 hover:text-gray-900 font-medium transition-colors"
+              onClick={(e) => e.stopPropagation()}
+            >
+              GitHub
+            </a>
+          </div>
+
+          {/* Keyboard hint */}
+          <p className="mt-6 text-xs text-gray-400 text-center">Press ESC or click outside to close</p>
         </div>
-
-        {/* Tags */}
-        <div className="flex flex-wrap gap-2 mb-6">
-          {project.tags.map((tag) => (
-            <span key={tag} className="px-3 py-1 text-sm bg-gray-100 rounded-full text-gray-600">
-              {tag}
-            </span>
-          ))}
-        </div>
-
-        {/* Full description */}
-        <p className="text-gray-600 leading-relaxed mb-8">{project.fullDesc}</p>
-
-        {/* Actions */}
-        <div className="flex items-center gap-4">
-          <a
-            href={project.demoUrl}
-            className="inline-flex items-center justify-center px-6 py-3 bg-black text-white rounded-full font-medium hover:bg-gray-900 transition-colors"
-          >
-            View Demo
-            <span className="material-symbols-outlined ml-1 text-sm">arrow_outward</span>
-          </a>
-          <a
-            href={project.githubUrl}
-            className="px-6 py-3 text-gray-600 hover:text-gray-900 font-medium transition-colors"
-          >
-            GitHub
-          </a>
-        </div>
-
-        {/* Keyboard hint */}
-        <p className="mt-6 text-xs text-gray-400 text-center">Press ESC or click outside to close</p>
       </div>
     </div>
   );
@@ -147,41 +192,67 @@ function ProjectModal({
 export default function Home() {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isModalClosing, setIsModalClosing] = useState(false);
+  const [sourceRect, setSourceRect] = useState<Rect | null>(null);
   const [hoveredProject, setHoveredProject] = useState<Project | null>(null);
   const [popupPosition, setPopupPosition] = useState({ x: 0, y: 0 });
+  const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
-  // Hover popup handlers (for desktop)
-  const handleMouseEnter = useCallback((project: Project, e: React.MouseEvent) => {
-    if (window.innerWidth >= 768) {
-      setHoveredProject(project);
-      setPopupPosition({ x: e.clientX + 20, y: e.clientY - 50 });
+  // Store refs for cards
+  const setCardRef = useCallback((id: string) => (el: HTMLDivElement | null) => {
+    if (el) {
+      cardRefs.current.set(id, el);
     }
   }, []);
 
+  // Hover popup handlers (for desktop)
+  const handleMouseEnter = useCallback((project: Project, e: React.MouseEvent) => {
+    if (window.innerWidth >= 768 && !isModalOpen) {
+      setHoveredProject(project);
+      setPopupPosition({ x: e.clientX + 20, y: e.clientY - 50 });
+    }
+  }, [isModalOpen]);
+
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
-      if (hoveredProject && window.innerWidth >= 768) {
+      if (hoveredProject && window.innerWidth >= 768 && !isModalOpen) {
         setPopupPosition({ x: e.clientX + 20, y: e.clientY - 50 });
       }
     },
-    [hoveredProject]
+    [hoveredProject, isModalOpen]
   );
 
   const handleMouseLeave = useCallback(() => {
     setHoveredProject(null);
   }, []);
 
-  // Click to open modal
+  // Click to open modal with morph animation
   const handleProjectClick = useCallback((project: Project) => {
+    const cardEl = cardRefs.current.get(project.id);
+    if (cardEl) {
+      const rect = cardEl.getBoundingClientRect();
+      setSourceRect({
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+      });
+    }
     setSelectedProject(project);
     setIsModalOpen(true);
-    setHoveredProject(null); // Close hover popup
+    setIsModalClosing(false);
+    setHoveredProject(null);
   }, []);
 
   const handleCloseModal = useCallback(() => {
-    setIsModalOpen(false);
-    // Delay clearing the project to allow exit animation
-    setTimeout(() => setSelectedProject(null), 300);
+    setIsModalClosing(true);
+    // Wait for shrink animation to complete
+    setTimeout(() => {
+      setIsModalOpen(false);
+      setIsModalClosing(false);
+      setSelectedProject(null);
+      setSourceRect(null);
+    }, 350);
   }, []);
 
   return (
@@ -227,11 +298,14 @@ export default function Home() {
               <div key={project.id} className="relative">
                 {/* Project Trigger */}
                 <div
+                  ref={setCardRef(project.id)}
                   onMouseEnter={(e) => handleMouseEnter(project, e)}
                   onMouseMove={handleMouseMove}
                   onMouseLeave={handleMouseLeave}
                   onClick={() => handleProjectClick(project)}
-                  className="p-4 rounded-xl border transition-all duration-300 cursor-pointer bg-white/50 border-white/20 hover:bg-white/80 hover:scale-[1.02] group"
+                  className={`p-4 rounded-xl border transition-all duration-300 cursor-pointer bg-white/50 border-white/20 hover:bg-white/80 hover:scale-[1.02] group ${
+                    isModalOpen && selectedProject?.id === project.id ? 'opacity-0' : ''
+                  }`}
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
@@ -277,7 +351,13 @@ export default function Home() {
       )}
 
       {/* Modal */}
-      <ProjectModal project={selectedProject} isOpen={isModalOpen} onClose={handleCloseModal} />
+      <ProjectModal
+        project={selectedProject}
+        isOpen={isModalOpen}
+        isClosing={isModalClosing}
+        sourceRect={sourceRect}
+        onClose={handleCloseModal}
+      />
     </div>
   );
 }
