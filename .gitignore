@@ -1,1 +1,6 @@
 .DS_Store
+.github/
+.claude/
+docs/
+node_modules/
+public/
