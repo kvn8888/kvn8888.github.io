@@ -1,19 +1,75 @@
 export default function Home() {
   return (
-    <div className="pt-24">
-      <h1 className="text-4xl font-bold text-center" style={{ fontFamily: 'var(--font-noto-serif)' }}>Welcome to <span className="text-[#D97757]">KevinC.dev</span></h1>
-      <p className="mt-6 text-center text-lg text-gray-700 max-w-2xl mx-auto" style={{ fontFamily: 'var(--font-geist-sans)' }}>I&apos;m a software engineering student at the Rochester Institute of Technology. I&apos;m currently on an internship at Ivalua, Inc. Here are some of my projects:</p>
-      
-      <div className="mt-10 flex flex-col items-center gap-4">
-        <a href="#" className="w-80 px-8 py-3 border-2 border-[#D97757] text-[black] font-medium hover:bg-[#D97757] hover:text-white transition-colors text-center">
-          Project One <span className="material-symbols-outlined align-middle text-base">arrow_outward</span>
+    <div className="min-h-screen flex flex-col items-center justify-center px-4 relative">
+      {/* Aurora Background */}
+      <div className="aurora-bg">
+        <div className="aurora-blob aurora-blob-1"></div>
+        <div className="aurora-blob aurora-blob-2"></div>
+        <div className="aurora-blob aurora-blob-3"></div>
+      </div>
+
+      {/* Content */}
+      <div className="text-center max-w-4xl mx-auto relative z-10">
+        {/* Small tagline */}
+        <p className="text-sm text-gray-500 mb-4 tracking-wide">
+          A new AI browser from the makers of Arc
+        </p>
+        
+        {/* Main headline with shimmer effect */}
+        <h1 className="text-5xl sm:text-6xl md:text-7xl font-medium tracking-tight mb-8">
+          <span className="gradient-text">Shop</span>{" "}
+          <span className="shimmer-text">with your tabs</span>
+        </h1>
+
+        {/* Bio text */}
+        <p className="text-lg text-gray-600 max-w-xl mx-auto mb-8 leading-relaxed">
+          I&apos;m a software engineering student at the Rochester Institute of Technology. 
+          Currently on an internship at Ivalua, Inc.
+        </p>
+
+        {/* CTA Button */}
+        <a 
+          href="#projects"
+          className="inline-flex items-center justify-center px-8 py-4 bg-black text-white rounded-full font-medium hover:bg-gray-900 transition-colors shadow-lg hover:shadow-xl"
+        >
+          See my projects
         </a>
-        <a href="#" className="w-80 px-8 py-3 border-2 border-[#D97757] text-[black] font-medium hover:bg-[#D97757] hover:text-white transition-colors text-center">
-          Project Two <span className="material-symbols-outlined align-middle text-base">arrow_outward</span>
-        </a>
-        <a href="#" className="w-80 px-8 py-3 border-2 border-[#D97757] text-[black] font-medium hover:bg-[#D97757] hover:text-white transition-colors text-center">
-          Project Three <span className="material-symbols-outlined align-middle text-base">arrow_outward</span>
-        </a>
+
+        {/* Projects Section */}
+        <div id="projects" className="mt-20 grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-3xl mx-auto">
+          <a 
+            href="#" 
+            className="group p-6 bg-white/50 backdrop-blur-sm rounded-2xl border border-white/20 hover:bg-white/80 transition-all duration-300 hover:shadow-lg"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <span className="font-medium text-gray-900">Project One</span>
+              <span className="material-symbols-outlined text-gray-400 group-hover:text-gray-900 transition-colors">arrow_outward</span>
+            </div>
+            <p className="text-sm text-gray-500">A brief description of the first project</p>
+          </a>
+
+          <a 
+            href="#" 
+            className="group p-6 bg-white/50 backdrop-blur-sm rounded-2xl border border-white/20 hover:bg-white/80 transition-all duration-300 hover:shadow-lg"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <span className="font-medium text-gray-900">Project Two</span>
+              <span className="material-symbols-outlined text-gray-400 group-hover:text-gray-900 transition-colors">arrow_outward</span>
+            </div>
+            <p className="text-sm text-gray-500">A brief description of the second project</p>
+          </a>
+
+          <a 
+            href="#" 
+            className="group p-6 bg-white/50 backdrop-blur-sm rounded-2xl border border-white/20 hover:bg-white/80 transition-all duration-300 hover:shadow-lg"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <span className="font-medium text-gray-900">Project Three</span>
+              <span className="material-symbols-outlined text-gray-400 group-hover:text-gray-900 transition-colors">arrow_outward</span>
+            </div>
+            <p className="text-sm text-gray-500">A brief description of the third project</p>
+          </a>
+        </div>
       </div>
     </div>
   );
