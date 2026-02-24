@@ -230,13 +230,13 @@ export default function Home() {
         <div className="aurora-blob aurora-blob-3"></div>
       </div>
 
-      {/* Content */}
-      <div className="text-center max-w-4xl mx-auto relative z-10">
+      {/* Content with blur reveal animation */}
+      <div className="text-center max-w-4xl mx-auto relative z-10 blur-reveal">
         {/* Small tagline */}
         <p className="text-sm text-gray-500 mb-4 tracking-wide">Software Engineer & Builder</p>
 
-        {/* Main headline with blur reveal animation */}
-        <h1 className="text-5xl sm:text-6xl md:text-7xl font-medium tracking-tight mb-8 text-black header-blur-reveal">
+        {/* Main headline */}
+        <h1 className="text-5xl sm:text-6xl md:text-7xl font-medium tracking-tight mb-8 text-black">
           Welcome to KevinC.dev
         </h1>
 

@@ -164,6 +164,6 @@ body {
   }
 }
 
-.header-blur-reveal {
+.blur-reveal {
   animation: blurReveal 0.2s ease-out forwards;
 }
