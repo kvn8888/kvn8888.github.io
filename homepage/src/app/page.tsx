@@ -36,6 +36,12 @@ const projects: Project[] = [
 
 export default function Home() {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  // Trigger animations after mount (fixes Safari refresh caching)
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Handle ESC key
   useEffect(() => {
@@ -62,15 +68,15 @@ export default function Home() {
       {/* Content with staggered blur reveal animation */}
       <div className="text-center max-w-4xl mx-auto relative z-10">
         {/* Small tagline */}
-        <p className="text-sm text-gray-500 mb-4 tracking-wide blur-reveal">Software Engineering Student &apos;27</p>
+        <p className={`text-sm text-gray-500 mb-4 tracking-wide ${mounted ? 'blur-reveal' : 'opacity-0'}`}>Software Engineering Student &apos;27</p>
 
         {/* Main headline */}
-        <h1 className="text-5xl sm:text-6xl md:text-7xl font-medium tracking-tight mb-8 text-black blur-reveal-1">
+        <h1 className={`text-5xl sm:text-6xl md:text-7xl font-medium tracking-tight mb-8 text-black ${mounted ? 'blur-reveal-1' : 'opacity-0'}`}>
           Welcome to KevinC.dev
         </h1>
 
         {/* Bio text */}
-        <p className="text-lg text-gray-600 max-w-xl mx-auto mb-8 leading-relaxed blur-reveal-2">
+        <p className={`text-lg text-gray-600 max-w-xl mx-auto mb-8 leading-relaxed ${mounted ? 'blur-reveal-2' : 'opacity-0'}`}>
           I&apos;m a software engineering student at the Rochester Institute of Technology.
           Currently on an internship at Ivalua, Inc.
         </p>
@@ -78,13 +84,13 @@ export default function Home() {
         {/* CTA Button */}
         <a
           href="#projects"
-          className="inline-flex items-center justify-center px-8 py-4 bg-black text-white rounded-full font-medium hover:bg-gray-900 transition-colors shadow-lg hover:shadow-xl blur-reveal-3"
+          className={`inline-flex items-center justify-center px-8 py-4 bg-black text-white rounded-full font-medium hover:bg-gray-900 transition-colors shadow-lg hover:shadow-xl ${mounted ? 'blur-reveal-3' : 'opacity-0'}`}
         >
           See my projects
         </a>
 
         {/* Projects Section */}
-        <div id="projects" className="mt-20 w-full max-w-xl mx-auto blur-reveal-4">
+        <div id="projects" className={`mt-20 w-full max-w-xl mx-auto ${mounted ? 'blur-reveal-4' : 'opacity-0'}`}>
           <h2 className="text-2xl font-medium text-gray-900 mb-8">Projects</h2>
 
           {/* Project List */}
