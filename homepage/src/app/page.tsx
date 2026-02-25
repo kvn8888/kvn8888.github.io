@@ -62,7 +62,7 @@ export default function Home() {
   }, [selectedProject]);
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center px-6 sm:px-4 relative">
+    <div className="min-h-screen flex flex-col items-center justify-center px-4 relative">
       <AuroraBackground />
 
       {/* Content with staggered blur reveal animation */}
