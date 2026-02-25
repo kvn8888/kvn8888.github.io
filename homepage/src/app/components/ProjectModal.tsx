@@ -10,6 +10,8 @@ interface ProjectModalProps {
 }
 
 export function ProjectModal({ project, onClose }: ProjectModalProps) {
+  const isSvg = project.screenshot?.endsWith('.svg');
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 pointer-events-none">
       <motion.div
@@ -66,14 +68,26 @@ export function ProjectModal({ project, onClose }: ProjectModalProps) {
           {/* Screenshot */}
           {project.screenshot && (
             <div className="mb-6 -ml-[36px] rounded-xl overflow-hidden border border-gray-200">
-              <Image
-                src={project.screenshot}
-                alt={`${project.title} screenshot`}
-                width={800}
-                height={600}
-                className="w-full h-auto object-cover"
-                style={{ maxHeight: '400px', objectFit: 'cover', objectPosition: 'top' }}
-              />
+              {isSvg ? (
+                // Use img for SVGs (placeholders)
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={project.screenshot}
+                  alt={`${project.title} screenshot`}
+                  className="w-full h-auto"
+                  style={{ maxHeight: '400px', objectFit: 'cover', objectPosition: 'top' }}
+                />
+              ) : (
+                // Use Next Image for real screenshots
+                <Image
+                  src={project.screenshot}
+                  alt={`${project.title} screenshot`}
+                  width={800}
+                  height={600}
+                  className="w-full h-auto"
+                  style={{ maxHeight: '400px', objectFit: 'cover', objectPosition: 'top' }}
+                />
+              )}
             </div>
           )}
 

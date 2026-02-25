@@ -85,7 +85,7 @@ export default function Home() {
       {/* Content with staggered blur reveal animation */}
       <div className="text-center max-w-4xl mx-auto relative z-10">
         {/* Small tagline */}
-        <p className={`text-sm text-gray-500 mb-4 tracking-wide ${mounted ? 'blur-reveal' : 'opacity-0'}`}>Software Engineering Student &apos;27</p>
+        <p className={`text-sm text-gray-500 mb-4 tracking-wide ${mounted ? 'blur-reveal' : 'opacity-0'}`}>Software Engineering Student, Spring 2027</p>
 
         {/* Main headline */}
         <h1 className={`text-5xl sm:text-6xl md:text-7xl font-medium tracking-tight mb-8 text-black ${mounted ? 'blur-reveal-1' : 'opacity-0'}`}>
@@ -127,13 +127,10 @@ export default function Home() {
           </a>
         </div>
 
-        {/* CTA Button */}
-        <a
-          href="#projects"
-          className={`inline-flex items-center justify-center px-8 py-4 bg-black text-white rounded-full font-medium hover:bg-gray-900 transition-colors shadow-lg hover:shadow-xl ${mounted ? 'blur-reveal-4' : 'opacity-0'}`}
-        >
-          See my projects
-        </a>
+        {/* Status Badge */}
+        <div className={`inline-flex items-center gap-2 px-4 py-2 bg-black-50 border border-black-200 rounded-full ${mounted ? 'blur-reveal-4' : 'opacity-0'}`}>
+          <span className="text-sm font-medium text-black-700">Open to Summer 2026 Opportunities</span>
+        </div>
 
         {/* Projects Section */}
         <div id="projects" className={`mt-20 w-full max-w-xl mx-auto ${mounted ? 'blur-reveal-5' : 'opacity-0'}`}>
