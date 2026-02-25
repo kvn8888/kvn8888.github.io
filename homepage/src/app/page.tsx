@@ -82,7 +82,7 @@ export default function Home() {
         </p>
 
         {/* Social Links */}
-        <div className={`flex items-center justify-center gap-3 mb-8 ${mounted ? 'blur-reveal-3' : 'opacity-0'}`}>
+        <div className={`flex flex-wrap items-center justify-center gap-2 sm:gap-3 mb-8 ${mounted ? 'blur-reveal-3' : 'opacity-0'}`}>
           <a
             href="https://github.com/kvn8888"
             target="_blank"
