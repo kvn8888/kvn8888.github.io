@@ -2,9 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import { AnimatePresence } from 'framer-motion';
-import { AuroraBackground, ProjectCard, ProjectModal, type Project } from './components';
+import { AuroraBackground, ProjectCard, ProjectModal, type Project, type ProjectCategory } from './components';
 
 const projects: Project[] = [
+  // Personal Projects
   {
     id: 'password-entropy',
     title: 'Password Entropy Checker',
@@ -13,6 +14,7 @@ const projects: Project[] = [
     fullDesc: 'A web application that calculates password entropy and provides real-time feedback on password strength using Shannon entropy calculations.',
     demoUrl: '#',
     githubUrl: '#',
+    category: 'personal',
   },
   {
     id: 'google-tts',
@@ -22,7 +24,9 @@ const projects: Project[] = [
     fullDesc: 'A polished UI for Google Cloud Text-to-Speech API with voice preview, speed control, and batch processing capabilities.',
     demoUrl: '#',
     githubUrl: '#',
+    category: 'personal',
   },
+  // Academic Projects
   {
     id: 'receipt-automator',
     title: 'Receipt Automator',
@@ -31,8 +35,18 @@ const projects: Project[] = [
     fullDesc: 'An intelligent system that extracts data from receipt images using OCR and automatically populates expense tracking spreadsheets.',
     demoUrl: '#',
     githubUrl: '#',
+    category: 'academic',
   },
+  // Hackathon Projects (placeholder)
 ];
+
+const categoryLabels: Record<ProjectCategory, string> = {
+  personal: 'Personal Projects',
+  academic: 'Academic Projects',
+  hackathon: 'Hackathon Projects',
+};
+
+const categoryOrder: ProjectCategory[] = ['personal', 'academic', 'hackathon'];
 
 export default function Home() {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
@@ -120,17 +134,30 @@ export default function Home() {
 
         {/* Projects Section */}
         <div id="projects" className={`mt-20 w-full max-w-xl mx-auto ${mounted ? 'blur-reveal-5' : 'opacity-0'}`}>
-          <h2 className="text-2xl font-medium text-gray-900 mb-8">Projects</h2>
+          <h2 className="text-2xl font-medium text-gray-900 mb-8">Featured Projects</h2>
 
-          {/* Project List */}
-          <div className="space-y-3 relative">
-            {projects.map((project) => (
-              <ProjectCard
-                key={project.id}
-                project={project}
-                onClick={() => setSelectedProject(project)}
-              />
-            ))}
+          {/* Project List by Category */}
+          <div className="space-y-8">
+            {categoryOrder.map((category) => {
+              const categoryProjects = projects.filter((p) => p.category === category);
+              if (categoryProjects.length === 0) return null;
+              return (
+                <div key={category}>
+                  <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-3 text-left">
+                    {categoryLabels[category]}
+                  </h3>
+                  <div className="space-y-3">
+                    {categoryProjects.map((project) => (
+                      <ProjectCard
+                        key={project.id}
+                        project={project}
+                        onClick={() => setSelectedProject(project)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>

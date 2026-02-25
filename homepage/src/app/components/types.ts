@@ -1,3 +1,5 @@
+export type ProjectCategory = 'personal' | 'academic' | 'hackathon';
+
 export interface Project {
   id: string;
   title: string;
@@ -6,4 +8,5 @@ export interface Project {
   fullDesc: string;
   demoUrl: string;
   githubUrl: string;
+  category: ProjectCategory;
 }
