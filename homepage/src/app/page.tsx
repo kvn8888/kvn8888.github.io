@@ -15,6 +15,7 @@ const projects: Project[] = [
     demoUrl: '#',
     githubUrl: '#',
     category: 'personal',
+    screenshot: '/screenshots/placeholder.svg',
   },
   {
     id: 'google-tts',
@@ -25,6 +26,7 @@ const projects: Project[] = [
     demoUrl: '#',
     githubUrl: '#',
     category: 'personal',
+    screenshot: '/screenshots/placeholder.svg',
   },
   // Academic Projects
   {
@@ -36,6 +38,7 @@ const projects: Project[] = [
     demoUrl: '#',
     githubUrl: '#',
     category: 'academic',
+    screenshot: '/screenshots/placeholder.svg',
   },
   // Hackathon Projects (placeholder)
 ];

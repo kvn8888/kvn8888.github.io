@@ -9,4 +9,6 @@ export interface Project {
   demoUrl: string;
   githubUrl: string;
   category: ProjectCategory;
+  /** Optional screenshot URL - width should be consistent, height can vary */
+  screenshot?: string;
 }

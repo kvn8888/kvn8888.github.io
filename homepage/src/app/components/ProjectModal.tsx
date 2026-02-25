@@ -1,6 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
+import Image from 'next/image';
 import type { Project } from './types';
 
 interface ProjectModalProps {
@@ -23,7 +24,7 @@ export function ProjectModal({ project, onClose }: ProjectModalProps) {
       <motion.div
         layoutId={`card-${project.id}`}
         transition={{ type: "spring", stiffness: 500, damping: 30 }}
-        className="bg-white rounded-2xl w-full max-w-lg p-6 sm:p-8 shadow-2xl relative border border-gray-100 flex flex-col z-10 overflow-hidden pointer-events-auto"
+        className="bg-white rounded-2xl w-full max-w-lg md:max-w-2xl p-6 sm:p-8 shadow-2xl relative border border-gray-100 flex flex-col z-10 overflow-hidden pointer-events-auto max-h-[90vh] overflow-y-auto"
       >
         <button
           onClick={onClose}
@@ -62,6 +63,20 @@ export function ProjectModal({ project, onClose }: ProjectModalProps) {
           transition={{ delay: 0.1, duration: 0.2 }}
           className="flex flex-col flex-grow ml-[36px]"
         >
+          {/* Screenshot */}
+          {project.screenshot && (
+            <div className="mb-6 -ml-[36px] rounded-xl overflow-hidden border border-gray-200">
+              <Image
+                src={project.screenshot}
+                alt={`${project.title} screenshot`}
+                width={800}
+                height={600}
+                className="w-full h-auto object-cover"
+                style={{ maxHeight: '400px', objectFit: 'cover', objectPosition: 'top' }}
+              />
+            </div>
+          )}
+
           <div className="flex flex-wrap gap-2 mb-6">
             {project.tags.map((tag) => (
               <span
