@@ -67,7 +67,7 @@ export function ProjectModal({ project, onClose }: ProjectModalProps) {
         >
           {/* Screenshot */}
           {project.screenshot && (
-            <div className="mb-6 -ml-[36px] rounded-xl overflow-hidden border border-gray-200">
+            <div className="mb-6 -ml-[36px] rounded-xl overflow-hidden border border-gray-200 bg-gray-100" style={{ minHeight: '200px' }}>
               {isSvg ? (
                 // Use img for SVGs (placeholders)
                 // eslint-disable-next-line @next/next/no-img-element
@@ -86,6 +86,7 @@ export function ProjectModal({ project, onClose }: ProjectModalProps) {
                   height={600}
                   className="w-full h-auto"
                   style={{ maxHeight: '400px', objectFit: 'cover', objectPosition: 'top' }}
+                  priority
                 />
               )}
             </div>

@@ -26,7 +26,7 @@ const projects: Project[] = [
     demoUrl: '#',
     githubUrl: '#',
     category: 'personal',
-    screenshot: '/screenshots/placeholder.svg',
+    screenshot: '/screenshots/example.png',
   },
   // Academic Projects
   {
@@ -58,6 +58,16 @@ export default function Home() {
   // Trigger animations after mount (fixes Safari refresh caching)
   useEffect(() => {
     setMounted(true);
+  }, []);
+
+  // Preload all project screenshots on mount
+  useEffect(() => {
+    projects.forEach((project) => {
+      if (project.screenshot) {
+        const img = new window.Image();
+        img.src = project.screenshot;
+      }
+    });
   }, []);
 
   // Handle ESC key
