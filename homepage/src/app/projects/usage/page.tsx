@@ -85,6 +85,21 @@ interface AzureUsage {
   dashboardUrl: string
 }
 
+interface TursoUsage {
+  usage: {
+    rows_read: number
+    rows_written: number
+    storage_bytes: number
+    databases: number
+    groups: number
+    locations: number
+    bytes_synced: number
+  }
+  limits: Record<string, number>
+  databases: { uuid: string; rows_read: number; rows_written: number; storage_bytes: number }[]
+  dashboardUrl: string
+}
+
 function UsageMeter({
   label,
   used,
@@ -188,6 +203,7 @@ export default function UsagePage() {
   const [openRouter, setOpenRouter] = useState<OpenRouterUsage | null>(null)
   const [gcp, setGcp] = useState<GCPUsage | null>(null)
   const [azure, setAzure] = useState<AzureUsage | null>(null)
+  const [turso, setTurso] = useState<TursoUsage | null>(null)
   const [tavilyStatus, setTavilyStatus] = useState<
     'loading' | 'ok' | 'error'
   >('loading')
@@ -206,6 +222,9 @@ export default function UsagePage() {
   const [azureStatus, setAzureStatus] = useState<
     'loading' | 'ok' | 'error'
   >('loading')
+  const [tursoStatus, setTursoStatus] = useState<
+    'loading' | 'ok' | 'error'
+  >('loading')
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
 
   const fetchData = useCallback(async () => {
@@ -215,6 +234,7 @@ export default function UsagePage() {
     setOpenRouterStatus('loading')
     setGcpStatus('loading')
     setAzureStatus('loading')
+    setTursoStatus('loading')
 
     try {
       const res = await fetch('/api/usage/tavily')
@@ -286,6 +306,18 @@ export default function UsagePage() {
       }
     } catch {
       setAzureStatus('error')
+    }
+
+    try {
+      const res = await fetch('/api/usage/turso')
+      if (res.ok) {
+        setTurso(await res.json())
+        setTursoStatus('ok')
+      } else {
+        setTursoStatus('error')
+      }
+    } catch {
+      setTursoStatus('error')
     }
 
     setLastRefresh(new Date())
@@ -765,6 +797,57 @@ export default function UsagePage() {
         ) : azureStatus === 'error' ? (
           <p className="text-sm text-foreground/40">
             Could not fetch Azure data. Check AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET in env.
+          </p>
+        ) : null}
+      </ServiceCard>
+
+      {/* Turso */}
+      <ServiceCard
+        title="Turso"
+        icon="database"
+        plan="Starter"
+        status={tursoStatus}
+        dashboardUrl={turso?.dashboardUrl || 'https://turso.tech/app'}
+      >
+        {turso ? (
+          <>
+            <UsageMeter
+              label="Rows Read"
+              used={turso.usage.rows_read}
+              limit={turso.limits.rows_read}
+            />
+            <UsageMeter
+              label="Rows Written"
+              used={turso.usage.rows_written}
+              limit={turso.limits.rows_written}
+            />
+            <UsageMeter
+              label="Storage"
+              used={Math.round(turso.usage.storage_bytes / 1_000_000)}
+              limit={Math.round(turso.limits.storage_bytes / 1_000_000)}
+              unit="MB"
+            />
+
+            <div className="pt-2 border-t border-foreground/5 space-y-2">
+              <div className="flex items-baseline justify-between text-sm">
+                <span className="text-foreground/50">Databases</span>
+                <span className="tabular-nums text-foreground/60">
+                  {turso.usage.databases} / {turso.limits.databases}
+                </span>
+              </div>
+              {turso.usage.bytes_synced > 0 && (
+                <div className="flex items-baseline justify-between text-sm">
+                  <span className="text-foreground/50">Bytes Synced</span>
+                  <span className="tabular-nums text-foreground/60">
+                    {(turso.usage.bytes_synced / 1_000_000).toFixed(1)} MB
+                  </span>
+                </div>
+              )}
+            </div>
+          </>
+        ) : tursoStatus === 'error' ? (
+          <p className="text-sm text-foreground/40">
+            Could not fetch Turso data. Check TURSO_API_TOKEN and TURSO_ORG_SLUG in env.
           </p>
         ) : null}
       </ServiceCard>

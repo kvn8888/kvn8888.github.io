@@ -31,7 +31,7 @@ export async function GET() {
     // Fetch services list
     const res = await fetch("https://api.render.com/v1/services?limit=20", {
       headers: { Authorization: `Bearer ${apiKey}` },
-      next: { revalidate: 300 },
+      cache: "no-store",
     })
 
     if (!res.ok) {
@@ -51,8 +51,23 @@ export async function GET() {
       updatedAt: item.service.updatedAt,
     }))
 
+    // Try to fetch bandwidth usage
+    let bandwidth = null
+    try {
+      const bwRes = await fetch("https://api.render.com/v1/bandwidth", {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        cache: "no-store",
+      })
+      if (bwRes.ok) {
+        bandwidth = await bwRes.json()
+      }
+    } catch {
+      // Bandwidth endpoint may not be available for all plans
+    }
+
     return NextResponse.json({
       services,
+      bandwidth,
       limits: {
         instance_hours: { limit: 750, unit: "hours/mo" },
         outbound_bandwidth: { limit: 100, unit: "GB/mo" },
