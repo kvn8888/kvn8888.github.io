@@ -71,6 +71,20 @@ interface GCPUsage {
   dashboardUrl: string
 }
 
+interface AzureUsage {
+  type: 'credits' | 'cost_query'
+  currentBalance?: number
+  estimatedBalance?: number
+  totalSpend?: number
+  studentCredit?: number
+  remaining?: number
+  currency: string
+  expiredCredit?: number
+  pendingCharges?: number
+  period?: string
+  dashboardUrl: string
+}
+
 function UsageMeter({
   label,
   used,
@@ -173,6 +187,7 @@ export default function UsagePage() {
   const [render, setRender] = useState<RenderUsage | null>(null)
   const [openRouter, setOpenRouter] = useState<OpenRouterUsage | null>(null)
   const [gcp, setGcp] = useState<GCPUsage | null>(null)
+  const [azure, setAzure] = useState<AzureUsage | null>(null)
   const [tavilyStatus, setTavilyStatus] = useState<
     'loading' | 'ok' | 'error'
   >('loading')
@@ -188,6 +203,9 @@ export default function UsagePage() {
   const [gcpStatus, setGcpStatus] = useState<
     'loading' | 'ok' | 'error'
   >('loading')
+  const [azureStatus, setAzureStatus] = useState<
+    'loading' | 'ok' | 'error'
+  >('loading')
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
 
   const fetchData = useCallback(async () => {
@@ -196,6 +214,7 @@ export default function UsagePage() {
     setRenderStatus('loading')
     setOpenRouterStatus('loading')
     setGcpStatus('loading')
+    setAzureStatus('loading')
 
     try {
       const res = await fetch('/api/usage/tavily')
@@ -255,6 +274,18 @@ export default function UsagePage() {
       }
     } catch {
       setGcpStatus('error')
+    }
+
+    try {
+      const res = await fetch('/api/usage/azure')
+      if (res.ok) {
+        setAzure(await res.json())
+        setAzureStatus('ok')
+      } else {
+        setAzureStatus('error')
+      }
+    } catch {
+      setAzureStatus('error')
     }
 
     setLastRefresh(new Date())
@@ -652,6 +683,88 @@ export default function UsagePage() {
         ) : gcpStatus === 'error' ? (
           <p className="text-sm text-foreground/40">
             Could not fetch GCP data. Check GCP_SERVICE_ACCOUNT_KEY in env.
+          </p>
+        ) : null}
+      </ServiceCard>
+
+      {/* Azure */}
+      <ServiceCard
+        title="Azure"
+        icon="cloud_sync"
+        plan={azure?.type === 'cost_query' ? 'Student' : undefined}
+        status={azureStatus}
+        dashboardUrl={azure?.dashboardUrl || 'https://portal.azure.com/#view/Microsoft_Azure_Billing/BillingMenuBlade/~/Credits'}
+      >
+        {azure ? (
+          <>
+            {azure.type === 'credits' && azure.currentBalance != null && (
+              <>
+                <UsageMeter
+                  label="Credit Balance"
+                  used={Math.max(0, (azure.estimatedBalance ?? 0) - azure.currentBalance)}
+                  limit={azure.estimatedBalance ?? azure.currentBalance}
+                  unit={azure.currency}
+                />
+                <div className="pt-2 border-t border-foreground/5 space-y-2">
+                  <div className="flex items-baseline justify-between text-sm">
+                    <span className="text-foreground/50">Current Balance</span>
+                    <span className="tabular-nums font-semibold text-foreground">
+                      ${azure.currentBalance.toFixed(2)} {azure.currency}
+                    </span>
+                  </div>
+                  {azure.pendingCharges != null && azure.pendingCharges > 0 && (
+                    <div className="flex items-baseline justify-between text-sm">
+                      <span className="text-foreground/50">Pending Charges</span>
+                      <span className="tabular-nums text-amber-600">
+                        ${azure.pendingCharges.toFixed(2)}
+                      </span>
+                    </div>
+                  )}
+                  {azure.expiredCredit != null && azure.expiredCredit > 0 && (
+                    <div className="flex items-baseline justify-between text-sm">
+                      <span className="text-foreground/50">Expired Credit</span>
+                      <span className="tabular-nums text-foreground/40">
+                        ${azure.expiredCredit.toFixed(2)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+
+            {azure.type === 'cost_query' && azure.totalSpend != null && (
+              <>
+                <UsageMeter
+                  label="Student Credits"
+                  used={azure.totalSpend}
+                  limit={azure.studentCredit ?? 100}
+                  unit={azure.currency}
+                />
+                <div className="pt-2 border-t border-foreground/5 space-y-2">
+                  <div className="flex items-baseline justify-between text-sm">
+                    <span className="text-foreground/50">Total Spend</span>
+                    <span className="tabular-nums text-foreground/60">
+                      ${azure.totalSpend.toFixed(2)} {azure.currency}
+                    </span>
+                  </div>
+                  <div className="flex items-baseline justify-between text-sm">
+                    <span className="text-foreground/50">Remaining</span>
+                    <span className="tabular-nums font-semibold text-foreground">
+                      ${(azure.remaining ?? 0).toFixed(2)} {azure.currency}
+                    </span>
+                  </div>
+                  {azure.period && (
+                    <p className="text-xs text-foreground/30 italic">
+                      Period: {azure.period}
+                    </p>
+                  )}
+                </div>
+              </>
+            )}
+          </>
+        ) : azureStatus === 'error' ? (
+          <p className="text-sm text-foreground/40">
+            Could not fetch Azure data. Check AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET in env.
           </p>
         ) : null}
       </ServiceCard>
