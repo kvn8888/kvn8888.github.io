@@ -22,7 +22,8 @@ export async function GET() {
     if (res.ok) {
       const data = await res.json()
       return NextResponse.json({
-        ...data,
+        connected: true,
+        apiKeys: data,
         dashboardUrl: 'https://venice.ai/settings/api',
       })
     }
