@@ -15,7 +15,7 @@ export async function GET() {
   try {
     const res = await fetch("https://api.tavily.com/usage", {
       headers: { Authorization: `Bearer ${apiKey}` },
-      next: { revalidate: 60 }, // cache for 60s
+      cache: "no-store",
     })
 
     if (!res.ok) {
