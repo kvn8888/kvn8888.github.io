@@ -2,6 +2,12 @@ import { auth } from "@/auth"
 
 const projectLinks = [
   {
+    title: "API Usage Monitor",
+    description: "Track credits, limits, and burn rate across Tavily, Vercel, and more",
+    href: "/project/usage",
+    icon: "monitoring",
+  },
+  {
     title: "Project Dashboard",
     description: "Overview of all active projects and their status",
     href: "/project/dashboard",
