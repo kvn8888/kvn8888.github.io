@@ -58,6 +58,19 @@ interface OpenRouterUsage {
   dashboardUrl: string
 }
 
+interface GCPAccount {
+  id: string
+  displayName: string
+  open: boolean
+  projects: { id: string; billingEnabled: boolean }[]
+}
+
+interface GCPUsage {
+  accounts: GCPAccount[]
+  projectId: string
+  dashboardUrl: string
+}
+
 function UsageMeter({
   label,
   used,
@@ -159,6 +172,7 @@ export default function UsagePage() {
   const [vercel, setVercel] = useState<VercelUsage | null>(null)
   const [render, setRender] = useState<RenderUsage | null>(null)
   const [openRouter, setOpenRouter] = useState<OpenRouterUsage | null>(null)
+  const [gcp, setGcp] = useState<GCPUsage | null>(null)
   const [tavilyStatus, setTavilyStatus] = useState<
     'loading' | 'ok' | 'error'
   >('loading')
@@ -171,6 +185,9 @@ export default function UsagePage() {
   const [openRouterStatus, setOpenRouterStatus] = useState<
     'loading' | 'ok' | 'error'
   >('loading')
+  const [gcpStatus, setGcpStatus] = useState<
+    'loading' | 'ok' | 'error'
+  >('loading')
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
 
   const fetchData = useCallback(async () => {
@@ -178,6 +195,7 @@ export default function UsagePage() {
     setVercelStatus('loading')
     setRenderStatus('loading')
     setOpenRouterStatus('loading')
+    setGcpStatus('loading')
 
     try {
       const res = await fetch('/api/usage/tavily')
@@ -225,6 +243,18 @@ export default function UsagePage() {
       }
     } catch {
       setOpenRouterStatus('error')
+    }
+
+    try {
+      const res = await fetch('/api/usage/gcp')
+      if (res.ok) {
+        setGcp(await res.json())
+        setGcpStatus('ok')
+      } else {
+        setGcpStatus('error')
+      }
+    } catch {
+      setGcpStatus('error')
     }
 
     setLastRefresh(new Date())
@@ -550,6 +580,78 @@ export default function UsagePage() {
         ) : openRouterStatus === 'error' ? (
           <p className="text-sm text-foreground/40">
             Could not fetch OpenRouter data. Check OPENROUTER_API_KEY in env.
+          </p>
+        ) : null}
+      </ServiceCard>
+
+      {/* Google Cloud */}
+      <ServiceCard
+        title="Google Cloud"
+        icon="cloud_circle"
+        status={gcpStatus}
+        dashboardUrl={gcp?.dashboardUrl || 'https://console.cloud.google.com/billing'}
+      >
+        {gcp ? (
+          <>
+            {gcp.accounts.length > 0 ? (
+              <div className="space-y-4">
+                {gcp.accounts.map((account) => (
+                  <div key={account.id} className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-foreground/70">
+                        {account.displayName}
+                      </span>
+                      <span
+                        className={`text-xs px-2 py-0.5 rounded-full ${
+                          account.open
+                            ? 'bg-emerald-50 text-emerald-700'
+                            : 'bg-red-50 text-red-700'
+                        }`}
+                      >
+                        {account.open ? 'Active' : 'Closed'}
+                      </span>
+                    </div>
+                    {account.projects.length > 0 && (
+                      <div className="space-y-1 pl-2">
+                        {account.projects.map((proj) => (
+                          <div
+                            key={proj.id}
+                            className="flex items-center justify-between text-sm"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={`w-2 h-2 rounded-full ${
+                                  proj.billingEnabled
+                                    ? 'bg-emerald-400'
+                                    : 'bg-gray-300'
+                                }`}
+                              />
+                              <span className="text-foreground/60">
+                                {proj.id}
+                              </span>
+                            </div>
+                            <span className="text-xs text-foreground/40">
+                              {proj.billingEnabled ? 'Billing on' : 'Billing off'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-foreground/40">
+                No billing accounts found.
+              </p>
+            )}
+            <p className="text-xs text-foreground/30 italic pt-2 border-t border-foreground/5">
+              Cost data requires BigQuery export setup. Shows billing accounts and projects.
+            </p>
+          </>
+        ) : gcpStatus === 'error' ? (
+          <p className="text-sm text-foreground/40">
+            Could not fetch GCP data. Check GCP_SERVICE_ACCOUNT_KEY in env.
           </p>
         ) : null}
       </ServiceCard>
