@@ -187,12 +187,9 @@ export default function Home() {
       {/* Admin link */}
       <a
         href="/projects"
-        className="fixed bottom-6 right-6 w-10 h-10 rounded-full bg-foreground/5 hover:bg-foreground/10 flex items-center justify-center transition-colors z-40"
-        title="Projects"
+        className="fixed top-4 right-4 text-xs text-foreground/20 hover:text-foreground/50 transition-colors z-40"
       >
-        <span className="material-symbols-outlined text-foreground/30 hover:text-foreground/60 text-xl transition-colors">
-          build
-        </span>
+        dashboard
       </a>
     </div>
   );
