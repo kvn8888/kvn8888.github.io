@@ -185,12 +185,14 @@ export default function Home() {
       </AnimatePresence>
 
       {/* Admin link */}
-      <a
-        href="/projects"
-        className="fixed top-4 right-4 text-xs text-foreground/20 hover:text-foreground/50 transition-colors z-40"
-      >
-        dashboard
-      </a>
+      <div className="flex justify-end py-8 pr-4">
+        <a
+          href="/projects"
+          className="text-xs text-foreground/20 hover:text-foreground/50 transition-colors"
+        >
+          dashboard
+        </a>
+      </div>
     </div>
   );
 }
