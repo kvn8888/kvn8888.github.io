@@ -160,7 +160,7 @@ export default function UsagePage() {
   const [renderStatus, setRenderStatus] = useState<
     'loading' | 'ok' | 'error'
   >('loading')
-  const [lastRefresh, setLastRefresh] = useState<Date>(new Date())
+  const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
 
   const fetchData = useCallback(async () => {
     setTavilyStatus('loading')
@@ -221,7 +221,7 @@ export default function UsagePage() {
         </div>
         <div className="flex items-center gap-3">
           <span className="text-xs text-foreground/30 tabular-nums">
-            {lastRefresh.toLocaleTimeString()}
+            {lastRefresh ? lastRefresh.toLocaleTimeString() : '—'}
           </span>
           <button
             onClick={fetchData}
@@ -323,7 +323,7 @@ export default function UsagePage() {
         icon="cloud"
         plan={vercel?.plan}
         status={vercelStatus}
-        dashboardUrl={vercel?.dashboardUrl || 'https://vercel.com/account/usage'}
+        dashboardUrl={vercel?.dashboardUrl || 'https://vercel.com/kvn8888s-projects/~/usage'}
       >
         {vercel ? (
           <>

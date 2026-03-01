@@ -40,7 +40,7 @@ export async function GET() {
           image_optimization: { limit: 1_000, unit: "images" },
         },
         note: "Usage data unavailable for Hobby plan via API. Check dashboard.",
-        dashboardUrl: "https://vercel.com/account/usage",
+        dashboardUrl: "https://vercel.com/kvn8888s-projects/~/usage",
       })
     }
 
@@ -52,7 +52,7 @@ export async function GET() {
       .filter(Boolean)
       .map((line: string) => JSON.parse(line))
 
-    return NextResponse.json({ plan: "hobby", charges })
+    return NextResponse.json({ plan: "hobby", charges, dashboardUrl: "https://vercel.com/kvn8888s-projects/~/usage" })
   } catch {
     return NextResponse.json({
       plan: "hobby",
@@ -65,7 +65,7 @@ export async function GET() {
         image_optimization: { limit: 1_000, unit: "images" },
       },
       note: "Usage data unavailable. Check dashboard.",
-      dashboardUrl: "https://vercel.com/account/usage",
+      dashboardUrl: "https://vercel.com/kvn8888s-projects/~/usage",
     })
   }
 }
