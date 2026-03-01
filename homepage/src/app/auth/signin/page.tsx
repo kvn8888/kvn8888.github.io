@@ -11,7 +11,7 @@ export default function SignInPage() {
             <div className="text-center mb-8">
               <h1 className="text-2xl font-bold text-foreground">Sign In</h1>
               <p className="text-sm text-foreground/60 mt-2">
-                Access protected project pages
+                This area is private. Authorized access only.
               </p>
             </div>
 

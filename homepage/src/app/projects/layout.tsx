@@ -18,10 +18,10 @@ export default async function ProjectLayout({
           <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
             <div className="flex items-center gap-4">
               <Link
-                href="/projects"
+                href="/"
                 className="text-sm text-foreground/60 hover:text-foreground transition-colors"
               >
-                ← Projects
+                ← Home
               </Link>
               <span className="text-foreground font-semibold">Projects</span>
             </div>
