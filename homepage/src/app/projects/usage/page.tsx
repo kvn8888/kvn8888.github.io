@@ -51,6 +51,13 @@ interface RenderUsage {
   dashboardUrl: string
 }
 
+interface OpenRouterUsage {
+  total_credits: number
+  total_usage: number
+  remaining: number
+  dashboardUrl: string
+}
+
 function UsageMeter({
   label,
   used,
@@ -151,6 +158,7 @@ export default function UsagePage() {
   const [tavily, setTavily] = useState<TavilyUsage | null>(null)
   const [vercel, setVercel] = useState<VercelUsage | null>(null)
   const [render, setRender] = useState<RenderUsage | null>(null)
+  const [openRouter, setOpenRouter] = useState<OpenRouterUsage | null>(null)
   const [tavilyStatus, setTavilyStatus] = useState<
     'loading' | 'ok' | 'error'
   >('loading')
@@ -160,12 +168,16 @@ export default function UsagePage() {
   const [renderStatus, setRenderStatus] = useState<
     'loading' | 'ok' | 'error'
   >('loading')
+  const [openRouterStatus, setOpenRouterStatus] = useState<
+    'loading' | 'ok' | 'error'
+  >('loading')
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
 
   const fetchData = useCallback(async () => {
     setTavilyStatus('loading')
     setVercelStatus('loading')
     setRenderStatus('loading')
+    setOpenRouterStatus('loading')
 
     try {
       const res = await fetch('/api/usage/tavily')
@@ -201,6 +213,18 @@ export default function UsagePage() {
       }
     } catch {
       setRenderStatus('error')
+    }
+
+    try {
+      const res = await fetch('/api/usage/openrouter')
+      if (res.ok) {
+        setOpenRouter(await res.json())
+        setOpenRouterStatus('ok')
+      } else {
+        setOpenRouterStatus('error')
+      }
+    } catch {
+      setOpenRouterStatus('error')
     }
 
     setLastRefresh(new Date())
@@ -483,6 +507,49 @@ export default function UsagePage() {
         ) : renderStatus === 'error' ? (
           <p className="text-sm text-foreground/40">
             Could not fetch Render data. Check RENDER_API_KEY in env.
+          </p>
+        ) : null}
+      </ServiceCard>
+
+      {/* OpenRouter */}
+      <ServiceCard
+        title="OpenRouter"
+        icon="route"
+        status={openRouterStatus}
+        dashboardUrl={openRouter?.dashboardUrl || 'https://openrouter.ai/activity'}
+      >
+        {openRouter ? (
+          <>
+            <UsageMeter
+              label="Credits"
+              used={openRouter.total_usage}
+              limit={openRouter.total_credits}
+              unit="USD"
+            />
+            <div className="pt-2 border-t border-foreground/5 space-y-2">
+              <div className="flex items-baseline justify-between text-sm">
+                <span className="text-foreground/50">Total Purchased</span>
+                <span className="tabular-nums font-medium text-foreground/70">
+                  ${openRouter.total_credits.toFixed(2)}
+                </span>
+              </div>
+              <div className="flex items-baseline justify-between text-sm">
+                <span className="text-foreground/50">Total Used</span>
+                <span className="tabular-nums text-foreground/60">
+                  ${openRouter.total_usage.toFixed(2)}
+                </span>
+              </div>
+              <div className="flex items-baseline justify-between text-sm">
+                <span className="text-foreground/50">Remaining</span>
+                <span className="tabular-nums font-semibold text-foreground">
+                  ${openRouter.remaining.toFixed(2)}
+                </span>
+              </div>
+            </div>
+          </>
+        ) : openRouterStatus === 'error' ? (
+          <p className="text-sm text-foreground/40">
+            Could not fetch OpenRouter data. Check OPENROUTER_API_KEY in env.
           </p>
         ) : null}
       </ServiceCard>
