@@ -273,30 +273,71 @@ export default function UsagePage() {
             </div>
 
             {/* Burn rate estimate */}
-            {tavily.account.plan_limit > 0 && (
-              <div className="pt-2 border-t border-foreground/5">
-                <div className="flex items-baseline justify-between text-sm">
-                  <span className="text-foreground/50">Remaining</span>
-                  <span className="tabular-nums font-semibold text-foreground">
-                    {(
-                      tavily.account.plan_limit - tavily.account.plan_usage
-                    ).toLocaleString()}{' '}
-                    credits
-                  </span>
+            {tavily.account.plan_limit > 0 && (() => {
+              const now = new Date()
+              const dayOfMonth = now.getDate()
+              const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
+              const daysRemaining = daysInMonth - dayOfMonth
+              const dailyRate = dayOfMonth > 0 ? tavily.account.plan_usage / dayOfMonth : 0
+              const projected = tavily.account.plan_usage + dailyRate * daysRemaining
+              const remaining = tavily.account.plan_limit - tavily.account.plan_usage
+              const willBurnOut = projected > tavily.account.plan_limit
+              const burnOutDay = dailyRate > 0
+                ? Math.ceil(remaining / dailyRate) + dayOfMonth
+                : null
+              const burnOutDate = burnOutDay && burnOutDay <= daysInMonth
+                ? new Date(now.getFullYear(), now.getMonth(), burnOutDay)
+                : null
+
+              return (
+                <div className="pt-2 border-t border-foreground/5 space-y-2">
+                  <div className="flex items-baseline justify-between text-sm">
+                    <span className="text-foreground/50">Remaining</span>
+                    <span className="tabular-nums font-semibold text-foreground">
+                      {remaining.toLocaleString()} credits
+                    </span>
+                  </div>
+                  <div className="flex items-baseline justify-between text-sm">
+                    <span className="text-foreground/50">Daily Burn Rate</span>
+                    <span className="tabular-nums text-foreground/60">
+                      ~{Math.round(dailyRate).toLocaleString()} credits/day
+                    </span>
+                  </div>
+                  <div className="flex items-baseline justify-between text-sm">
+                    <span className="text-foreground/50">Projected This Month</span>
+                    <span className={`tabular-nums font-medium ${willBurnOut ? 'text-red-600' : 'text-foreground/60'}`}>
+                      {Math.round(projected).toLocaleString()} / {tavily.account.plan_limit.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="flex items-baseline justify-between text-sm">
+                    <span className="text-foreground/50">Usage</span>
+                    <span className="tabular-nums text-foreground/60">
+                      {((tavily.account.plan_usage / tavily.account.plan_limit) * 100).toFixed(1)}%
+                    </span>
+                  </div>
+                  {willBurnOut && (
+                    <div className="mt-2 px-3 py-2 rounded-xl bg-red-50 border border-red-200 flex items-center gap-2">
+                      <span className="material-symbols-outlined text-red-500 text-lg">warning</span>
+                      <span className="text-sm text-red-700">
+                        At current pace, credits will run out
+                        {burnOutDate
+                          ? ` on ${burnOutDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+                          : ' before month end'}
+                        . {daysRemaining} days remaining.
+                      </span>
+                    </div>
+                  )}
+                  {!willBurnOut && daysRemaining > 0 && (
+                    <div className="mt-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-2">
+                      <span className="material-symbols-outlined text-emerald-500 text-lg">check_circle</span>
+                      <span className="text-sm text-emerald-700">
+                        On track — projected to use {((projected / tavily.account.plan_limit) * 100).toFixed(0)}% by month end.
+                      </span>
+                    </div>
+                  )}
                 </div>
-                <div className="flex items-baseline justify-between text-sm mt-1">
-                  <span className="text-foreground/50">Usage</span>
-                  <span className="tabular-nums text-foreground/60">
-                    {(
-                      (tavily.account.plan_usage /
-                        tavily.account.plan_limit) *
-                      100
-                    ).toFixed(1)}
-                    %
-                  </span>
-                </div>
-              </div>
-            )}
+              )
+            })()}
 
             {/* Key-level usage if different from account */}
             {tavily.key.limit && (
