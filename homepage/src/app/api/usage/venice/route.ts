@@ -26,10 +26,13 @@ export async function GET() {
     const data = await res.json()
 
     return NextResponse.json({
-      canConsume: data.canConsume,
-      consumptionCurrency: data.consumptionCurrency,
-      balances: data.balances,
-      diemEpochAllocation: data.diemEpochAllocation,
+      canConsume: data.canConsume ?? false,
+      consumptionCurrency: data.consumptionCurrency ?? null,
+      balances: {
+        diem: data.balances?.diem ?? 0,
+        usd: data.balances?.usd ?? 0,
+      },
+      diemEpochAllocation: data.diemEpochAllocation ?? 0,
       dashboardUrl: 'https://venice.ai/settings/api',
     })
   } catch (error) {

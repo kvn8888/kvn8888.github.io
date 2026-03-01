@@ -1137,22 +1137,22 @@ export default function UsagePage() {
           <>
             <UsageMeter
               label="DIEM Balance"
-              used={venice.diemEpochAllocation - venice.balances.diem}
-              limit={venice.diemEpochAllocation}
+              used={(venice.diemEpochAllocation ?? 0) - (venice.balances?.diem ?? 0)}
+              limit={venice.diemEpochAllocation ?? 0}
               unit="DIEM"
             />
             <div className="pt-2 border-t border-foreground/5 space-y-2">
               <div className="flex items-baseline justify-between text-sm">
                 <span className="text-foreground/50">DIEM Remaining</span>
                 <span className="tabular-nums font-semibold text-foreground">
-                  {venice.balances.diem.toFixed(1)}
+                  {(venice.balances?.diem ?? 0).toFixed(1)}
                 </span>
               </div>
-              {venice.balances.usd > 0 && (
+              {(venice.balances?.usd ?? 0) > 0 && (
                 <div className="flex items-baseline justify-between text-sm">
                   <span className="text-foreground/50">USD Balance</span>
                   <span className="tabular-nums text-foreground/60">
-                    ${venice.balances.usd.toFixed(2)}
+                    ${(venice.balances?.usd ?? 0).toFixed(2)}
                   </span>
                 </div>
               )}
