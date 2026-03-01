@@ -349,7 +349,7 @@ export default function UsagePage() {
         </div>
       </div>
 
-      {/* Tavily */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
       <ServiceCard
         title="Tavily"
         icon="search"
@@ -851,6 +851,7 @@ export default function UsagePage() {
           </p>
         ) : null}
       </ServiceCard>
+      </div>
     </div>
   )
 }
