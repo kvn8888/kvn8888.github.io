@@ -178,7 +178,7 @@ function ServiceCard({
           <span className="material-symbols-outlined text-foreground/50 text-xl">
             {icon}
           </span>
-          <h2 className="font-semibold text-foreground">{title}</h2>
+          <h2 className="font-medium text-foreground">{title}</h2>
           {plan && (
             <span className="text-xs px-2 py-0.5 rounded-full bg-foreground/5 text-foreground/50 font-medium">
               {plan}
@@ -261,113 +261,35 @@ export default function UsagePage() {
     setOddsStatus('loading')
     setVeniceStatus('loading')
 
-    try {
-      const res = await fetch('/api/usage/tavily')
-      if (res.ok) {
-        setTavily(await res.json())
-        setTavilyStatus('ok')
-      } else {
-        setTavilyStatus('error')
+    const fetchService = async <T,>(
+      url: string,
+      setData: (d: T) => void,
+      setStatus: (s: 'loading' | 'ok' | 'error') => void,
+    ) => {
+      try {
+        const res = await fetch(url)
+        if (res.ok) {
+          setData(await res.json())
+          setStatus('ok')
+        } else {
+          setStatus('error')
+        }
+      } catch {
+        setStatus('error')
       }
-    } catch {
-      setTavilyStatus('error')
     }
 
-    try {
-      const res = await fetch('/api/usage/vercel')
-      if (res.ok) {
-        setVercel(await res.json())
-        setVercelStatus('ok')
-      } else {
-        setVercelStatus('error')
-      }
-    } catch {
-      setVercelStatus('error')
-    }
-
-    try {
-      const res = await fetch('/api/usage/render')
-      if (res.ok) {
-        setRender(await res.json())
-        setRenderStatus('ok')
-      } else {
-        setRenderStatus('error')
-      }
-    } catch {
-      setRenderStatus('error')
-    }
-
-    try {
-      const res = await fetch('/api/usage/openrouter')
-      if (res.ok) {
-        setOpenRouter(await res.json())
-        setOpenRouterStatus('ok')
-      } else {
-        setOpenRouterStatus('error')
-      }
-    } catch {
-      setOpenRouterStatus('error')
-    }
-
-    try {
-      const res = await fetch('/api/usage/gcp')
-      if (res.ok) {
-        setGcp(await res.json())
-        setGcpStatus('ok')
-      } else {
-        setGcpStatus('error')
-      }
-    } catch {
-      setGcpStatus('error')
-    }
-
-    try {
-      const res = await fetch('/api/usage/azure')
-      if (res.ok) {
-        setAzure(await res.json())
-        setAzureStatus('ok')
-      } else {
-        setAzureStatus('error')
-      }
-    } catch {
-      setAzureStatus('error')
-    }
-
-    try {
-      const res = await fetch('/api/usage/turso')
-      if (res.ok) {
-        setTurso(await res.json())
-        setTursoStatus('ok')
-      } else {
-        setTursoStatus('error')
-      }
-    } catch {
-      setTursoStatus('error')
-    }
-
-    try {
-      const res = await fetch('/api/usage/odds')
-      if (res.ok) {
-        setOdds(await res.json())
-        setOddsStatus('ok')
-      } else {
-        setOddsStatus('error')
-      }
-    } catch {
-      setOddsStatus('error')
-    }
-
-    try {
-      const res = await fetch('/api/usage/venice')
-      if (res.ok) {
-        setVenice(await res.json())
-        setVeniceStatus('ok')
-      } else {
-        setVeniceStatus('error')
-      }
-    } catch {
-      setVeniceStatus('error')
-    }
+    await Promise.allSettled([
+      fetchService('/api/usage/tavily', setTavily, setTavilyStatus),
+      fetchService('/api/usage/vercel', setVercel, setVercelStatus),
+      fetchService('/api/usage/render', setRender, setRenderStatus),
+      fetchService('/api/usage/openrouter', setOpenRouter, setOpenRouterStatus),
+      fetchService('/api/usage/gcp', setGcp, setGcpStatus),
+      fetchService('/api/usage/azure', setAzure, setAzureStatus),
+      fetchService('/api/usage/turso', setTurso, setTursoStatus),
+      fetchService('/api/usage/odds', setOdds, setOddsStatus),
+      fetchService('/api/usage/venice', setVenice, setVeniceStatus),
+    ])
 
     setLastRefresh(new Date())
   }, [])
@@ -380,7 +302,7 @@ export default function UsagePage() {
     <div className="blur-reveal space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">API Usage</h1>
+          <h1 className="text-2xl font-medium text-foreground">API Usage</h1>
           <p className="text-sm text-foreground/50 mt-1">
             Credits burned, limits, and burn rate across services.
           </p>
@@ -391,7 +313,7 @@ export default function UsagePage() {
           </span>
           <button
             onClick={fetchData}
-            className="text-sm px-3 py-1.5 rounded-lg bg-foreground/5 hover:bg-foreground/10 text-foreground/60 transition-colors cursor-pointer"
+            className="text-sm px-3 py-1.5 rounded-full bg-foreground/5 hover:bg-foreground/10 text-foreground/60 transition-colors cursor-pointer"
           >
             Refresh
           </button>
