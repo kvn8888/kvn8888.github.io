@@ -108,11 +108,11 @@ interface OddsUsage {
 }
 
 interface VeniceUsage {
-  connected?: boolean
-  modelsAvailable?: number
-  note?: string
+  canConsume: boolean
+  consumptionCurrency: string | null
+  balances: { diem: number; usd: number }
+  diemEpochAllocation: number
   dashboardUrl: string
-  [key: string]: unknown
 }
 
 function UsageMeter({
@@ -1129,37 +1129,40 @@ export default function UsagePage() {
       <ServiceCard
         title="Venice AI"
         icon="smart_toy"
+        plan={venice?.consumptionCurrency || undefined}
         status={veniceStatus}
         dashboardUrl={venice?.dashboardUrl || 'https://venice.ai/settings/api'}
       >
         {venice ? (
           <>
-            {venice.connected && (
-              <div className="space-y-2">
-                <div className="flex items-baseline justify-between text-sm">
-                  <span className="text-foreground/50">Status</span>
-                  <span className="text-emerald-600 font-medium">Connected</span>
-                </div>
-                {venice.modelsAvailable != null && (
-                  <div className="flex items-baseline justify-between text-sm">
-                    <span className="text-foreground/50">Models Available</span>
-                    <span className="tabular-nums text-foreground/60">
-                      {venice.modelsAvailable}
-                    </span>
-                  </div>
-                )}
-                {venice.note && (
-                  <p className="text-xs text-foreground/30 italic pt-2 border-t border-foreground/5">
-                    {venice.note}
-                  </p>
-                )}
+            <UsageMeter
+              label="DIEM Balance"
+              used={venice.diemEpochAllocation - venice.balances.diem}
+              limit={venice.diemEpochAllocation}
+              unit="DIEM"
+            />
+            <div className="pt-2 border-t border-foreground/5 space-y-2">
+              <div className="flex items-baseline justify-between text-sm">
+                <span className="text-foreground/50">DIEM Remaining</span>
+                <span className="tabular-nums font-semibold text-foreground">
+                  {venice.balances.diem.toFixed(1)}
+                </span>
               </div>
-            )}
-            {!venice.connected && (
-              <p className="text-sm text-foreground/50">
-                Venice AI data loaded. Check dashboard for usage details.
-              </p>
-            )}
+              {venice.balances.usd > 0 && (
+                <div className="flex items-baseline justify-between text-sm">
+                  <span className="text-foreground/50">USD Balance</span>
+                  <span className="tabular-nums text-foreground/60">
+                    ${venice.balances.usd.toFixed(2)}
+                  </span>
+                </div>
+              )}
+              <div className="flex items-baseline justify-between text-sm">
+                <span className="text-foreground/50">Status</span>
+                <span className={venice.canConsume ? 'text-emerald-600 font-medium' : 'text-red-600 font-medium'}>
+                  {venice.canConsume ? 'Active' : 'Depleted'}
+                </span>
+              </div>
+            </div>
           </>
         ) : veniceStatus === 'error' ? (
           <p className="text-sm text-foreground/40">
