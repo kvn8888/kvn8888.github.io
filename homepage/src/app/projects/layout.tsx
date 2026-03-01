@@ -15,7 +15,7 @@ export default async function ProjectLayout({
       <AuroraBackground />
       <div className="min-h-screen">
         <header className="sticky top-0 z-50 backdrop-blur-xl bg-white/60 border-b border-foreground/5">
-          <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
+          <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
             <div className="flex items-center gap-4">
               <Link
                 href="/"
@@ -54,7 +54,7 @@ export default async function ProjectLayout({
             </div>
           </div>
         </header>
-        <main className="max-w-5xl mx-auto px-4 py-8">{children}</main>
+        <main className="max-w-7xl mx-auto px-4 py-8">{children}</main>
       </div>
     </>
   )
