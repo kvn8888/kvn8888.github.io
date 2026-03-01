@@ -100,6 +100,21 @@ interface TursoUsage {
   dashboardUrl: string
 }
 
+interface OddsUsage {
+  requestsUsed: number
+  requestsRemaining: number
+  requestsLimit: number
+  dashboardUrl: string
+}
+
+interface VeniceUsage {
+  connected?: boolean
+  modelsAvailable?: number
+  note?: string
+  dashboardUrl: string
+  [key: string]: unknown
+}
+
 function UsageMeter({
   label,
   used,
@@ -225,6 +240,14 @@ export default function UsagePage() {
   const [tursoStatus, setTursoStatus] = useState<
     'loading' | 'ok' | 'error'
   >('loading')
+  const [odds, setOdds] = useState<OddsUsage | null>(null)
+  const [oddsStatus, setOddsStatus] = useState<
+    'loading' | 'ok' | 'error'
+  >('loading')
+  const [venice, setVenice] = useState<VeniceUsage | null>(null)
+  const [veniceStatus, setVeniceStatus] = useState<
+    'loading' | 'ok' | 'error'
+  >('loading')
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
 
   const fetchData = useCallback(async () => {
@@ -235,6 +258,8 @@ export default function UsagePage() {
     setGcpStatus('loading')
     setAzureStatus('loading')
     setTursoStatus('loading')
+    setOddsStatus('loading')
+    setVeniceStatus('loading')
 
     try {
       const res = await fetch('/api/usage/tavily')
@@ -318,6 +343,30 @@ export default function UsagePage() {
       }
     } catch {
       setTursoStatus('error')
+    }
+
+    try {
+      const res = await fetch('/api/usage/odds')
+      if (res.ok) {
+        setOdds(await res.json())
+        setOddsStatus('ok')
+      } else {
+        setOddsStatus('error')
+      }
+    } catch {
+      setOddsStatus('error')
+    }
+
+    try {
+      const res = await fetch('/api/usage/venice')
+      if (res.ok) {
+        setVenice(await res.json())
+        setVeniceStatus('ok')
+      } else {
+        setVeniceStatus('error')
+      }
+    } catch {
+      setVeniceStatus('error')
     }
 
     setLastRefresh(new Date())
@@ -996,6 +1045,125 @@ export default function UsagePage() {
         ) : tursoStatus === 'error' ? (
           <p className="text-sm text-foreground/40">
             Could not fetch Turso data. Check TURSO_API_TOKEN and TURSO_ORG_SLUG in env.
+          </p>
+        ) : null}
+      </ServiceCard>
+
+      {/* The Odds API */}
+      <ServiceCard
+        title="The Odds API"
+        icon="sports_soccer"
+        plan="Free"
+        status={oddsStatus}
+        dashboardUrl={odds?.dashboardUrl || 'https://the-odds-api.com/account/'}
+      >
+        {odds ? (
+          <>
+            <UsageMeter
+              label="Requests"
+              used={odds.requestsUsed}
+              limit={odds.requestsLimit}
+            />
+            <div className="pt-2 border-t border-foreground/5 space-y-2">
+              <div className="flex items-baseline justify-between text-sm">
+                <span className="text-foreground/50">Remaining</span>
+                <span className="tabular-nums font-semibold text-foreground">
+                  {odds.requestsRemaining.toLocaleString()} requests
+                </span>
+              </div>
+            </div>
+
+            {/* Burn rate projection */}
+            {(() => {
+              const now = new Date()
+              const dayOfMonth = now.getDate()
+              const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
+              const daysRemaining = daysInMonth - dayOfMonth
+              if (dayOfMonth === 0) return null
+              const dailyRate = odds.requestsUsed / dayOfMonth
+              const projected = odds.requestsUsed + dailyRate * daysRemaining
+              const willBurnOut = projected > odds.requestsLimit
+
+              return (
+                <div className="pt-2 border-t border-foreground/5 space-y-2">
+                  <div className="flex items-baseline justify-between text-sm">
+                    <span className="text-foreground/50">Daily Burn Rate</span>
+                    <span className="tabular-nums text-foreground/60">
+                      ~{Math.round(dailyRate).toLocaleString()} req/day
+                    </span>
+                  </div>
+                  <div className="flex items-baseline justify-between text-sm">
+                    <span className="text-foreground/50">Projected This Month</span>
+                    <span className={`tabular-nums font-medium ${willBurnOut ? 'text-red-600' : 'text-foreground/60'}`}>
+                      {Math.round(projected).toLocaleString()} / {odds.requestsLimit.toLocaleString()}
+                    </span>
+                  </div>
+                  {willBurnOut && (
+                    <div className="mt-2 px-3 py-2 rounded-xl bg-red-50 border border-red-200 flex items-center gap-2">
+                      <span className="material-symbols-outlined text-red-500 text-lg">warning</span>
+                      <span className="text-sm text-red-700">
+                        Requests projected to exceed limit. {daysRemaining} days remaining.
+                      </span>
+                    </div>
+                  )}
+                  {!willBurnOut && daysRemaining > 0 && (
+                    <div className="mt-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-2">
+                      <span className="material-symbols-outlined text-emerald-500 text-lg">check_circle</span>
+                      <span className="text-sm text-emerald-700">
+                        On track — projected to use {((projected / odds.requestsLimit) * 100).toFixed(0)}% by month end.
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
+          </>
+        ) : oddsStatus === 'error' ? (
+          <p className="text-sm text-foreground/40">
+            Could not fetch Odds API data. Check ODDS_API_KEY in env.
+          </p>
+        ) : null}
+      </ServiceCard>
+
+      {/* Venice AI */}
+      <ServiceCard
+        title="Venice AI"
+        icon="smart_toy"
+        status={veniceStatus}
+        dashboardUrl={venice?.dashboardUrl || 'https://venice.ai/settings/api'}
+      >
+        {venice ? (
+          <>
+            {venice.connected && (
+              <div className="space-y-2">
+                <div className="flex items-baseline justify-between text-sm">
+                  <span className="text-foreground/50">Status</span>
+                  <span className="text-emerald-600 font-medium">Connected</span>
+                </div>
+                {venice.modelsAvailable != null && (
+                  <div className="flex items-baseline justify-between text-sm">
+                    <span className="text-foreground/50">Models Available</span>
+                    <span className="tabular-nums text-foreground/60">
+                      {venice.modelsAvailable}
+                    </span>
+                  </div>
+                )}
+                {venice.note && (
+                  <p className="text-xs text-foreground/30 italic pt-2 border-t border-foreground/5">
+                    {venice.note}
+                  </p>
+                )}
+              </div>
+            )}
+            {!venice.connected && (
+              <p className="text-sm text-foreground/50">
+                Venice AI data loaded. Check dashboard for usage details.
+              </p>
+            )}
+          </>
+        ) : veniceStatus === 'error' ? (
+          <p className="text-sm text-foreground/40">
+            Could not fetch Venice AI data. Check VENICE_API_KEY in env.
           </p>
         ) : null}
       </ServiceCard>
