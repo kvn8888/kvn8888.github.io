@@ -61,22 +61,28 @@ Generate commit messages following these examples:
 **Example 1:**
 Input: Added user authentication with JWT tokens
 Output:
-```
+```text
+
 feat(auth): implement JWT-based authentication
 
 Add login endpoint and token validation middleware
+
 ```
 
 **Example 2:**
 Input: Fixed bug where dates displayed incorrectly in reports
 Output:
-```
+
+```text
+
 fix(reports): correct date formatting in timezone conversion
 
 Use UTC timestamps consistently across report generation
-```
+
+```text
 
 Follow this style: type(scope): brief description, then detailed explanation.
+
 ```
 
 Examples help Claude understand the desired style and level of detail more clearly than descriptions alone.

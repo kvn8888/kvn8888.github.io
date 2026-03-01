@@ -136,11 +136,6 @@ Keep SKILL.md body to the essentials and under 500 lines to minimize context blo
 Extract text with pdfplumber:
 [code example]
 
-## Advanced features
-
-- **Form filling**: See [FORMS.md](FORMS.md) for complete guide
-- **API reference**: See [REFERENCE.md](REFERENCE.md) for all methods
-- **Examples**: See [EXAMPLES.md](EXAMPLES.md) for common patterns
 ```
 
 Claude loads FORMS.md, REFERENCE.md, or EXAMPLES.md only when needed.
@@ -177,21 +172,6 @@ When the user chooses AWS, Claude only reads aws.md.
 **Pattern 3: Conditional details**
 
 Show basic content, link to advanced content:
-
-```markdown
-# DOCX Processing
-
-## Creating documents
-
-Use docx-js for new documents. See [DOCX-JS.md](DOCX-JS.md).
-
-## Editing documents
-
-For simple edits, modify the XML directly.
-
-**For tracked changes**: See [REDLINING.md](REDLINING.md)
-**For OOXML details**: See [OOXML.md](OOXML.md)
-```
 
 Claude reads REDLINING.md or OOXML.md only when the user needs those features.
 

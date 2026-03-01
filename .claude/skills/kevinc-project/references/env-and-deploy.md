@@ -7,7 +7,7 @@ All set in `.env.local` (local) and Vercel dashboard (production).
 ### Required
 
 | Variable | Description |
-|---|---|
+| --- | --- |
 | `AUTH_SECRET` | Random string for JWT encryption. Generate with `npx auth secret` |
 | `AUTH_GOOGLE_ID` | Google OAuth Client ID from Cloud Console |
 | `AUTH_GOOGLE_SECRET` | Google OAuth Client Secret |
@@ -17,7 +17,7 @@ All set in `.env.local` (local) and Vercel dashboard (production).
 ### Optional (API Monitoring)
 
 | Variable | Description |
-|---|---|
+| --- | --- |
 | `TAVILY_API_KEY` | Tavily API key for usage monitoring (`tvly-...`) |
 | `VERCEL_API_TOKEN` | Vercel personal access token for billing API |
 | `RENDER_API_KEY` | Render API key for services monitoring |
@@ -25,6 +25,7 @@ All set in `.env.local` (local) and Vercel dashboard (production).
 ## Google OAuth Setup
 
 Registered callback URIs in Google Cloud Console:
+
 - `http://localhost:3000/api/auth/callback/google`
 - `https://kevinc.dev/api/auth/callback/google`
 - `https://kevin-chen.dev/api/auth/callback/google`
@@ -47,16 +48,19 @@ Add new domains here if additional CNAMEs are configured.
 ## External APIs
 
 ### Tavily
+
 - Endpoint: `GET https://api.tavily.com/usage`
 - Auth: `Authorization: Bearer <TAVILY_API_KEY>`
 - Returns: `{ key: { usage, limit, ... }, account: { current_plan, plan_usage, plan_limit, ... } }`
 
 ### Vercel
+
 - Endpoint: `GET https://api.vercel.com/v1/billing/charges`
 - Auth: `Authorization: Bearer <VERCEL_API_TOKEN>`
 - Returns FOCUS v1.3 JSONL. May return empty for Hobby plans — app falls back to known limits.
 
 ### Render
+
 - Endpoint: `GET https://api.render.com/v1/services?limit=20`
 - Auth: `Authorization: Bearer <RENDER_API_KEY>`
 - Returns: `[{ service: { id, name, type, ... } }]`
