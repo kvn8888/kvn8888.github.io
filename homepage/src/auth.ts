@@ -1,6 +1,8 @@
 import NextAuth from "next-auth"
 import Google from "next-auth/providers/google"
 
+const ALLOWED_EMAILS = (process.env.ALLOWED_EMAILS || "").split(",").map((e) => e.trim().toLowerCase())
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
     Google({
@@ -22,14 +24,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     signIn: "/auth/signin",
   },
   callbacks: {
+    signIn({ profile }) {
+      if (!profile?.email) return false
+      return ALLOWED_EMAILS.includes(profile.email.toLowerCase())
+    },
     authorized({ auth, request: { nextUrl } }) {
       const isLoggedIn = !!auth?.user
-      const isProtected = nextUrl.pathname.startsWith("/project")
+      const isProtected = nextUrl.pathname.startsWith("/projects")
 
       if (isProtected) {
-        return isLoggedIn // redirect to sign-in if not logged in
+        return isLoggedIn
       }
-      return true // allow all other routes
+      return true
     },
   },
 })

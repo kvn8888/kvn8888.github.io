@@ -1,5 +1,5 @@
 export { auth as default } from "@/auth"
 
 export const config = {
-  matcher: ["/project/:path*"],
+  matcher: ["/projects/:path*"],
 }

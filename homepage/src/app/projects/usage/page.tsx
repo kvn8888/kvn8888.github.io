@@ -34,6 +34,23 @@ interface VercelUsage {
   dashboardUrl?: string
 }
 
+interface RenderService {
+  id: string
+  name: string
+  type: string
+  plan: string
+  url?: string
+  region?: string
+  suspended?: string
+  updatedAt: string
+}
+
+interface RenderUsage {
+  services: RenderService[]
+  limits: Record<string, { limit: number; unit: string }>
+  dashboardUrl: string
+}
+
 function UsageMeter({
   label,
   used,
@@ -133,10 +150,14 @@ function ServiceCard({
 export default function UsagePage() {
   const [tavily, setTavily] = useState<TavilyUsage | null>(null)
   const [vercel, setVercel] = useState<VercelUsage | null>(null)
+  const [render, setRender] = useState<RenderUsage | null>(null)
   const [tavilyStatus, setTavilyStatus] = useState<
     'loading' | 'ok' | 'error'
   >('loading')
   const [vercelStatus, setVercelStatus] = useState<
+    'loading' | 'ok' | 'error'
+  >('loading')
+  const [renderStatus, setRenderStatus] = useState<
     'loading' | 'ok' | 'error'
   >('loading')
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date())
@@ -144,6 +165,7 @@ export default function UsagePage() {
   const fetchData = useCallback(async () => {
     setTavilyStatus('loading')
     setVercelStatus('loading')
+    setRenderStatus('loading')
 
     try {
       const res = await fetch('/api/usage/tavily')
@@ -167,6 +189,18 @@ export default function UsagePage() {
       }
     } catch {
       setVercelStatus('error')
+    }
+
+    try {
+      const res = await fetch('/api/usage/render')
+      if (res.ok) {
+        setRender(await res.json())
+        setRenderStatus('ok')
+      } else {
+        setRenderStatus('error')
+      }
+    } catch {
+      setRenderStatus('error')
     }
 
     setLastRefresh(new Date())
@@ -337,6 +371,77 @@ export default function UsagePage() {
         ) : vercelStatus === 'error' ? (
           <p className="text-sm text-foreground/40">
             Could not fetch Vercel usage. Check VERCEL_API_TOKEN in env.
+          </p>
+        ) : null}
+      </ServiceCard>
+
+      {/* Render */}
+      <ServiceCard
+        title="Render"
+        icon="dns"
+        plan="Free"
+        status={renderStatus}
+        dashboardUrl={render?.dashboardUrl || 'https://dashboard.render.com/'}
+      >
+        {render ? (
+          <>
+            {/* Services list */}
+            {render.services.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs text-foreground/40 uppercase tracking-wider font-medium">
+                  Services ({render.services.length})
+                </p>
+                {render.services.map((svc) => (
+                  <div
+                    key={svc.id}
+                    className="flex items-center justify-between text-sm"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`w-2 h-2 rounded-full ${
+                          svc.suspended === 'suspended'
+                            ? 'bg-amber-400'
+                            : 'bg-emerald-400'
+                        }`}
+                      />
+                      <span className="text-foreground/70 font-medium">
+                        {svc.name}
+                      </span>
+                      <span className="text-xs text-foreground/30">
+                        {svc.type}
+                      </span>
+                    </div>
+                    <span className="text-xs text-foreground/40">{svc.plan}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Known limits */}
+            {render.limits && (
+              <div className="space-y-2 pt-2 border-t border-foreground/5">
+                <p className="text-xs text-foreground/40 uppercase tracking-wider font-medium">
+                  Monthly Limits (Free Tier)
+                </p>
+                {Object.entries(render.limits).map(([key, val]) => (
+                  <div
+                    key={key}
+                    className="flex items-baseline justify-between text-sm"
+                  >
+                    <span className="text-foreground/50">
+                      {key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
+                    </span>
+                    <span className="tabular-nums font-medium text-foreground/70">
+                      {val.limit.toLocaleString()} {val.unit}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        ) : renderStatus === 'error' ? (
+          <p className="text-sm text-foreground/40">
+            Could not fetch Render data. Check RENDER_API_KEY in env.
           </p>
         ) : null}
       </ServiceCard>

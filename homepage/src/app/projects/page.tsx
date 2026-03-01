@@ -4,25 +4,25 @@ const projectLinks = [
   {
     title: "API Usage Monitor",
     description: "Track credits, limits, and burn rate across Tavily, Vercel, and more",
-    href: "/project/usage",
+    href: "/projects/usage",
     icon: "monitoring",
   },
   {
     title: "Project Dashboard",
     description: "Overview of all active projects and their status",
-    href: "/project/dashboard",
+    href: "/projects/dashboard",
     icon: "dashboard",
   },
   {
     title: "Notes",
     description: "Private notes and documentation",
-    href: "/project/notes",
+    href: "/projects/notes",
     icon: "edit_note",
   },
   {
     title: "Tools",
     description: "Internal tools and utilities",
-    href: "/project/tools",
+    href: "/projects/tools",
     icon: "build",
   },
 ]
