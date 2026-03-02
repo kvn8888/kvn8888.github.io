@@ -755,3 +755,13 @@ The actually interesting part was discovering how different every API's relation
 There's no standard here. Every API reflects the team that built it, the constraints they were under, and the assumptions they made about who would use it. Building integrations is partly software engineering and partly anthropology.
 
 The dashboard now tells me, at a glance, whether I'm on track across all the services I actively use. That's the thing I'll actually open again tomorrow. The auth was the means; the visibility was the point.
+
+### Example request I made to Copilot
+
+Can you look at the on track logic for tavily, odds api, and turso and see if you could apply it to venice ai. And pipe your findings to kevinc-project    │
+│     skill. And always use UNIX commands for docs. and your native tools for code. Cause usually the terminal breaks when you try to edit non code related      │
+│     docs. And use the tavily tool to see if you could make an example google tts tool in the tools section in /projects using the gemini 2.5 flash Gacrux      │
+│     voice. It should be a general speech section. and there are three "tabs". Follow the kevinc-design skill and the components.md and guidelines. But also,   │
+│     feel free to remain creative too. Just let me know when you diverge from the design guidelines in the code as comments detailing the reasoning why you     │
+│     diverged from the guidelines. The first tab is TTS. Second tab is STT using voxtral realtime 2. and as an option, voxtral transcribe 2. And third tab uses │
+│      microsoft's pronunciation api  
