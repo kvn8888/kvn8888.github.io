@@ -134,7 +134,7 @@ export default function Home() {
             LinkedIn
           </a>
           <a
-            href="https://kevin-chen-resume.s3.us-east-1.amazonaws.com/Kevin_Chen_Intern_Resume_AI+Engineering+with+Work+history.pdf"
+            href="/api/resume"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-2 px-4 py-2 bg-foreground/5 hover:bg-foreground/10 rounded-full text-foreground/70 font-medium transition-colors"
