@@ -121,7 +121,7 @@ function AddTab() {
           description: parsed.description,
           type: parsed.type,
           source,
-          cover_letter: coverLetter === 'yes' ? coverLetterText || 'yes' : 'no',
+          cover_letter: coverLetter === 'yes' ? (coverLetterText || '') : 'no',
           resume_type: resumeType,
         }),
       })
@@ -449,7 +449,7 @@ function BrowseTab() {
                   {job.description && (
                     <p className="text-xs text-foreground/60 whitespace-pre-wrap">{job.description}</p>
                   )}
-                  {job.cover_letter && job.cover_letter !== 'no' && (
+                  {job.cover_letter && job.cover_letter !== 'no' && job.cover_letter !== '' && (
                     <div>
                       <p className="text-xs text-foreground/40 mb-1">Cover letter</p>
                       <p className="text-xs text-foreground/60 whitespace-pre-wrap">

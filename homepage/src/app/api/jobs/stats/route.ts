@@ -32,9 +32,10 @@ export async function GET() {
     const lastMonday = new Date(now)
     lastMonday.setUTCDate(lastMonday.getUTCDate() - 7)
     const lastMondayISO = getMondayISO(lastMonday)
-    const thisSunday = new Date(thisMonday)
-    thisSunday.setUTCDate(thisSunday.getUTCDate() - 1)
-    const thisSundayISO = thisSunday.toISOString().slice(0, 10)
+    // Last Sunday = one day before this Monday (i.e., the end of last week)
+    const lastSunday = new Date(thisMonday)
+    lastSunday.setUTCDate(lastSunday.getUTCDate() - 1)
+    const lastSundayISO = lastSunday.toISOString().slice(0, 10)
 
     const monthStart = `${today.slice(0, 7)}-01`
 
@@ -47,7 +48,7 @@ export async function GET() {
       }),
       db.execute({
         sql: `SELECT COUNT(*) as cnt FROM job_applications WHERE date >= ? AND date <= ?`,
-        args: [lastMondayISO, thisSundayISO],
+        args: [lastMondayISO, lastSundayISO],
       }),
       db.execute({
         sql: `SELECT COUNT(*) as cnt FROM job_applications WHERE date >= ?`,

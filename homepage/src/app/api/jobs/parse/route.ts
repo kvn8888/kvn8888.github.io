@@ -14,6 +14,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'text is required' }, { status: 400 })
     }
 
+    // Google Gemini API requires the key as a URL query param (per their documented design)
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
       {
