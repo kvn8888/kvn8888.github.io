@@ -22,6 +22,18 @@ All set in `.env.local` (local) and Vercel dashboard (production).
 | `VERCEL_API_TOKEN` | Vercel personal access token for billing API |
 | `RENDER_API_KEY` | Render API key for services monitoring |
 
+### Optional (Speech Lab)
+
+| Variable | Description |
+| --- | --- |
+| `GEMINI_API_KEY` | Gemini TTS key (`/api/speech/tts`) |
+| `MISTRAL_API_KEY` | Mistral Voxtral transcription key (`/api/speech/stt`) |
+| `OPENAI_API_KEY` | OpenAI transcription key for GPT-4o audio model options |
+| `AZURE_SPEECH_KEY` | Azure Speech key for pronunciation assessment |
+| `AZURE_SPEECH_REGION` | Azure Speech region (e.g. `eastus`) |
+| `TURSO_DATABASE_URL` | Turso/libSQL database URL for Speech Lab history |
+| `TURSO_AUTH_TOKEN` | Turso auth token for Speech Lab history writes/reads |
+
 ## Google OAuth Setup
 
 Registered callback URIs in Google Cloud Console:
