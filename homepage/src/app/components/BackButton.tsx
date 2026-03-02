@@ -8,9 +8,10 @@ export function BackButton() {
   return (
     <button
       onClick={() => router.back()}
-      className="text-sm text-foreground/60 hover:text-foreground transition-colors cursor-pointer"
+      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-foreground text-background text-sm font-medium hover:opacity-90 transition-opacity cursor-pointer"
     >
-      ← Back
+      <span className="material-symbols-outlined text-base">arrow_back</span>
+      Back
     </button>
   )
 }

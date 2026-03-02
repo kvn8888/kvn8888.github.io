@@ -46,7 +46,7 @@ export default async function ProjectPage() {
           <a
             key={link.href}
             href={link.href}
-            className={`group block p-6 rounded-2xl bg-white/60 backdrop-blur-sm border border-foreground/5 hover:border-foreground/15 hover:bg-white/80 transition-all blur-reveal-${Math.min(i + 2, 5)}`}
+            className={`group block p-6 rounded-2xl bg-glass backdrop-blur-sm border border-glass-border hover:border-glass-border-hover hover:bg-glass-hover transition-all blur-reveal-${Math.min(i + 2, 5)}`}
           >
             <span className="material-symbols-outlined text-foreground/40 group-hover:text-foreground/70 transition-colors text-3xl">
               {link.icon}

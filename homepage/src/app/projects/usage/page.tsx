@@ -172,7 +172,7 @@ function ServiceCard({
   dashboardUrl?: string
 }) {
   return (
-    <div className="rounded-2xl bg-white/60 backdrop-blur-sm border border-foreground/5 overflow-hidden">
+    <div className="rounded-2xl bg-glass backdrop-blur-sm border border-glass-border overflow-hidden">
       <div className="px-6 py-4 border-b border-foreground/5 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <span className="material-symbols-outlined text-foreground/50 text-xl">
@@ -657,7 +657,7 @@ export default function UsagePage() {
                                 className={`w-2 h-2 rounded-full ${
                                   proj.billingEnabled
                                     ? 'bg-emerald-400'
-                                    : 'bg-gray-300'
+                                    : 'bg-foreground/20'
                                 }`}
                               />
                               <span className="text-foreground/60">

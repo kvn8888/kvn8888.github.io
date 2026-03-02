@@ -50,7 +50,7 @@ export default function SpeechLabPage() {
       </div>
 
       {/* Tab content */}
-      <div className={`rounded-2xl bg-white/60 backdrop-blur-sm border border-foreground/5 overflow-hidden ${mounted ? 'blur-reveal-3' : 'opacity-0'}`}>
+      <div className={`rounded-2xl bg-glass backdrop-blur-sm border border-glass-border overflow-hidden ${mounted ? 'blur-reveal-3' : 'opacity-0'}`}>
         {activeTab === 'tts' && <TtsPanel />}
         {activeTab === 'stt' && <SttPanel />}
         {activeTab === 'pronunciation' && <PronunciationPanel />}

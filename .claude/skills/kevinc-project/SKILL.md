@@ -16,8 +16,8 @@ homepage/                    # Next.js app root (run all commands here)
 │   ├── middleware.ts         # Route protection for /projects/*
 │   └── app/
 │       ├── page.tsx          # Public homepage (resume/portfolio)
-│       ├── globals.css       # Aurora, blur animations, base styles
-│       ├── components/       # Shared components (AuroraBackground, BackButton, ProjectCard, etc.)
+│       ├── globals.css       # Aurora, blur animations, dark mode vars, status overrides
+│       ├── components/       # Shared: AuroraBackground, BackButton, ProfileMenu, ThemeProvider, ThemeToggle, etc.
 │       ├── auth/signin/      # Custom Google sign-in page
 │       ├── projects/         # Protected project hub
 │       │   ├── page.tsx      # Hub with card navigation
@@ -126,6 +126,20 @@ Optional (speech tools):
 - Framer Motion (animations)
 - Auth.js v5 (`next-auth@5.0.0-beta.30`)
 - No database — JWT sessions in encrypted cookies
+
+## Theming
+
+Class-based dark mode: `.dark` on `<html>`, managed by `ThemeProvider`.
+
+**Architecture:**
+1. Inline `<script>` in `<head>` reads `localStorage('theme')` before paint → prevents flash
+2. `ThemeProvider` (client component) wraps entire app in root `layout.tsx`
+3. CSS variables in `globals.css` swap between `:root` and `.dark`
+4. `ThemeToggle` component on homepage (fixed top-right)
+5. `ProfileMenu` dropdown has theme toggle on projects pages
+
+**Adding a new themed surface:** Use `bg-glass`, `border-glass-border`, `text-foreground` etc. 
+Never use hardcoded `bg-white`, `text-gray-N`, or `bg-black`. See kevinc-design skill for full var list.
 
 ## Branches
 

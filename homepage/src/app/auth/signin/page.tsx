@@ -7,7 +7,7 @@ export default function SignInPage() {
       <AuroraBackground />
       <div className="min-h-screen flex items-center justify-center px-4">
         <div className="w-full max-w-sm blur-reveal">
-          <div className="bg-white/80 backdrop-blur-xl rounded-2xl shadow-lg border border-white/20 p-8">
+          <div className="bg-glass backdrop-blur-xl rounded-2xl shadow-lg border border-glass-border p-8">
             <div className="text-center mb-8">
               <h1 className="text-2xl font-medium text-foreground">Sign In</h1>
               <p className="text-sm text-foreground/60 mt-2">

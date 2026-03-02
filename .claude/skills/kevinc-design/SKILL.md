@@ -20,21 +20,57 @@ Key principles:
 
 ## Visual Language
 
-### Colors
-- **Background**: Pure white (`#ffffff`)
-- **Text primary**: Near-black (`#0a0a0a`, `text-gray-900`)
-- **Text secondary**: Gray (`#4b5563`, `text-gray-600`)
-- **Text tertiary**: Light gray (`#6b7280`, `text-gray-500`)
-- **Accent surfaces**: Light gray (`bg-gray-100`, `bg-gray-50`)
-- **Status/Active**: Emerald (`bg-emerald-50`, `text-emerald-700`) — used sparingly
+### Colors (Theme-Aware)
+The site supports **light** and **dark** modes via CSS variables + `.dark` class on `<html>`.
+Never use hardcoded colors like `bg-white`, `text-gray-500`, `bg-black`. Always use the CSS variable system:
+
+**CSS Variables (defined in globals.css):**
+| Variable | Light | Dark | Usage |
+|----------|-------|------|-------|
+| `--background` | `#ffffff` | `#0d0a08` (warm black) | Page background |
+| `--foreground` | `#0a0a0a` | `#f0ece8` (warm white) | Text color |
+| `--glass` | `rgba(255,255,255,0.6)` | `rgba(0,0,0,0.4)` | Glass surfaces |
+| `--glass-hover` | `rgba(255,255,255,0.8)` | `rgba(0,0,0,0.55)` | Glass hover |
+| `--glass-border` | `rgba(10,10,10,0.05)` | `rgba(255,255,255,0.08)` | Glass borders |
+| `--glass-border-hover` | `rgba(10,10,10,0.15)` | `rgba(255,255,255,0.15)` | Glass border hover |
+
+**Tailwind class mappings:**
+- Text primary: `text-foreground`
+- Text secondary: `text-foreground/60`
+- Text tertiary: `text-foreground/50`
+- Text faint: `text-foreground/40` or `text-foreground/30`
+- Surfaces: `bg-foreground/5` (subtle), `bg-foreground/10` (hover)
+- Glass cards: `bg-glass border-glass-border` (auto-adapts to theme)
+- Status: `bg-emerald-50 text-emerald-700` (dark mode overrides in CSS)
+
+### Dark Mode ("Dusk" Theme)
+- Deep warm-black background (`#0d0a08`)
+- Warm-white text (`#f0ece8`)
+- Dark glass surfaces (`rgba(0,0,0,0.4)`)
+- Status color overrides soften bright reds/greens/ambers in dark mode
 
 ### Aurora Background
-Three animated gradient blobs create a soft, shifting background:
+Three animated gradient blobs with **organic, abstract shapes** (not circles):
+
+**Light mode:**
 - **Blob 1** (orange): Top-left, largest
 - **Blob 2** (yellow): Top-right  
 - **Blob 3** (blue): Bottom-left
 
-Animation: 20s infinite ease-in-out cycle with opacity/scale/position transforms.
+**Dark mode ("Dusk"):**
+- **Blob 1** (amber/orange): Bottom, sharper blur (60px) — setting sun
+- **Blob 2** (gold/yellow): Bottom-right, medium blur (80px) — horizon glow  
+- **Blob 3** (violet/indigo): Top, very soft blur (120px) — darkening sky
+- **Progressive blur**: sharper near bottom (horizon), softer at top (sky)
+- **Noise overlay**: SVG fractalNoise texture at 3% opacity
+
+**Shape morphing**: Blobs use asymmetric `border-radius` that animates between organic shapes:
+```css
+border-radius: 30% 70% 60% 40% / 60% 30% 70% 40%;
+/* morphs to different organic shapes over 20s cycle */
+```
+
+Animation: 20s infinite ease-in-out cycle with opacity/scale/position/shape transforms.
 See [references/components.md](references/components.md) for CSS.
 
 ### Typography
@@ -105,20 +141,27 @@ New modal content fades in with blur: `initial={{ opacity: 0, filter: 'blur(10px
 
 ## Component Patterns
 
+### Glass Card (used everywhere)
+```tsx
+className="rounded-2xl bg-glass backdrop-blur-sm border border-glass-border hover:border-glass-border-hover hover:bg-glass-hover transition-all"
+```
+Adapts automatically between light (frosted white) and dark (frosted black) modes.
+
 ### Project Card
 Clickable card with hover scale, folder icon, and arrow indicator.
-- Container: `bg-white/50 border-white/20 hover:bg-white/80`
+- Container: `bg-glass border-glass-border hover:bg-glass-hover`
 - Hover: `whileHover={{ scale: 1.02 }}`
 
 ### Project Modal
 Full-screen overlay with morphing card animation.
 - Width: `max-w-lg md:max-w-2xl`
 - Max height: `max-h-[90vh]` with `overflow-y-auto`
-- Close button: top-right, `rounded-full bg-gray-50`
+- Close button: top-right, `rounded-full bg-foreground/5`
+- Backdrop: `bg-background/60 backdrop-blur-xl`
 
 ### Pill Buttons (Social Links)
 Inline-flex with icon + label.
-- Style: `bg-gray-100 hover:bg-gray-200 rounded-full px-4 py-2`
+- Style: `bg-foreground/5 hover:bg-foreground/10 rounded-full px-4 py-2 text-foreground/70`
 - Gap between items: `gap-2 sm:gap-3`
 
 ### Status Badge
@@ -126,19 +169,36 @@ Availability indicator with pulsing dot.
 - Container: `bg-emerald-50 border-emerald-200 rounded-full`
 - Dot: nested spans with `animate-ping` for pulse effect
 
+### Theme Toggle
+Subtle icon button that cycles System → Light → Dark.
+- Style: `text-foreground/30 hover:text-foreground/60` — barely visible at rest
+- Icons: `monitor` (system), `light_mode` (light), `dark_mode` (dark)
+- On homepage: fixed top-right corner
+- On projects pages: in ProfileMenu dropdown
+
+### Profile Menu
+Click avatar → glassmorphism popover with user info, theme toggle, sign out.
+- Container: `bg-glass backdrop-blur-xl border-glass-border`
+- Theme toggle row cycles and shows current mode
+- Sign out button with red styling
+
 ## File Structure
 
 ```
 homepage/src/app/
-├── layout.tsx        # Metadata, fonts, Material Symbols preload
-├── page.tsx          # Main page, project data, state management
-├── globals.css       # Aurora, blur animations, base styles
+├── layout.tsx          # Metadata, fonts, Material Symbols preload, ThemeProvider
+├── page.tsx            # Main page, project data, state management, ThemeToggle
+├── globals.css         # Aurora, blur animations, dark mode vars, status color overrides
 └── components/
-    ├── index.ts      # Barrel exports
-    ├── types.ts      # Project interface
+    ├── index.ts        # Barrel exports
+    ├── types.ts        # Project interface
     ├── AuroraBackground.tsx
+    ├── BackButton.tsx   # router.back() pill button
+    ├── ProfileMenu.tsx  # Avatar → dropdown with user info, theme toggle, sign out
     ├── ProjectCard.tsx
-    └── ProjectModal.tsx
+    ├── ProjectModal.tsx
+    ├── ThemeProvider.tsx # Context + localStorage + .dark class management
+    └── ThemeToggle.tsx   # Subtle icon button for cycling themes
 ```
 
 ## When Adding New Features

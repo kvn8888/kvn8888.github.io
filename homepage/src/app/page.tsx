@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { AnimatePresence } from 'framer-motion';
-import { AuroraBackground, ProjectCard, ProjectModal, type Project, type ProjectCategory } from './components';
+import { AuroraBackground, ProjectCard, ProjectModal, ThemeToggle, type Project, type ProjectCategory } from './components';
 
 const projects: Project[] = [
   // Personal Projects
@@ -92,18 +92,23 @@ export default function Home() {
     <div className="min-h-screen flex flex-col items-center justify-center px-4 relative">
       <AuroraBackground />
 
+      {/* Theme toggle — top right, subtle */}
+      <div className="fixed top-4 right-4 z-50">
+        <ThemeToggle />
+      </div>
+
       {/* Content with staggered blur reveal animation */}
       <div className="text-center max-w-4xl mx-auto relative z-10">
         {/* Small tagline */}
-        <p className={`text-sm text-gray-500 mb-4 tracking-wide ${mounted ? 'blur-reveal' : 'opacity-0'}`}>Software Engineering Student, Spring 2027</p>
+        <p className={`text-sm text-foreground/50 mb-4 tracking-wide ${mounted ? 'blur-reveal' : 'opacity-0'}`}>Software Engineering Student, Spring 2027</p>
 
         {/* Main headline */}
-        <h1 className={`text-5xl sm:text-6xl md:text-7xl font-medium tracking-tight mb-8 text-black ${mounted ? 'blur-reveal-1' : 'opacity-0'}`}>
+        <h1 className={`text-5xl sm:text-6xl md:text-7xl font-medium tracking-tight mb-8 text-foreground ${mounted ? 'blur-reveal-1' : 'opacity-0'}`}>
           Welcome to KevinC.dev
         </h1>
 
         {/* Bio text */}
-        <p className={`text-lg text-gray-600 max-w-xl mx-auto mb-6 leading-relaxed ${mounted ? 'blur-reveal-2' : 'opacity-0'}`}>
+        <p className={`text-lg text-foreground/60 max-w-xl mx-auto mb-6 leading-relaxed ${mounted ? 'blur-reveal-2' : 'opacity-0'}`}>
           I&apos;m a software engineering student at the Rochester Institute of Technology.
           Currently on an internship at Ivalua, Inc.
         </p>
@@ -114,7 +119,7 @@ export default function Home() {
             href="https://github.com/kvn8888"
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-700 font-medium transition-colors"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-foreground/5 hover:bg-foreground/10 rounded-full text-foreground/70 font-medium transition-colors"
           >
             <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
             GitHub
@@ -123,7 +128,7 @@ export default function Home() {
             href="https://www.linkedin.com/in/k3vnc"
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-700 font-medium transition-colors"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-foreground/5 hover:bg-foreground/10 rounded-full text-foreground/70 font-medium transition-colors"
           >
             <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
             LinkedIn
@@ -132,7 +137,7 @@ export default function Home() {
             href="https://kevin-chen-resume.s3.us-east-1.amazonaws.com/Kevin_Chen_Intern_Resume_AI+Engineering+with+Work+history.pdf"
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-700 font-medium transition-colors"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-foreground/5 hover:bg-foreground/10 rounded-full text-foreground/70 font-medium transition-colors"
           >
             <span className="material-symbols-outlined text-xl">description</span>
             Resume
@@ -140,13 +145,13 @@ export default function Home() {
         </div>
 
         {/* Status Badge */}
-        <div className={`inline-flex items-center gap-2 px-4 py-2 bg-gray-100 border border-gray-200 rounded-full ${mounted ? 'blur-reveal-4' : 'opacity-0'}`}>
-          <span className="text-sm font-medium text-gray-700">Open to Summer 2026 Opportunities</span>
+        <div className={`inline-flex items-center gap-2 px-4 py-2 bg-foreground/5 border border-foreground/10 rounded-full ${mounted ? 'blur-reveal-4' : 'opacity-0'}`}>
+          <span className="text-sm font-medium text-foreground/70">Open to Summer 2026 Opportunities</span>
         </div>
 
         {/* Projects Section */}
         <div id="projects" className={`mt-20 w-full max-w-xl mx-auto ${mounted ? 'blur-reveal-5' : 'opacity-0'}`}>
-          <h2 className="text-2xl font-medium text-gray-900 mb-8">Featured Projects</h2>
+          <h2 className="text-2xl font-medium text-foreground mb-8">Featured Projects</h2>
 
           {/* Project List by Category */}
           <div className="space-y-8">
@@ -155,7 +160,7 @@ export default function Home() {
               if (categoryProjects.length === 0) return null;
               return (
                 <div key={category}>
-                  <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-3 text-left">
+                  <h3 className="text-sm font-medium text-foreground/50 uppercase tracking-wider mb-3 text-left">
                     {categoryLabels[category]}
                   </h3>
                   <div className="space-y-3">
