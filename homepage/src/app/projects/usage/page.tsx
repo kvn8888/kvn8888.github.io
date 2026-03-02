@@ -1085,6 +1085,57 @@ export default function UsagePage() {
                 </span>
               </div>
             </div>
+
+            {/* Burn rate projection — same pattern as Tavily/Turso/Odds */}
+            {(() => {
+              const allocation = venice.diemEpochAllocation ?? 0
+              const remaining = venice.balances?.diem ?? 0
+              const used = allocation - remaining
+              if (allocation === 0) return null
+
+              const now = new Date()
+              const dayOfMonth = now.getDate()
+              const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
+              const daysRemaining = daysInMonth - dayOfMonth
+              if (dayOfMonth === 0) return null
+
+              const dailyRate = used / dayOfMonth
+              const projected = used + dailyRate * daysRemaining
+              const willBurnOut = projected > allocation
+
+              return (
+                <div className="pt-2 border-t border-foreground/5 space-y-2">
+                  <div className="flex items-baseline justify-between text-sm">
+                    <span className="text-foreground/50">Daily Burn Rate</span>
+                    <span className="tabular-nums text-foreground/60">
+                      ~{dailyRate.toFixed(1)} DIEM/day
+                    </span>
+                  </div>
+                  <div className="flex items-baseline justify-between text-sm">
+                    <span className="text-foreground/50">Projected This Month</span>
+                    <span className={`tabular-nums font-medium ${willBurnOut ? 'text-red-600' : 'text-foreground/60'}`}>
+                      {projected.toFixed(1)} / {allocation.toFixed(1)}
+                    </span>
+                  </div>
+                  {willBurnOut && (
+                    <div className="mt-2 px-3 py-2 rounded-xl bg-red-50 border border-red-200 flex items-center gap-2">
+                      <span className="material-symbols-outlined text-red-500 text-lg">warning</span>
+                      <span className="text-sm text-red-700">
+                        DIEM projected to run out this month. {daysRemaining} days remaining.
+                      </span>
+                    </div>
+                  )}
+                  {!willBurnOut && daysRemaining > 0 && (
+                    <div className="mt-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-2">
+                      <span className="material-symbols-outlined text-emerald-500 text-lg">check_circle</span>
+                      <span className="text-sm text-emerald-700">
+                        On track — projected to use {((projected / allocation) * 100).toFixed(0)}% by month end.
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
           </>
         ) : veniceStatus === 'error' ? (
           <p className="text-sm text-foreground/40">
