@@ -2,6 +2,12 @@ import { auth } from "@/auth"
 
 const toolLinks = [
   {
+    title: "Resume Uploader",
+    description: "Drag and drop your PDF to update the homepage resume button",
+    href: "/projects/tools/resume",
+    icon: "upload_file",
+  },
+  {
     title: "Speech Lab",
     description: "Text-to-speech, transcription, and pronunciation tools",
     href: "/projects/tools/speech",
