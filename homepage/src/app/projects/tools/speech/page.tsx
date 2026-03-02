@@ -3,19 +3,74 @@
 import { useState, useEffect } from 'react'
 
 type Tab = 'tts' | 'stt' | 'pronunciation'
+type SpeechModality = Tab | 'all'
+
+interface HistoryItem {
+  id: string
+  modality: Tab
+  title: string
+  content: string
+  metadata: Record<string, unknown> | null
+  createdAt: number
+}
 
 const tabs: { id: Tab; label: string; icon: string }[] = [
   { id: 'tts', label: 'Text to Speech', icon: 'record_voice_over' },
   { id: 'stt', label: 'Transcription', icon: 'mic' },
   { id: 'pronunciation', label: 'Pronunciation', icon: 'spellcheck' },
 ]
+const modalityLabels: Record<Tab, string> = {
+  tts: 'Text to Speech',
+  stt: 'Transcription',
+  pronunciation: 'Pronunciation',
+}
 
 export default function SpeechLabPage() {
   const [activeTab, setActiveTab] = useState<Tab>('tts')
+  const [history, setHistory] = useState<HistoryItem[]>([])
+  const [historyError, setHistoryError] = useState<string | null>(null)
+  const [historyFilter, setHistoryFilter] = useState<SpeechModality>('all')
   // Safari animation fix — only add blur-reveal classes after mount
   // so Safari doesn't cache the final state on refresh
   const [mounted, setMounted] = useState(false)
   useEffect(() => { setMounted(true) }, [])
+
+  const loadHistory = async () => {
+    try {
+      const res = await fetch('/api/speech/history', { cache: 'no-store' })
+      if (!res.ok) {
+        setHistoryError('Unable to load history right now.')
+        return
+      }
+      const data = await res.json()
+      setHistory(data.items || [])
+      setHistoryError(null)
+    } catch {
+      setHistoryError('Unable to load history right now.')
+    }
+  }
+
+  useEffect(() => {
+    loadHistory()
+  }, [])
+
+  const deleteHistory = async (id: string) => {
+    try {
+      const res = await fetch('/api/speech/history', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      })
+      if (res.ok) {
+        setHistory((prev) => prev.filter((item) => item.id !== id))
+        setHistoryError(null)
+      } else {
+        setHistoryError('Unable to delete history item.')
+      }
+    } catch {
+      setHistoryError('Unable to delete history item.')
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -51,9 +106,81 @@ export default function SpeechLabPage() {
 
       {/* Tab content */}
       <div className={`rounded-2xl bg-glass backdrop-blur-sm border border-glass-border overflow-hidden ${mounted ? 'blur-reveal-3' : 'opacity-0'}`}>
-        {activeTab === 'tts' && <TtsPanel />}
-        {activeTab === 'stt' && <SttPanel />}
-        {activeTab === 'pronunciation' && <PronunciationPanel />}
+        {activeTab === 'tts' && <TtsPanel onHistorySaved={loadHistory} />}
+        {activeTab === 'stt' && <SttPanel onHistorySaved={loadHistory} />}
+        {activeTab === 'pronunciation' && <PronunciationPanel onHistorySaved={loadHistory} />}
+      </div>
+
+      <div className={`rounded-2xl bg-glass backdrop-blur-sm border border-glass-border p-5 space-y-3 ${mounted ? 'blur-reveal-4' : 'opacity-0'}`}>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h3 className="text-sm font-medium text-foreground">History</h3>
+            <p className="text-xs text-foreground/40">Stored in Turso across all speech modalities</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <select
+              value={historyFilter}
+              onChange={(e) => setHistoryFilter(e.target.value as SpeechModality)}
+              aria-label="Filter history by modality"
+              className="rounded-xl bg-foreground/[0.03] border border-foreground/10 px-3 py-1.5 text-xs text-foreground focus:outline-none"
+            >
+              <option value="all">All</option>
+              <option value="tts">Text to Speech</option>
+              <option value="stt">Transcription</option>
+              <option value="pronunciation">Pronunciation</option>
+            </select>
+            <button
+              onClick={loadHistory}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-foreground/5 text-foreground/60 text-xs hover:bg-foreground/10 transition-colors cursor-pointer"
+            >
+              <span className="material-symbols-outlined text-sm">refresh</span>
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        {historyError && <p className="text-xs text-foreground/40">{historyError}</p>}
+
+        <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+          {history
+            .filter((item) => historyFilter === 'all' || item.modality === historyFilter)
+            .map((item) => (
+              <div key={item.id} className="rounded-xl border border-foreground/10 bg-foreground/[0.02] p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm text-foreground">{item.title}</p>
+                    <p className="text-xs text-foreground/40">
+                      {modalityLabels[item.modality]} · {new Date(item.createdAt).toLocaleString()}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => deleteHistory(item.id)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-red-50 text-red-700 text-xs border border-red-200 hover:bg-red-100 transition-colors cursor-pointer"
+                  >
+                    <span className="material-symbols-outlined text-sm">delete</span>
+                    Delete
+                  </button>
+                </div>
+                {item.content && (
+                  <p className="text-xs text-foreground/60 mt-2 whitespace-pre-wrap break-words">{item.content}</p>
+                )}
+              </div>
+            ))}
+          {history.filter((item) => historyFilter === 'all' || item.modality === historyFilter).length === 0 && (
+            <p className="text-sm text-foreground/40 py-2">No history yet.</p>
+          )}
+        </div>
+      </div>
+
+      <div className={`rounded-2xl bg-glass backdrop-blur-sm border border-glass-border p-5 ${mounted ? 'blur-reveal-5' : 'opacity-0'}`}>
+        <p className="text-xs text-foreground/40 mb-2">Reference Docs</p>
+        <ul className="space-y-1.5 text-sm text-foreground/70">
+          <li><a href="https://learn.microsoft.com/azure/ai-services/speech-service/how-to-pronunciation-assessment" target="_blank" rel="noreferrer" className="hover:text-foreground">Azure Speech: Pronunciation Assessment API</a></li>
+          <li><a href="https://docs.mistral.ai/capabilities/speech_to_text/" target="_blank" rel="noreferrer" className="hover:text-foreground">Mistral Voxtral Speech-to-Text</a></li>
+          <li><a href="https://ai.google.dev/gemini-api/docs/speech-generation" target="_blank" rel="noreferrer" className="hover:text-foreground">Google Gemini Speech Generation</a></li>
+          <li><a href="https://platform.openai.com/docs/guides/speech-to-text" target="_blank" rel="noreferrer" className="hover:text-foreground">OpenAI Speech-to-Text (GPT-4o audio)</a></li>
+          <li><a href="https://platform.openai.com/docs/guides/realtime" target="_blank" rel="noreferrer" className="hover:text-foreground">OpenAI Realtime API</a></li>
+        </ul>
       </div>
     </div>
   )
@@ -93,8 +220,19 @@ const geminiVoices = [
   { name: 'Sulafat', style: 'Warm' },
 ]
 
+function saveSpeechHistory(payload: { modality: Tab; title: string; content?: string; metadata?: Record<string, unknown> }) {
+  // History persistence is best-effort and should not block core speech actions.
+  void fetch('/api/speech/history', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).catch((error) => {
+    console.warn('Failed to save speech history', error)
+  })
+}
+
 /* ─── TTS Panel ─── */
-function TtsPanel() {
+function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
   const [text, setText] = useState('')
   const [voice, setVoice] = useState('Gacrux')
   const [instructions, setInstructions] = useState('')
@@ -143,6 +281,13 @@ function TtsPanel() {
 
       const url = URL.createObjectURL(blob)
       setAudioUrl(url)
+      saveSpeechHistory({
+        modality: 'tts',
+        title: `TTS · ${voice}`,
+        content: text.trim().slice(0, 500),
+        metadata: { voice, mimeType: mimeType || 'audio/wav' },
+      })
+      onHistorySaved()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
     } finally {
@@ -283,8 +428,8 @@ function writeString(view: DataView, offset: number, str: string) {
 }
 
 /* ─── STT Panel ─── */
-function SttPanel() {
-  const [model, setModel] = useState<'voxtral-mini-transcribe-2602' | 'voxtral-mini-transcribe-realtime-2602'>('voxtral-mini-transcribe-2602')
+function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
+  const [model, setModel] = useState<'voxtral-mini-transcribe-2602' | 'voxtral-mini-transcribe-realtime-2602' | 'gpt-4o-transcribe' | 'gpt-4o-mini-transcribe'>('voxtral-mini-transcribe-2602')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [transcript, setTranscript] = useState<string | null>(null)
@@ -322,6 +467,13 @@ function SttPanel() {
           text: s.text,
         })))
       }
+      saveSpeechHistory({
+        modality: 'stt',
+        title: `STT · ${model}`,
+        content: (data.text || '').slice(0, 1500),
+        metadata: { model, segments: data.segments?.length || 0 },
+      })
+      onHistorySaved()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
     } finally {
@@ -372,14 +524,14 @@ function SttPanel() {
         <span className="material-symbols-outlined text-foreground/40">mic</span>
         <div>
           <h3 className="font-medium text-foreground">Voxtral Transcription</h3>
-          <p className="text-xs text-foreground/40">Powered by Mistral — state-of-the-art speech-to-text in 13 languages</p>
+          <p className="text-xs text-foreground/40">Powered by Mistral + OpenAI models (GPT‑4o audio options included)</p>
         </div>
       </div>
 
       {/* Model selector */}
       <div className="space-y-1.5">
         <label className="text-sm font-medium text-foreground/70">Model</label>
-        <div className="flex gap-2">
+        <div className="grid grid-cols-2 gap-2">
           <button
             onClick={() => setModel('voxtral-mini-transcribe-2602')}
             className={`flex-1 px-4 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer ${
@@ -401,6 +553,28 @@ function SttPanel() {
           >
             <div>Realtime 2</div>
             <div className="text-xs opacity-60 mt-0.5">Streaming · sub-200ms latency</div>
+          </button>
+          <button
+            onClick={() => setModel('gpt-4o-transcribe')}
+            className={`flex-1 px-4 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer ${
+              model === 'gpt-4o-transcribe'
+                ? 'bg-foreground text-background'
+                : 'bg-foreground/5 text-foreground/50 hover:bg-foreground/10'
+            }`}
+          >
+            <div>GPT‑4o Transcribe</div>
+            <div className="text-xs opacity-60 mt-0.5">OpenAI audio input</div>
+          </button>
+          <button
+            onClick={() => setModel('gpt-4o-mini-transcribe')}
+            className={`flex-1 px-4 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer ${
+              model === 'gpt-4o-mini-transcribe'
+                ? 'bg-foreground text-background'
+                : 'bg-foreground/5 text-foreground/50 hover:bg-foreground/10'
+            }`}
+          >
+            <div>GPT‑4o Mini Transcribe</div>
+            <div className="text-xs opacity-60 mt-0.5">Lower latency / cost</div>
           </button>
         </div>
       </div>
@@ -465,8 +639,24 @@ function SttPanel() {
       {transcript !== null && (
         <div className="space-y-3">
           <div className="px-4 py-3 rounded-xl bg-foreground/[0.03] border border-foreground/10">
-            <p className="text-sm font-medium text-foreground/70 mb-1">Transcript</p>
-            <p className="text-foreground leading-relaxed">{transcript || '(empty)'}</p>
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <p className="text-sm font-medium text-foreground/70">Transcript</p>
+              <button
+                onClick={() => navigator.clipboard.writeText(transcript || '')}
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-foreground/5 text-foreground/60 text-xs hover:bg-foreground/10 transition-colors cursor-pointer"
+              >
+                <span className="material-symbols-outlined text-sm">content_copy</span>
+                Copy
+              </button>
+            </div>
+            <textarea
+              value={transcript || ''}
+              readOnly
+              rows={6}
+              tabIndex={0}
+              aria-label="Transcript output"
+              className="w-full rounded-xl bg-foreground/[0.03] border border-foreground/10 px-3 py-2 text-sm text-foreground leading-relaxed resize-y"
+            />
           </div>
 
           {/* Segments with timestamps */}
@@ -494,7 +684,7 @@ function SttPanel() {
 }
 
 /* ─── Pronunciation Panel ─── */
-function PronunciationPanel() {
+function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
   const [referenceText, setReferenceText] = useState('')
   const [language, setLanguage] = useState('en-US')
   const [loading, setLoading] = useState(false)
@@ -534,7 +724,7 @@ function PronunciationPanel() {
       const words = data.NBest?.[0]?.Words || []
 
       if (assessment) {
-        setResult({
+        const nextResult = {
           accuracyScore: assessment.AccuracyScore,
           fluencyScore: assessment.FluencyScore,
           completenessScore: assessment.CompletenessScore,
@@ -546,7 +736,19 @@ function PronunciationPanel() {
             accuracyScore: w.PronunciationAssessment?.AccuracyScore ?? 0,
             errorType: w.PronunciationAssessment?.ErrorType || 'None',
           })),
+        }
+        setResult(nextResult)
+        saveSpeechHistory({
+          modality: 'pronunciation',
+          title: `Pronunciation · ${language}`,
+          content: referenceText.trim().slice(0, 300),
+          metadata: {
+            pronScore: nextResult.pronScore,
+            accuracyScore: nextResult.accuracyScore,
+            fluencyScore: nextResult.fluencyScore,
+          },
         })
+        onHistorySaved()
       } else {
         setError('No assessment data returned. Make sure you speak clearly.')
       }
