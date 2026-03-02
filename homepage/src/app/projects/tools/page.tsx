@@ -1,48 +1,30 @@
 import { auth } from "@/auth"
 
-const projectLinks = [
+const toolLinks = [
   {
-    title: "API Usage Monitor",
-    description: "Track credits, limits, and burn rate across Tavily, Vercel, and more",
-    href: "/projects/usage",
-    icon: "monitoring",
-  },
-  {
-    title: "Tools",
-    description: "Internal tools and utilities",
-    href: "/projects/tools",
-    icon: "build",
-  },
-  {
-    title: "Project Dashboard",
-    description: "Overview of all active projects and their status",
-    href: "/projects/dashboard",
-    icon: "dashboard",
-  },
-  {
-    title: "Notes",
-    description: "Private notes and documentation",
-    href: "/projects/notes",
-    icon: "edit_note",
+    title: "Speech Lab",
+    description: "Text-to-speech, transcription, and pronunciation tools",
+    href: "/projects/tools/speech",
+    icon: "record_voice_over",
   },
 ]
 
-export default async function ProjectPage() {
+export default async function ToolsPage() {
   const session = await auth()
 
   return (
     <div>
       <div className="mb-8">
         <h1 className="text-3xl font-medium text-foreground blur-reveal">
-          Welcome, {session?.user?.name?.split(" ")[0]}
+          Tools
         </h1>
         <p className="text-foreground/60 mt-2 blur-reveal-1">
-          Your private project hub. Choose a section below.
+          Internal utilities and experiments, {session?.user?.name?.split(" ")[0]}.
         </p>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {projectLinks.map((link, i) => (
+        {toolLinks.map((link, i) => (
           <a
             key={link.href}
             href={link.href}

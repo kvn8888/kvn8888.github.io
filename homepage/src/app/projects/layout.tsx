@@ -1,6 +1,5 @@
 import { auth, signOut } from "@/auth"
-import { AuroraBackground } from "@/app/components"
-import Link from "next/link"
+import { AuroraBackground, BackButton } from "@/app/components"
 import Image from "next/image"
 
 export default async function ProjectLayout({
@@ -17,12 +16,7 @@ export default async function ProjectLayout({
         <header className="sticky top-0 z-50 backdrop-blur-xl bg-white/60 border-b border-foreground/5">
           <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <Link
-                href="/"
-                className="text-sm text-foreground/60 hover:text-foreground transition-colors"
-              >
-                ← Home
-              </Link>
+              <BackButton />
               <span className="text-foreground font-medium">Projects</span>
             </div>
             <div className="flex items-center gap-3">

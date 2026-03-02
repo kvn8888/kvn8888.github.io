@@ -62,6 +62,7 @@ Sizes follow Tailwind defaults:
 
 ### Blur Reveal (Page Load)
 Elements fade in with a blur-to-sharp animation, staggered by 100ms.
+**Every page must use staggered blur reveal** — heading first, then subtitle, then each content layer:
 
 ```css
 @keyframes blurReveal {
@@ -73,7 +74,26 @@ Elements fade in with a blur-to-sharp animation, staggered by 100ms.
 /* ... up to blur-reveal-5 */
 ```
 
-**Safari fix**: Classes are added via React state after mount to force animation replay on refresh. See `mounted` state in `page.tsx`.
+**Stagger pattern (apply to every page):**
+- `blur-reveal` → page heading
+- `blur-reveal-1` → subtitle / description
+- `blur-reveal-2` → first content layer (tab bar, controls, first card)
+- `blur-reveal-3` → second content layer (main content area, card grid)
+- `blur-reveal-4+` → additional layers
+
+**Safari fix** (client components only): Classes are added via React state after mount to force animation replay on refresh. See `mounted` state in `page.tsx`.
+
+```tsx
+// Client component pattern:
+const [mounted, setMounted] = useState(false)
+useEffect(() => { setMounted(true) }, [])
+<h1 className={`... ${mounted ? 'blur-reveal' : 'opacity-0'}`}>
+
+// Server component pattern (no Safari fix needed for SPA navigations):
+<h1 className="... blur-reveal">
+<p className="... blur-reveal-1">
+<div className="... blur-reveal-2">
+```
 
 ### Framer Motion (Interactive)
 Modal transitions use `layoutId` for shared element animation:
