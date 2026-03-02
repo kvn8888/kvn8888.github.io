@@ -800,7 +800,7 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
         stream.getTracks().forEach((t) => t.stop())
         const blob = new Blob(chunks, { type: 'audio/webm' })
         if (referenceSource === 'transcription') {
-          ;(async () => {
+          void (async () => {
             try {
               setLoading(true)
               setError(null)
@@ -878,7 +878,7 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
           type="text"
           value={referenceText}
           onChange={(e) => setReferenceText(e.target.value)}
-          placeholder={referenceSource === 'transcription' ? 'Will auto-fill from recording…' : 'Type the word or phrase to practice…'}
+          placeholder={referenceSource === 'transcription' ? 'Will autofill from recording…' : 'Type the word or phrase to practice…'}
           readOnly={referenceSource === 'transcription'}
           className="w-full rounded-xl bg-foreground/[0.03] border border-foreground/10 px-4 py-2.5 text-sm text-foreground placeholder:text-foreground/30 focus:outline-none focus:ring-2 focus:ring-foreground/20 transition-all"
         />
