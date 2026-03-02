@@ -9,7 +9,7 @@ export default function SignInPage() {
         <div className="w-full max-w-sm blur-reveal">
           <div className="bg-white/80 backdrop-blur-xl rounded-2xl shadow-lg border border-white/20 p-8">
             <div className="text-center mb-8">
-              <h1 className="text-2xl font-bold text-foreground">Sign In</h1>
+              <h1 className="text-2xl font-medium text-foreground">Sign In</h1>
               <p className="text-sm text-foreground/60 mt-2">
                 This area is private. Authorized access only.
               </p>

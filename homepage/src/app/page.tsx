@@ -140,8 +140,8 @@ export default function Home() {
         </div>
 
         {/* Status Badge */}
-        <div className={`inline-flex items-center gap-2 px-4 py-2 bg-black-50 border border-black-200 rounded-full ${mounted ? 'blur-reveal-4' : 'opacity-0'}`}>
-          <span className="text-sm font-medium text-black-700">Open to Summer 2026 Opportunities</span>
+        <div className={`inline-flex items-center gap-2 px-4 py-2 bg-gray-100 border border-gray-200 rounded-full ${mounted ? 'blur-reveal-4' : 'opacity-0'}`}>
+          <span className="text-sm font-medium text-gray-700">Open to Summer 2026 Opportunities</span>
         </div>
 
         {/* Projects Section */}

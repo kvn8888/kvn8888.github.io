@@ -33,7 +33,7 @@ export default async function ProjectPage() {
   return (
     <div className="blur-reveal">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-foreground">
+        <h1 className="text-3xl font-medium text-foreground">
           Welcome, {session?.user?.name?.split(" ")[0]}
         </h1>
         <p className="text-foreground/60 mt-2">
@@ -51,7 +51,7 @@ export default async function ProjectPage() {
             <span className="material-symbols-outlined text-foreground/40 group-hover:text-foreground/70 transition-colors text-3xl">
               {link.icon}
             </span>
-            <h2 className="text-lg font-semibold text-foreground mt-3">
+            <h2 className="text-lg font-medium text-foreground mt-3">
               {link.title}
             </h2>
             <p className="text-sm text-foreground/50 mt-1">

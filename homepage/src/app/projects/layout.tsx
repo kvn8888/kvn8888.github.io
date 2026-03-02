@@ -23,7 +23,7 @@ export default async function ProjectLayout({
               >
                 ← Home
               </Link>
-              <span className="text-foreground font-semibold">Projects</span>
+              <span className="text-foreground font-medium">Projects</span>
             </div>
             <div className="flex items-center gap-3">
               {session?.user?.image && (

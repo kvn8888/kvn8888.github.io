@@ -16,6 +16,7 @@ Key principles:
 - **Motion serves purpose** — animations communicate state, not decoration
 - **Mobile-first** — every element must work on 375px screens
 - **Performance matters** — no layout shifts, preload assets, minimize dependencies
+- **`font-medium` everywhere** — never use `font-bold` or `font-semibold` on headings or card titles; the restraint is the aesthetic
 
 ## Visual Language
 
