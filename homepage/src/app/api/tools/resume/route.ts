@@ -2,7 +2,7 @@ import { auth } from "@/auth"
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3"
 import { NextResponse } from "next/server"
 
-const RESUME_KEY = process.env.RESUME_S3_KEY || "Kevin_Chen_Resume.pdf"
+const RESUME_KEY = process.env.RESUME_S3_KEY || "resume.pdf"
 
 export async function POST(request: Request) {
   const session = await auth()
@@ -53,7 +53,8 @@ export async function POST(request: Request) {
     )
 
     return NextResponse.json({ ok: true, url: "/api/resume" })
-  } catch {
+  } catch (error) {
+    console.error("Resume upload failed", error)
     return NextResponse.json({ error: "Failed to upload resume to S3" }, { status: 500 })
   }
 }

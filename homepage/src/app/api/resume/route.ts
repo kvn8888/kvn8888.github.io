@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 
-const RESUME_KEY = process.env.RESUME_S3_KEY || "Kevin_Chen_Resume.pdf"
+const RESUME_KEY = process.env.RESUME_S3_KEY || "resume.pdf"
 
 function resolveResumeUrl() {
   if (process.env.RESUME_S3_PUBLIC_URL) return process.env.RESUME_S3_PUBLIC_URL

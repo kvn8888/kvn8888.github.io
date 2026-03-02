@@ -11,7 +11,8 @@ export default function ResumeUploaderPage() {
 
   const helperText = useMemo(() => {
     if (!file) return 'Drop a PDF here or choose a file.'
-    return `${file.name} (${Math.max(1, Math.round(file.size / 1024))} KB)`
+    if (file.size < 1024) return `${file.name} (${file.size} B)`
+    return `${file.name} (${Math.round(file.size / 1024)} KB)`
   }, [file])
 
   const onFileSelected = (selected: File | null) => {
