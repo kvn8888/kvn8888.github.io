@@ -19,6 +19,11 @@ const tabs: { id: Tab; label: string; icon: string }[] = [
   { id: 'stt', label: 'Transcription', icon: 'mic' },
   { id: 'pronunciation', label: 'Pronunciation', icon: 'spellcheck' },
 ]
+const modalityLabels: Record<Tab, string> = {
+  tts: 'Text to Speech',
+  stt: 'Transcription',
+  pronunciation: 'Pronunciation',
+}
 
 export default function SpeechLabPage() {
   const [activeTab, setActiveTab] = useState<Tab>('tts')
@@ -33,12 +38,15 @@ export default function SpeechLabPage() {
   const loadHistory = async () => {
     try {
       const res = await fetch('/api/speech/history', { cache: 'no-store' })
-      if (!res.ok) return
+      if (!res.ok) {
+        setHistoryError('Unable to load history right now.')
+        return
+      }
       const data = await res.json()
       setHistory(data.items || [])
       setHistoryError(null)
     } catch {
-      setHistoryError('History unavailable until Turso is configured.')
+      setHistoryError('Unable to load history right now.')
     }
   }
 
@@ -47,13 +55,20 @@ export default function SpeechLabPage() {
   }, [])
 
   const deleteHistory = async (id: string) => {
-    const res = await fetch('/api/speech/history', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id }),
-    })
-    if (res.ok) {
-      setHistory((prev) => prev.filter((item) => item.id !== id))
+    try {
+      const res = await fetch('/api/speech/history', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      })
+      if (res.ok) {
+        setHistory((prev) => prev.filter((item) => item.id !== id))
+        setHistoryError(null)
+      } else {
+        setHistoryError('Unable to delete history item.')
+      }
+    } catch {
+      setHistoryError('Unable to delete history item.')
     }
   }
 
@@ -106,6 +121,7 @@ export default function SpeechLabPage() {
             <select
               value={historyFilter}
               onChange={(e) => setHistoryFilter(e.target.value as SpeechModality)}
+              aria-label="Filter history by modality"
               className="rounded-xl bg-foreground/[0.03] border border-foreground/10 px-3 py-1.5 text-xs text-foreground focus:outline-none"
             >
               <option value="all">All</option>
@@ -134,7 +150,7 @@ export default function SpeechLabPage() {
                   <div>
                     <p className="text-sm text-foreground">{item.title}</p>
                     <p className="text-xs text-foreground/40">
-                      {item.modality.toUpperCase()} · {new Date(item.createdAt).toLocaleString()}
+                      {modalityLabels[item.modality]} · {new Date(item.createdAt).toLocaleString()}
                     </p>
                   </div>
                   <button
@@ -204,12 +220,15 @@ const geminiVoices = [
   { name: 'Sulafat', style: 'Warm' },
 ]
 
-async function saveSpeechHistory(payload: { modality: Tab; title: string; content?: string; metadata?: Record<string, unknown> }) {
-  await fetch('/api/speech/history', {
+function saveSpeechHistory(payload: { modality: Tab; title: string; content?: string; metadata?: Record<string, unknown> }) {
+  // History persistence is best-effort and should not block core speech actions.
+  void fetch('/api/speech/history', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
-  }).catch(() => null)
+  }).catch((error) => {
+    console.warn('Failed to save speech history', error)
+  })
 }
 
 /* ─── TTS Panel ─── */
@@ -262,7 +281,7 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
 
       const url = URL.createObjectURL(blob)
       setAudioUrl(url)
-      await saveSpeechHistory({
+      saveSpeechHistory({
         modality: 'tts',
         title: `TTS · ${voice}`,
         content: text.trim().slice(0, 500),
@@ -448,7 +467,7 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
           text: s.text,
         })))
       }
-      await saveSpeechHistory({
+      saveSpeechHistory({
         modality: 'stt',
         title: `STT · ${model}`,
         content: (data.text || '').slice(0, 1500),
@@ -634,6 +653,8 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
               value={transcript || ''}
               readOnly
               rows={6}
+              tabIndex={0}
+              aria-label="Transcript output"
               className="w-full rounded-xl bg-foreground/[0.03] border border-foreground/10 px-3 py-2 text-sm text-foreground leading-relaxed resize-y"
             />
           </div>
@@ -717,7 +738,7 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
           })),
         }
         setResult(nextResult)
-        await saveSpeechHistory({
+        saveSpeechHistory({
           modality: 'pronunciation',
           title: `Pronunciation · ${language}`,
           content: referenceText.trim().slice(0, 300),

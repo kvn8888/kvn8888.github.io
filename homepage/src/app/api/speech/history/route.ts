@@ -2,6 +2,10 @@ import { auth } from '@/auth'
 import { getTursoClient } from '@/lib/turso'
 import { NextRequest, NextResponse } from 'next/server'
 
+const MAX_TITLE_LENGTH = 200
+const MAX_CONTENT_LENGTH = 5000
+const MAX_METADATA_LENGTH = 5000
+
 async function ensureTable() {
   const client = getTursoClient()
   if (!client) return null
@@ -48,14 +52,25 @@ export async function GET() {
       args: [email],
     })
 
-    const items = result.rows.map((row) => ({
-      id: String(row.id),
-      modality: String(row.modality),
-      title: String(row.title),
-      content: row.content ? String(row.content) : '',
-      metadata: row.metadata_json ? JSON.parse(String(row.metadata_json)) : null,
-      createdAt: Number(row.created_at),
-    }))
+    const items = result.rows.map((row) => {
+      let metadata: Record<string, unknown> | null = null
+      if (row.metadata_json) {
+        try {
+          metadata = JSON.parse(String(row.metadata_json))
+        } catch {
+          metadata = null
+        }
+      }
+
+      return {
+        id: String(row.id),
+        modality: String(row.modality),
+        title: String(row.title),
+        content: row.content ? String(row.content) : '',
+        metadata,
+        createdAt: Number(row.created_at),
+      }
+    })
 
     return NextResponse.json({ items })
   } catch (error) {
@@ -97,9 +112,9 @@ export async function POST(req: NextRequest) {
         id,
         email,
         String(modality),
-        String(title).slice(0, 200),
-        String(content).slice(0, 5000),
-        metadata ? JSON.stringify(metadata).slice(0, 5000) : null,
+        String(title).slice(0, MAX_TITLE_LENGTH),
+        String(content).slice(0, MAX_CONTENT_LENGTH),
+        metadata ? JSON.stringify(metadata).slice(0, MAX_METADATA_LENGTH) : null,
         createdAt,
       ],
     })
