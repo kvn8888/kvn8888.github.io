@@ -312,12 +312,18 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+              e.preventDefault()
+              handleGenerate()
+            }
+          }}
           placeholder="Enter text to speak..."
           rows={4}
           maxLength={4096}
           className="w-full rounded-xl bg-foreground/[0.03] border border-foreground/10 px-4 py-3 text-sm text-foreground placeholder:text-foreground/30 focus:outline-none focus:ring-2 focus:ring-foreground/20 resize-none transition-all"
         />
-        <p className="text-xs text-foreground/30 text-right">{text.length} / 4096</p>
+        <p className="text-xs text-foreground/30 text-right">{text.length} / 4096 · ⌘/Ctrl+Enter to generate</p>
       </div>
 
       {/* Voice selector */}
@@ -389,6 +395,19 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
           <audio controls src={audioUrl} className="w-full" />
         </div>
       )}
+
+      {/* Service Limits */}
+      <details className="group">
+        <summary className="text-xs text-foreground/30 cursor-pointer hover:text-foreground/50 transition-colors select-none">
+          API Limits &amp; Info
+        </summary>
+        <div className="mt-2 rounded-lg bg-foreground/[0.02] border border-foreground/5 p-2.5 text-xs text-foreground/40">
+          <p className="font-medium text-foreground/50 mb-1">Gemini 2.5 Flash TTS</p>
+          <p>Max input: 4,096 chars · 30 voices available</p>
+          <p>Rate limit: 10 RPM free tier · 1,000 RPM paid</p>
+          <p>Output: PCM 24kHz 16-bit mono (wrapped in WAV)</p>
+        </div>
+      </details>
     </div>
   )
 }
@@ -429,6 +448,67 @@ function writeString(view: DataView, offset: number, str: string) {
 }
 
 /* ─── STT Panel ─── */
+
+const ACCEPTED_AUDIO_TYPES = ['audio/wav', 'audio/webm', 'audio/mp3', 'audio/mpeg', 'audio/ogg', 'audio/flac', 'audio/m4a', 'audio/aac', 'audio/mp4']
+const ACCEPTED_VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/ogg', 'video/quicktime', 'video/x-msvideo', 'video/x-matroska']
+const MAX_FILE_SIZE_MB = 25
+
+function extractAudioFromVideo(videoFile: File): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement('video')
+    video.muted = true
+    video.playsInline = true
+    const url = URL.createObjectURL(videoFile)
+    video.src = url
+
+    video.onloadedmetadata = () => {
+      const audioCtx = new AudioContext({ sampleRate: 16000 })
+      const dest = audioCtx.createMediaStreamDestination()
+      const source = audioCtx.createMediaElementSource(video)
+      source.connect(dest)
+
+      const recorder = new MediaRecorder(dest.stream, { mimeType: 'audio/webm' })
+      const chunks: Blob[] = []
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunks.push(e.data)
+      }
+
+      recorder.onstop = () => {
+        URL.revokeObjectURL(url)
+        void audioCtx.close()
+        resolve(new Blob(chunks, { type: 'audio/webm' }))
+      }
+
+      recorder.onerror = () => {
+        URL.revokeObjectURL(url)
+        void audioCtx.close()
+        reject(new Error('Audio extraction failed'))
+      }
+
+      recorder.start()
+      video.play().catch(reject)
+
+      video.onended = () => {
+        recorder.stop()
+      }
+
+      // Safety timeout: stop recording after 10 minutes max
+      const MAX_VIDEO_DURATION_MS = 10 * 60 * 1000
+      setTimeout(() => {
+        if (recorder.state === 'recording') {
+          recorder.stop()
+        }
+      }, MAX_VIDEO_DURATION_MS)
+    }
+
+    video.onerror = () => {
+      URL.revokeObjectURL(url)
+      reject(new Error('Failed to load video file'))
+    }
+  })
+}
+
 function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
   const [model, setModel] = useState<SttModel>('voxtral-mini-transcribe-2507')
   const [loading, setLoading] = useState(false)
@@ -437,6 +517,9 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
   const [segments, setSegments] = useState<{ start: number; end: number; text: string }[]>([])
   const [recording, setRecording] = useState(false)
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null)
+  const [dragOver, setDragOver] = useState(false)
+  const [convertingVideo, setConvertingVideo] = useState(false)
+  const [fileName, setFileName] = useState<string | null>(null)
 
   const handleTranscribe = async (audioBlob: Blob) => {
     setLoading(true)
@@ -482,6 +565,48 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
     }
   }
 
+  const processFile = async (file: File) => {
+    if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+      setError(`File too large. Maximum size is ${MAX_FILE_SIZE_MB}MB.`)
+      return
+    }
+
+    setFileName(file.name)
+
+    if (ACCEPTED_VIDEO_TYPES.includes(file.type) || file.name.match(/\.(mp4|mov|avi|mkv|webm|ogv)$/i)) {
+      setConvertingVideo(true)
+      setError(null)
+      try {
+        const audioBlob = await extractAudioFromVideo(file)
+        setConvertingVideo(false)
+        await handleTranscribe(audioBlob)
+      } catch (err) {
+        setConvertingVideo(false)
+        setError(err instanceof Error ? err.message : 'Video conversion failed')
+      }
+      return
+    }
+
+    await handleTranscribe(file)
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setDragOver(false)
+    const file = e.dataTransfer.files[0]
+    if (file) void processFile(file)
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    setDragOver(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    setDragOver(false)
+  }
+
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
@@ -516,7 +641,7 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (file) handleTranscribe(file)
+    if (file) void processFile(file)
   }
 
   return (
@@ -580,11 +705,57 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
         </div>
       </div>
 
-      {/* Record / Upload */}
+      {/* Drag & Drop Zone + Upload */}
+      <div
+        onDrop={handleDrop}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        className={`relative rounded-2xl border-2 border-dashed p-8 text-center transition-all ${
+          dragOver
+            ? 'border-foreground/40 bg-foreground/[0.06] scale-[1.01]'
+            : 'border-foreground/15 bg-foreground/[0.02] hover:border-foreground/25 hover:bg-foreground/[0.04]'
+        }`}
+      >
+        <div className="flex flex-col items-center gap-3">
+          <span className={`material-symbols-outlined text-4xl transition-colors ${dragOver ? 'text-foreground/60' : 'text-foreground/25'}`}>
+            {convertingVideo ? 'movie_filter' : 'cloud_upload'}
+          </span>
+          {convertingVideo ? (
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-foreground/60">Extracting audio from video…</p>
+              <p className="text-xs text-foreground/30">This may take a moment for longer videos</p>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-foreground/60">
+                Drag & drop audio or video files here
+              </p>
+              <p className="text-xs text-foreground/30">
+                Supports WAV, MP3, WebM, FLAC, M4A, MP4, MOV, AVI, MKV · Max {MAX_FILE_SIZE_MB}MB
+              </p>
+              {fileName && !loading && (
+                <p className="text-xs text-foreground/40 mt-1">Last file: {fileName}</p>
+              )}
+            </div>
+          )}
+          <label className="inline-flex items-center gap-2 px-5 py-2 rounded-full bg-foreground/5 text-foreground/60 font-medium text-sm hover:bg-foreground/10 transition-colors cursor-pointer mt-1">
+            <span className="material-symbols-outlined text-lg">upload_file</span>
+            Browse Files
+            <input
+              type="file"
+              accept="audio/*,video/*"
+              onChange={handleFileUpload}
+              className="hidden"
+            />
+          </label>
+        </div>
+      </div>
+
+      {/* Record button */}
       <div className="flex gap-3">
         <button
           onClick={recording ? stopRecording : startRecording}
-          disabled={loading}
+          disabled={loading || convertingVideo}
           className={`inline-flex items-center gap-2 px-6 py-2.5 rounded-full font-medium text-sm transition-all cursor-pointer ${
             recording
               ? 'bg-red-500 text-white hover:bg-red-600'
@@ -596,17 +767,6 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
           </span>
           {recording ? 'Stop Recording' : 'Record'}
         </button>
-
-        <label className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full bg-foreground/5 text-foreground/60 font-medium text-sm hover:bg-foreground/10 transition-colors cursor-pointer">
-          <span className="material-symbols-outlined text-lg">upload_file</span>
-          Upload Audio
-          <input
-            type="file"
-            accept="audio/*"
-            onChange={handleFileUpload}
-            className="hidden"
-          />
-        </label>
       </div>
 
       {/* Recording indicator */}
@@ -680,6 +840,25 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
           )}
         </div>
       )}
+
+      {/* Service Limits */}
+      <details className="group">
+        <summary className="text-xs text-foreground/30 cursor-pointer hover:text-foreground/50 transition-colors select-none">
+          API Limits &amp; Info
+        </summary>
+        <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-foreground/40">
+          <div className="rounded-lg bg-foreground/[0.02] border border-foreground/5 p-2.5">
+            <p className="font-medium text-foreground/50 mb-1">Mistral Voxtral</p>
+            <p>Max file: 25MB · Formats: WAV, MP3, FLAC, WebM, OGG</p>
+            <p>Free tier: 1 req/s · Paid: 5 req/s</p>
+          </div>
+          <div className="rounded-lg bg-foreground/[0.02] border border-foreground/5 p-2.5">
+            <p className="font-medium text-foreground/50 mb-1">Azure OpenAI (GPT‑4o)</p>
+            <p>Max file: 25MB · Max duration: 2 hours</p>
+            <p>Formats: MP3, MP4, MPEG, MPGA, M4A, WAV, WebM</p>
+          </div>
+        </div>
+      </details>
     </div>
   )
 }
@@ -949,19 +1128,20 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
       {/* Results */}
       {result && (
         <div className="space-y-4">
-          {/* Overall scores */}
+          {/* Overall score — semi-circle gauge */}
+          <div className="flex justify-center py-2">
+            <SemiCircleGauge label="Overall" score={result.pronScore} size={180} />
+          </div>
+
+          {/* Sub-scores */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <ScoreCard label="Overall" score={result.pronScore} />
             <ScoreCard label="Accuracy" score={result.accuracyScore} />
             <ScoreCard label="Fluency" score={result.fluencyScore} />
             <ScoreCard label="Completeness" score={result.completenessScore} />
-          </div>
-
-          {result.prosodyScore != null && (
-            <div className="w-full sm:w-1/4">
+            {result.prosodyScore != null && (
               <ScoreCard label="Prosody" score={result.prosodyScore} />
-            </div>
-          )}
+            )}
+          </div>
 
           {/* Word-level breakdown */}
           {result.words.length > 0 && (
@@ -991,16 +1171,94 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
           )}
         </div>
       )}
+
+      {/* Service Limits */}
+      <details className="group">
+        <summary className="text-xs text-foreground/30 cursor-pointer hover:text-foreground/50 transition-colors select-none">
+          API Limits &amp; Info
+        </summary>
+        <div className="mt-2 rounded-lg bg-foreground/[0.02] border border-foreground/5 p-2.5 text-xs text-foreground/40">
+          <p className="font-medium text-foreground/50 mb-1">Azure Speech Pronunciation</p>
+          <p>Max audio: 5 minutes per request · WAV format preferred</p>
+          <p>Rate limit: 20 concurrent requests (standard S0 tier)</p>
+          <p>Assessment: Phoneme-level scoring with prosody analysis</p>
+        </div>
+      </details>
     </div>
   )
 }
 
-/* ─── Score Card (used in Pronunciation results) ─── */
+/* ─── Semi-Circle Score Gauge (Pronunciation) ─── */
+const SCORE_GOOD = 50
+const SCORE_EXCELLENT = 80
+
+function SemiCircleGauge({ label, score, size = 160 }: { label: string; score: number; size?: number }) {
+  const radius = (size - 20) / 2
+  const circumference = Math.PI * radius
+  const progress = Math.min(Math.max(score, 0), 100) / 100
+
+  const getColor = (s: number) =>
+    s >= SCORE_EXCELLENT ? '#10b981' : s >= SCORE_GOOD ? '#f59e0b' : '#ef4444'
+
+  const strokeColor = getColor(score)
+
+  return (
+    <div className="flex flex-col items-center">
+      <svg
+        width={size}
+        height={size / 2 + 16}
+        viewBox={`0 0 ${size} ${size / 2 + 16}`}
+        className="overflow-visible"
+      >
+        {/* Background arc */}
+        <path
+          d={`M 10 ${size / 2 + 6} A ${radius} ${radius} 0 0 1 ${size - 10} ${size / 2 + 6}`}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="10"
+          strokeLinecap="round"
+          className="text-foreground/[0.06]"
+        />
+        {/* Colored progress arc */}
+        <path
+          d={`M 10 ${size / 2 + 6} A ${radius} ${radius} 0 0 1 ${size - 10} ${size / 2 + 6}`}
+          fill="none"
+          stroke={strokeColor}
+          strokeWidth="10"
+          strokeLinecap="round"
+          strokeDasharray={`${circumference}`}
+          strokeDashoffset={`${circumference * (1 - progress)}`}
+          style={{ transition: 'stroke-dashoffset 0.8s ease-out, stroke 0.4s ease' }}
+        />
+        {/* Score text */}
+        <text
+          x={size / 2}
+          y={size / 2 - 2}
+          textAnchor="middle"
+          className="fill-foreground"
+          style={{ fontSize: `${size / 5}px`, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}
+        >
+          {Math.round(score)}
+        </text>
+        <text
+          x={size / 2}
+          y={size / 2 + 14}
+          textAnchor="middle"
+          className="fill-foreground/40"
+          style={{ fontSize: '11px' }}
+        >
+          {label}
+        </text>
+      </svg>
+    </div>
+  )
+}
+
 function ScoreCard({ label, score }: { label: string; score: number }) {
   const color =
-    score >= 80 ? 'text-emerald-600' : score >= 50 ? 'text-amber-600' : 'text-red-600'
+    score >= SCORE_EXCELLENT ? 'text-emerald-600' : score >= SCORE_GOOD ? 'text-amber-600' : 'text-red-600'
   const bgColor =
-    score >= 80 ? 'bg-emerald-50 border-emerald-200' : score >= 50 ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200'
+    score >= SCORE_EXCELLENT ? 'bg-emerald-50 border-emerald-200' : score >= SCORE_GOOD ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200'
 
   return (
     <div className={`rounded-xl px-4 py-3 border ${bgColor} text-center`}>
