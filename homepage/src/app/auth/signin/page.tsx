@@ -8,6 +8,8 @@ export default async function SignInPage({
   searchParams: Promise<{ error?: string }>
 }) {
   const { error } = await searchParams
+  // Auth.js returns "AccessDenied" when signIn callback returns false,
+  // and "Callback" for other OAuth callback errors (e.g. mismatched state)
   const wasRejected = error === "AccessDenied" || error === "Callback"
 
   return (

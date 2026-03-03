@@ -24,9 +24,15 @@ export async function POST(request: Request) {
       )
     }
 
-    // In production, you'd send this via email.
-    // For demo purposes, we return the code to display on screen.
-    return NextResponse.json({ success: true, code, id: Number(id) })
+    // In production, send the code via email and don't include it in the response.
+    // In development/demo mode, return it for display.
+    const isDemoMode = process.env.NODE_ENV !== 'production'
+
+    return NextResponse.json({
+      success: true,
+      ...(isDemoMode ? { code } : {}),
+      id: Number(id),
+    })
   } catch {
     return NextResponse.json(
       { error: 'Internal server error' },

@@ -7,7 +7,6 @@ type Step = 'email' | 'code' | 'pending'
 export function EmailVerification() {
   const [step, setStep] = useState<Step>('email')
   const [email, setEmail] = useState('')
-  const [code, setCode] = useState('')
   const [displayCode, setDisplayCode] = useState('')
   const [userCode, setUserCode] = useState('')
   const [error, setError] = useState('')
@@ -31,8 +30,7 @@ export function EmailVerification() {
         return
       }
 
-      setCode(data.code)
-      setDisplayCode(data.code)
+      setDisplayCode(data.code || '')
       setStep('code')
     } catch {
       setError('Something went wrong')
@@ -89,14 +87,24 @@ export function EmailVerification() {
   if (step === 'code') {
     return (
       <div>
-        <div className="mb-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200">
-          <p className="text-xs text-emerald-700 mb-1">
-            Demo mode — your verification code:
-          </p>
-          <p className="text-2xl font-mono font-bold text-emerald-700 tracking-widest text-center">
-            {displayCode}
-          </p>
-        </div>
+        {displayCode && (
+          <div className="mb-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200">
+            <p className="text-xs text-emerald-700 mb-1">
+              Demo mode — your verification code:
+            </p>
+            <p className="text-2xl font-mono font-bold text-emerald-700 tracking-widest text-center">
+              {displayCode}
+            </p>
+          </div>
+        )}
+
+        {!displayCode && (
+          <div className="mb-4 p-3 rounded-xl bg-glass border border-glass-border">
+            <p className="text-sm text-foreground/60 text-center">
+              A verification code has been sent to your email.
+            </p>
+          </div>
+        )}
 
         <form onSubmit={handleVerifyCode} className="space-y-3">
           <div>
@@ -135,7 +143,6 @@ export function EmailVerification() {
             type="button"
             onClick={() => {
               setStep('email')
-              setCode('')
               setDisplayCode('')
               setUserCode('')
               setError('')

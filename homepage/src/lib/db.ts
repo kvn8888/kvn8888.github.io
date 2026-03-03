@@ -147,12 +147,7 @@ export async function addWhitelistEmail(email: string) {
 }
 
 export function generateVerificationCode(): string {
-  const chars = '0123456789'
-  let code = ''
   const array = new Uint8Array(6)
   crypto.getRandomValues(array)
-  for (let i = 0; i < 6; i++) {
-    code += chars[array[i] % 10]
-  }
-  return code
+  return Array.from(array, (byte) => String(byte % 10)).join('')
 }
