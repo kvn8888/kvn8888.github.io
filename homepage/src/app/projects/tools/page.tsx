@@ -13,6 +13,12 @@ const toolLinks = [
     href: "/projects/tools/speech",
     icon: "record_voice_over",
   },
+  {
+    title: "Job Tracker",
+    description: "Add, browse, and track job applications with Gemini-powered parsing",
+    href: "/projects/tools/resume-tool",
+    icon: "work",
+  },
 ]
 
 export default async function ToolsPage() {
