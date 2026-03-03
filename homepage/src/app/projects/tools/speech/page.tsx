@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 
 type Tab = 'tts' | 'stt' | 'pronunciation'
 type SpeechModality = Tab | 'all'
+type SttModel = 'voxtral-mini-transcribe-2602' | 'voxtral-mini-transcribe-realtime-2602' | 'gpt-4o-transcribe' | 'gpt-4o-mini-transcribe'
 
 interface HistoryItem {
   id: string
@@ -429,7 +430,7 @@ function writeString(view: DataView, offset: number, str: string) {
 
 /* ─── STT Panel ─── */
 function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
-  const [model, setModel] = useState<'voxtral-mini-transcribe-2602' | 'voxtral-mini-transcribe-realtime-2602' | 'gpt-4o-transcribe' | 'gpt-4o-mini-transcribe'>('voxtral-mini-transcribe-2602')
+  const [model, setModel] = useState<SttModel>('voxtral-mini-transcribe-2602')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [transcript, setTranscript] = useState<string | null>(null)
@@ -686,6 +687,8 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
 /* ─── Pronunciation Panel ─── */
 function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
   const [referenceText, setReferenceText] = useState('')
+  const [referenceSource, setReferenceSource] = useState<'manual' | 'transcription'>('manual')
+  const [transcriptionModel, setTranscriptionModel] = useState<SttModel>('gpt-4o-transcribe')
   const [language, setLanguage] = useState('en-US')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -693,8 +696,9 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null)
   const [result, setResult] = useState<PronResult | null>(null)
 
-  const handleAssess = async (audioBlob: Blob) => {
-    if (!referenceText.trim()) {
+  const handleAssess = async (audioBlob: Blob, overrideReferenceText?: string) => {
+    const resolvedReferenceText = (overrideReferenceText ?? referenceText).trim()
+    if (!resolvedReferenceText) {
       setError('Reference text is required')
       return
     }
@@ -705,7 +709,7 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
     try {
       const formData = new FormData()
       formData.append('audio', audioBlob, 'pronunciation.webm')
-      formData.append('referenceText', referenceText.trim())
+      formData.append('referenceText', resolvedReferenceText)
       formData.append('language', language)
 
       const res = await fetch('/api/speech/pronunciation', {
@@ -730,7 +734,7 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
           completenessScore: assessment.CompletenessScore,
           prosodyScore: assessment.ProsodyScore,
           pronScore: assessment.PronScore,
-          displayText: data.DisplayText || referenceText,
+          displayText: data.DisplayText || resolvedReferenceText,
           words: words.map((w: AzureWord) => ({
             word: w.Word,
             accuracyScore: w.PronunciationAssessment?.AccuracyScore ?? 0,
@@ -741,7 +745,7 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
         saveSpeechHistory({
           modality: 'pronunciation',
           title: `Pronunciation · ${language}`,
-          content: referenceText.trim().slice(0, 300),
+          content: resolvedReferenceText.slice(0, 300),
           metadata: {
             pronScore: nextResult.pronScore,
             accuracyScore: nextResult.accuracyScore,
@@ -759,6 +763,29 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
     }
   }
 
+  const transcribeReferenceText = async (audioBlob: Blob) => {
+    const formData = new FormData()
+    formData.append('audio', audioBlob, 'reference.webm')
+    formData.append('model', transcriptionModel)
+
+    const res = await fetch('/api/speech/stt', {
+      method: 'POST',
+      body: formData,
+    })
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      throw new Error(data.error || 'Reference transcription failed')
+    }
+
+    const data = await res.json()
+    const text = (data.text as string | undefined)?.trim()
+    if (!text) {
+      throw new Error('No transcription text returned for reference')
+    }
+    return text
+  }
+
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
@@ -772,7 +799,22 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
       recorder.onstop = () => {
         stream.getTracks().forEach((t) => t.stop())
         const blob = new Blob(chunks, { type: 'audio/webm' })
-        handleAssess(blob)
+        if (referenceSource === 'transcription') {
+          void (async () => {
+            try {
+              setLoading(true)
+              setError(null)
+              const nextReferenceText = await transcribeReferenceText(blob)
+              setReferenceText(nextReferenceText)
+              await handleAssess(blob, nextReferenceText)
+            } catch (err) {
+              setError(err instanceof Error ? err.message : 'Unknown error')
+              setLoading(false)
+            }
+          })()
+          return
+        }
+        void handleAssess(blob)
       }
 
       recorder.start()
@@ -803,12 +845,41 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
 
       {/* Reference text */}
       <div className="space-y-1.5">
+        <label className="text-sm font-medium text-foreground/70">Reference Source</label>
+        <select
+          value={referenceSource}
+          onChange={(e) => setReferenceSource(e.target.value as 'manual' | 'transcription')}
+          className="w-full rounded-xl bg-foreground/[0.03] border border-foreground/10 px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20 transition-all appearance-none cursor-pointer"
+        >
+          <option value="manual">Manual text input</option>
+          <option value="transcription">Auto-generate from transcription</option>
+        </select>
+      </div>
+
+      {referenceSource === 'transcription' && (
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium text-foreground/70">Transcription Service</label>
+          <select
+            value={transcriptionModel}
+            onChange={(e) => setTranscriptionModel(e.target.value as SttModel)}
+            className="w-full rounded-xl bg-foreground/[0.03] border border-foreground/10 px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20 transition-all appearance-none cursor-pointer"
+          >
+            <option value="gpt-4o-transcribe">GPT‑4o Transcribe (default)</option>
+            <option value="gpt-4o-mini-transcribe">GPT‑4o Mini Transcribe</option>
+            <option value="voxtral-mini-transcribe-2602">Mistral Voxtral Transcribe 2</option>
+            <option value="voxtral-mini-transcribe-realtime-2602">Mistral Voxtral Realtime 2</option>
+          </select>
+        </div>
+      )}
+
+      <div className="space-y-1.5">
         <label className="text-sm font-medium text-foreground/70">Reference Text</label>
         <input
           type="text"
           value={referenceText}
           onChange={(e) => setReferenceText(e.target.value)}
-          placeholder="Type the word or phrase to practice…"
+          placeholder={referenceSource === 'transcription' ? 'Will autofill from recording…' : 'Type the word or phrase to practice…'}
+          readOnly={referenceSource === 'transcription'}
           className="w-full rounded-xl bg-foreground/[0.03] border border-foreground/10 px-4 py-2.5 text-sm text-foreground placeholder:text-foreground/30 focus:outline-none focus:ring-2 focus:ring-foreground/20 transition-all"
         />
       </div>
@@ -835,7 +906,7 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
       {/* Record button */}
       <button
         onClick={recording ? stopRecording : startRecording}
-        disabled={loading || !referenceText.trim()}
+        disabled={loading || (referenceSource === 'manual' && !referenceText.trim())}
         className={`inline-flex items-center gap-2 px-6 py-2.5 rounded-full font-medium text-sm transition-all cursor-pointer ${
           recording
             ? 'bg-red-500 text-white hover:bg-red-600'
