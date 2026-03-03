@@ -245,6 +245,12 @@ async function testAzureBilling() {
         return
       }
 
+      if (costRes.status === 429) {
+        info('Azure Cost API is currently rate-limited (HTTP 429). Credentials/permissions are likely valid, but requests are throttled.')
+        ok('Azure billing check passed with throttling warning')
+        return
+      }
+
       const t = await costRes.text()
       fail(`Azure billing/cost API failed: HTTP ${costRes.status}`)
       info(`Azure response snippet: ${t.slice(0, 150).replace(/\s+/g, ' ')}`)

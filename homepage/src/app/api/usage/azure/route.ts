@@ -5,6 +5,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 let cachedAzurePayload: Record<string, unknown> | null = null
 let cachedAzureAt = 0
+const AZURE_CACHE_TTL_MS = Number(process.env.AZURE_USAGE_CACHE_TTL_MS || 15 * 60 * 1000)
 
 function rememberAzurePayload(payload: Record<string, unknown>) {
   cachedAzurePayload = payload
@@ -18,6 +19,18 @@ function staleAzurePayload() {
     stale: true,
     warning: "Azure API throttled; showing cached data",
     cachedAt: new Date(cachedAzureAt).toISOString(),
+  }
+}
+
+function freshAzurePayload() {
+  if (!cachedAzurePayload || !cachedAzureAt) return null
+  const ageMs = Date.now() - cachedAzureAt
+  if (ageMs > AZURE_CACHE_TTL_MS) return null
+  return {
+    ...cachedAzurePayload,
+    cached: true,
+    cachedAt: new Date(cachedAzureAt).toISOString(),
+    cacheTtlMs: AZURE_CACHE_TTL_MS,
   }
 }
 
@@ -92,6 +105,11 @@ export async function GET() {
 
   if (!tenantId || !clientId || !clientSecret) {
     return NextResponse.json({ error: "Azure credentials not configured" }, { status: 500 })
+  }
+
+  const freshCache = freshAzurePayload()
+  if (freshCache) {
+    return NextResponse.json(freshCache)
   }
 
   try {
