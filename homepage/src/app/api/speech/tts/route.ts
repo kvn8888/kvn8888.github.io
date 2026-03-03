@@ -27,8 +27,13 @@ function createWavBuffer(pcmBase64: string, sampleRate: number, channels: number
   return Buffer.concat([header, pcm])
 }
 
+const MIN_TEXT_LENGTH_FOR_SUMMARY = 40
+const MAX_SUMMARY_LENGTH = 120
+
 async function summarizeText(apiKey: string, text: string): Promise<string | null> {
-  if (text.length < 40) return null // too short to summarize
+  if (text.length < MIN_TEXT_LENGTH_FOR_SUMMARY) return null
+  // Truncate to prevent excessive token usage in the summarization call
+  const truncated = text.slice(0, 2000)
   try {
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
@@ -40,7 +45,7 @@ async function summarizeText(apiKey: string, text: string): Promise<string | nul
             {
               parts: [
                 {
-                  text: `Summarize the following text in one short sentence (max 120 chars). Return only the summary, no quotes:\n\n${text}`,
+                  text: `Summarize the following text in one short sentence (max ${MAX_SUMMARY_LENGTH} chars). Return only the summary, no quotes:\n\n${truncated}`,
                 },
               ],
             },
@@ -51,7 +56,7 @@ async function summarizeText(apiKey: string, text: string): Promise<string | nul
     if (!res.ok) return null
     const data = await res.json()
     return (
-      data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim().slice(0, 200) ?? null
+      data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim().slice(0, MAX_SUMMARY_LENGTH) ?? null
     )
   } catch {
     return null

@@ -487,11 +487,16 @@ function extractAudioFromVideo(videoFile: File): Promise<Blob> {
       }
 
       recorder.start()
-      video.play().catch(reject)
 
       video.onended = () => {
         recorder.stop()
       }
+
+      video.play().catch((err) => {
+        URL.revokeObjectURL(url)
+        void audioCtx.close()
+        reject(new Error(`Video playback failed: ${err instanceof Error ? err.message : 'unsupported codec or format'}`))
+      })
 
       // Safety timeout: stop recording after 10 minutes max
       const MAX_VIDEO_DURATION_MS = 10 * 60 * 1000
