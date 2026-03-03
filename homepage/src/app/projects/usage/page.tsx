@@ -68,6 +68,15 @@ interface GCPAccount {
 interface GCPUsage {
   accounts: GCPAccount[]
   projectId: string
+  cost?: {
+    totalCost: number
+    currency: string
+    projectId: string
+    dataset: string
+    table: string
+    periodStart: string
+  } | null
+  costStatus?: 'ok' | 'missing_dataset_or_table' | 'unavailable'
   dashboardUrl: string
 }
 
@@ -679,9 +688,23 @@ export default function UsagePage() {
                 No billing accounts found.
               </p>
             )}
-            <p className="text-xs text-foreground/30 italic pt-2 border-t border-foreground/5">
-              Cost data requires BigQuery export setup. Shows billing accounts and projects.
-            </p>
+            {gcp.cost ? (
+              <div className="pt-2 border-t border-foreground/5 space-y-2">
+                <div className="flex items-baseline justify-between text-sm">
+                  <span className="text-foreground/50">Current Month Spend</span>
+                  <span className="tabular-nums font-semibold text-foreground">
+                    ${gcp.cost.totalCost.toFixed(2)} {gcp.cost.currency}
+                  </span>
+                </div>
+                <p className="text-xs text-foreground/30 italic">
+                  Source: {gcp.cost.projectId}.{gcp.cost.dataset}.{gcp.cost.table} (since {gcp.cost.periodStart})
+                </p>
+              </div>
+            ) : (
+              <p className="text-xs text-foreground/30 italic pt-2 border-t border-foreground/5">
+                Cost data requires BigQuery export setup. Shows billing accounts and projects until export tables are ready.
+              </p>
+            )}
           </>
         ) : gcpStatus === 'error' ? (
           <p className="text-sm text-foreground/40">
