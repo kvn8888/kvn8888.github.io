@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
 type Tab = 'tts' | 'stt' | 'pronunciation'
 type SpeechModality = Tab | 'all'
@@ -25,6 +25,25 @@ const modalityLabels: Record<Tab, string> = {
   stt: 'Transcription',
   pronunciation: 'Pronunciation',
 }
+
+const serviceLimits = [
+  {
+    label: 'Gemini TTS',
+    details: ['4096 characters per request', '24 kHz mono PCM output', 'Uploads persisted to S3 when configured'],
+  },
+  {
+    label: 'Transcription',
+    details: ['Drag & drop audio or video up to ~25MB', 'Video inputs are auto-converted to audio', 'Keep clips under 15 minutes for best latency'],
+  },
+  {
+    label: 'Pronunciation',
+    details: ['Optimized for clips under 90 seconds', 'Azure Speech region + key required', 'Semi-circle scoring gauge shows overall health'],
+  },
+  {
+    label: 'History',
+    details: ['Last 100 speech actions retained per user', 'Summaries generated with Gemini 3.0', 'Metadata includes voice, model, and storage URL'],
+  },
+]
 
 export default function SpeechLabPage() {
   const [activeTab, setActiveTab] = useState<Tab>('tts')
@@ -85,10 +104,12 @@ export default function SpeechLabPage() {
         </p>
       </div>
 
+      <LimitsAndHealthCard mounted={mounted} />
+
       {/* Tab bar — DESIGN DIVERGENCE: using pill-style tabs instead of underline tabs.
           Reason: pills match the glassmorphism card aesthetic better than underline tabs
           and provide a larger click target on mobile. */}
-      <div className={`flex justify-center gap-2 ${mounted ? 'blur-reveal-2' : 'opacity-0'}`}>
+      <div className={`flex justify-center gap-2 ${mounted ? 'blur-reveal-3' : 'opacity-0'}`}>
         {tabs.map((tab) => (
           <button
             key={tab.id}
@@ -106,13 +127,13 @@ export default function SpeechLabPage() {
       </div>
 
       {/* Tab content */}
-      <div className={`rounded-2xl bg-glass backdrop-blur-sm border border-glass-border overflow-hidden ${mounted ? 'blur-reveal-3' : 'opacity-0'}`}>
+      <div className={`rounded-2xl bg-glass backdrop-blur-sm border border-glass-border overflow-hidden ${mounted ? 'blur-reveal-4' : 'opacity-0'}`}>
         {activeTab === 'tts' && <TtsPanel onHistorySaved={loadHistory} />}
         {activeTab === 'stt' && <SttPanel onHistorySaved={loadHistory} />}
         {activeTab === 'pronunciation' && <PronunciationPanel onHistorySaved={loadHistory} />}
       </div>
 
-      <div className={`rounded-2xl bg-glass backdrop-blur-sm border border-glass-border p-5 space-y-3 ${mounted ? 'blur-reveal-4' : 'opacity-0'}`}>
+      <div className={`rounded-2xl bg-glass backdrop-blur-sm border border-glass-border p-5 space-y-3 ${mounted ? 'blur-reveal-5' : 'opacity-0'}`}>
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div>
             <h3 className="text-sm font-medium text-foreground">History</h3>
@@ -165,6 +186,17 @@ export default function SpeechLabPage() {
                 {item.content && (
                   <p className="text-xs text-foreground/60 mt-2 whitespace-pre-wrap break-words">{item.content}</p>
                 )}
+                {item.metadata && (item.metadata as { storageUrl?: string }).storageUrl && (
+                  <a
+                    href={(item.metadata as { storageUrl?: string }).storageUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-[11px] text-foreground/60 mt-2 hover:text-foreground"
+                  >
+                    <span className="material-symbols-outlined text-xs">cloud_done</span>
+                    Open stored audio
+                  </a>
+                )}
               </div>
             ))}
           {history.filter((item) => historyFilter === 'all' || item.modality === historyFilter).length === 0 && (
@@ -173,7 +205,7 @@ export default function SpeechLabPage() {
         </div>
       </div>
 
-      <div className={`rounded-2xl bg-glass backdrop-blur-sm border border-glass-border p-5 ${mounted ? 'blur-reveal-5' : 'opacity-0'}`}>
+      <div className={`rounded-2xl bg-glass backdrop-blur-sm border border-glass-border p-5 ${mounted ? 'blur-reveal-6' : 'opacity-0'}`}>
         <p className="text-xs text-foreground/40 mb-2">Reference Docs</p>
         <ul className="space-y-1.5 text-sm text-foreground/70">
           <li><a href="https://learn.microsoft.com/azure/ai-services/speech-service/how-to-pronunciation-assessment" target="_blank" rel="noreferrer" className="hover:text-foreground">Azure Speech: Pronunciation Assessment API</a></li>
@@ -232,6 +264,86 @@ function saveSpeechHistory(payload: { modality: Tab; title: string; content?: st
   })
 }
 
+function LimitsAndHealthCard({ mounted }: { mounted: boolean }) {
+  const [stressRunning, setStressRunning] = useState(false)
+  const [stressResult, setStressResult] = useState<string | null>(null)
+  const [stressError, setStressError] = useState<string | null>(null)
+
+  const runStressTest = async () => {
+    setStressRunning(true)
+    setStressResult(null)
+    setStressError(null)
+
+    const durations: number[] = []
+    let failures = 0
+
+    for (let i = 0; i < 3; i++) {
+      const started = performance.now()
+      try {
+        const res = await fetch('/api/speech/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: `Speech lab stress ping #${i + 1}`,
+            voice: 'Gacrux',
+          }),
+        })
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        await res.json()
+      } catch {
+        failures += 1
+      } finally {
+        durations.push(Math.round(performance.now() - started))
+        await new Promise((resolve) => setTimeout(resolve, 120))
+      }
+    }
+
+    const avg = Math.round(durations.reduce((a, b) => a + b, 0) / durations.length)
+    setStressResult(`Avg ${avg} ms over ${durations.length} runs · failures: ${failures}`)
+    if (failures > 0) setStressError('Some stress test calls failed — check provider limits or keys.')
+    setStressRunning(false)
+  }
+
+  return (
+    <div className={`rounded-2xl bg-glass backdrop-blur-sm border border-glass-border p-5 space-y-3 ${mounted ? 'blur-reveal-2' : 'opacity-0'}`}>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <h3 className="text-sm font-medium text-foreground">Limits & Reliability</h3>
+          <p className="text-xs text-foreground/40">Provider guardrails, storage, and a quick TTS stress probe.</p>
+        </div>
+        <button
+          onClick={runStressTest}
+          disabled={stressRunning}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-foreground text-background text-xs font-medium hover:opacity-90 transition-opacity disabled:opacity-40 cursor-pointer"
+        >
+          <span className="material-symbols-outlined text-sm">{stressRunning ? 'progress_activity' : 'bolt'}</span>
+          {stressRunning ? 'Running TTS soak…' : 'Run TTS stress test'}
+        </button>
+      </div>
+
+      <div className="grid md:grid-cols-2 gap-3">
+        {serviceLimits.map((limit) => (
+          <div key={limit.label} className="rounded-xl border border-foreground/10 bg-foreground/[0.02] p-3 space-y-1.5">
+            <p className="text-sm font-medium text-foreground">{limit.label}</p>
+            <ul className="space-y-1 text-xs text-foreground/60 list-disc list-inside">
+              {limit.details.map((d) => (
+                <li key={d}>{d}</li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+
+      {(stressResult || stressError) && (
+        <div className="rounded-xl border border-foreground/10 bg-foreground/[0.02] p-3 text-sm">
+          {stressResult && <p className="text-foreground">{stressResult}</p>}
+          {stressError && <p className="text-red-600 mt-1 flex items-center gap-1 text-xs"><span className="material-symbols-outlined text-sm">error</span>{stressError}</p>}
+        </div>
+      )}
+    </div>
+  )
+}
+
 /* ─── TTS Panel ─── */
 function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
   const [text, setText] = useState('')
@@ -240,12 +352,18 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
+  const [summary, setSummary] = useState<string | null>(null)
+  const [storageUrl, setStorageUrl] = useState<string | null>(null)
+  const [storageKey, setStorageKey] = useState<string | null>(null)
 
   const handleGenerate = async () => {
     if (!text.trim()) return
     setLoading(true)
     setError(null)
     setAudioUrl(null)
+    setSummary(null)
+    setStorageUrl(null)
+    setStorageKey(null)
 
     try {
       const res = await fetch('/api/speech/tts', {
@@ -263,7 +381,7 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
         throw new Error(data.error || 'TTS generation failed')
       }
 
-      const { audio, mimeType } = await res.json()
+      const { audio, mimeType, summary: summaryText, storageUrl: persistedUrl, storageKey: persistedKey } = await res.json()
 
       // Convert base64 PCM → playable WAV blob
       const raw = atob(audio)
@@ -282,11 +400,20 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
 
       const url = URL.createObjectURL(blob)
       setAudioUrl(url)
+      setSummary(summaryText || null)
+      setStorageUrl(persistedUrl || null)
+      setStorageKey(persistedKey || null)
       saveSpeechHistory({
         modality: 'tts',
         title: `TTS · ${voice}`,
-        content: text.trim().slice(0, 500),
-        metadata: { voice, mimeType: mimeType || 'audio/wav' },
+        content: (summaryText as string | undefined)?.trim() || text.trim().slice(0, 500),
+        metadata: {
+          voice,
+          summary: summaryText || undefined,
+          mimeType: mimeType || 'audio/wav',
+          storageUrl: persistedUrl || undefined,
+          storageKey: persistedKey || undefined,
+        },
       })
       onHistorySaved()
     } catch (err) {
@@ -312,6 +439,14 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+              e.preventDefault()
+              if (!loading && text.trim()) {
+                void handleGenerate()
+              }
+            }
+          }}
           placeholder="Enter text to speak..."
           rows={4}
           maxLength={4096}
@@ -389,6 +524,33 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
           <audio controls src={audioUrl} className="w-full" />
         </div>
       )}
+
+      {(summary || storageUrl) && (
+        <div className="rounded-xl border border-foreground/10 bg-foreground/[0.02] p-3 space-y-1">
+          {summary && (
+            <p className="text-sm text-foreground">
+              <span className="font-medium text-foreground/60">Summary:</span> {summary}
+            </p>
+          )}
+          {storageUrl && (
+            <a
+              href={storageUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-foreground/70 hover:text-foreground"
+            >
+              <span className="material-symbols-outlined text-sm">cloud_done</span>
+              Stored audio (S3)
+            </a>
+          )}
+          {!storageUrl && storageKey && (
+            <p className="text-xs text-foreground/50 flex items-center gap-1">
+              <span className="material-symbols-outlined text-sm">cloud_sync</span>
+              Saved object key: {storageKey}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -437,6 +599,7 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
   const [segments, setSegments] = useState<{ start: number; end: number; text: string }[]>([])
   const [recording, setRecording] = useState(false)
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null)
+  const [dragOver, setDragOver] = useState(false)
 
   const handleTranscribe = async (audioBlob: Blob) => {
     setLoading(true)
@@ -514,9 +677,30 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
     }
   }
 
+  const processFile = async (file: File) => {
+    if (loading) return
+    if (file.size > 25 * 1024 * 1024) {
+      setError('Files must be 25MB or smaller')
+      return
+    }
+    if (file.type.startsWith('video/')) {
+      try {
+        setLoading(true)
+        setError(null)
+        const audioBlob = await videoFileToAudioBlob(file)
+        await handleTranscribe(audioBlob)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Unable to extract audio from video file')
+        setLoading(false)
+      }
+      return
+    }
+    await handleTranscribe(file)
+  }
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (file) handleTranscribe(file)
+    if (file) void processFile(file)
   }
 
   return (
@@ -602,11 +786,31 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
           Upload Audio
           <input
             type="file"
-            accept="audio/*"
+            accept="audio/*,video/*"
             onChange={handleFileUpload}
             className="hidden"
           />
         </label>
+      </div>
+
+      <div
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+        onDragLeave={(e) => { e.preventDefault(); setDragOver(false) }}
+        onDrop={(e) => {
+          e.preventDefault()
+          setDragOver(false)
+          const file = e.dataTransfer.files?.[0]
+          if (file) void processFile(file)
+        }}
+        className={`rounded-xl border-2 border-dashed p-4 transition-colors ${dragOver ? 'border-foreground text-foreground' : 'border-foreground/10 text-foreground/60'}`}
+      >
+        <div className="flex items-center gap-2 text-sm">
+          <span className="material-symbols-outlined text-base">move_down</span>
+          Drag & drop audio or video files to transcribe
+        </div>
+        <p className="text-xs text-foreground/50 mt-1">
+          Video uploads are converted to audio in-browser before hitting the STT API to reduce errors.
+        </p>
       </div>
 
       {/* Recording indicator */}
@@ -682,6 +886,60 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
       )}
     </div>
   )
+}
+
+async function videoFileToAudioBlob(file: File): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file)
+    const video = document.createElement('video')
+    video.src = objectUrl
+    video.preload = 'metadata'
+    video.crossOrigin = 'anonymous'
+
+    const cleanup = () => {
+      URL.revokeObjectURL(objectUrl)
+      video.remove()
+    }
+
+    const fail = (message: string) => {
+      cleanup()
+      reject(new Error(message))
+    }
+
+    video.onloadedmetadata = async () => {
+      try {
+        const capture = (video as HTMLVideoElement & { captureStream?: () => MediaStream; mozCaptureStream?: () => MediaStream })
+          .captureStream?.call(video) ?? (video as HTMLVideoElement & { captureStream?: () => MediaStream; mozCaptureStream?: () => MediaStream })
+          .mozCaptureStream?.call(video)
+        if (!capture) return fail('Browser cannot capture audio from video file')
+
+        const audioTracks = capture.getAudioTracks()
+        if (!audioTracks.length) return fail('Video file does not contain an audio track')
+
+        const audioStream = new MediaStream(audioTracks)
+        const recorder = new MediaRecorder(audioStream)
+        const chunks: Blob[] = []
+
+        recorder.ondataavailable = (e) => {
+          if (e.data.size > 0) chunks.push(e.data)
+        }
+        recorder.onstop = () => {
+          cleanup()
+          audioTracks.forEach((track) => track.stop())
+          resolve(new Blob(chunks, { type: 'audio/webm' }))
+        }
+
+        recorder.start()
+        await video.play()
+        video.onended = () => recorder.stop()
+        video.onerror = () => fail('Could not decode video for transcription')
+      } catch (err) {
+        fail(err instanceof Error ? err.message : 'Unable to process video file')
+      }
+    }
+
+    video.onerror = () => fail('Could not load video file')
+  })
 }
 
 /* ─── Pronunciation Panel ─── */
@@ -999,13 +1257,30 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
 function ScoreCard({ label, score }: { label: string; score: number }) {
   const color =
     score >= 80 ? 'text-emerald-600' : score >= 50 ? 'text-amber-600' : 'text-red-600'
-  const bgColor =
-    score >= 80 ? 'bg-emerald-50 border-emerald-200' : score >= 50 ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200'
+  const gaugeColor =
+    score >= 80 ? '#059669' : score >= 50 ? '#f59e0b' : '#ef4444'
+  const neutral = 'rgba(24,24,27,0.12)'
+  const clamped = Math.max(0, Math.min(score, 100))
+  const deg = (clamped / 100) * 180
 
   return (
-    <div className={`rounded-xl px-4 py-3 border ${bgColor} text-center`}>
-      <p className="text-xs text-foreground/40 mb-1">{label}</p>
-      <p className={`text-2xl font-medium tabular-nums ${color}`}>{Math.round(score)}</p>
+    <div className="rounded-xl px-4 py-3 border border-foreground/10 bg-foreground/[0.02] text-center">
+      <p className="text-xs text-foreground/40 mb-2">{label}</p>
+      <div className="relative w-24 h-12 mx-auto overflow-hidden">
+        <div
+          className="absolute w-24 h-24 rounded-full"
+          style={{
+            background: `conic-gradient(from 180deg, ${gaugeColor} ${deg}deg, ${neutral} ${deg}deg 180deg, transparent 180deg)`,
+            top: '-50%',
+            left: 0,
+          }}
+          aria-hidden
+        />
+        <div className="absolute inset-0 flex items-center justify-center pt-2">
+          <span className={`text-lg font-semibold tabular-nums ${color}`}>{Math.round(score)}</span>
+        </div>
+      </div>
+      <p className="text-[10px] text-foreground/40 mt-1">0  50  100</p>
     </div>
   )
 }
