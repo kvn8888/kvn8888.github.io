@@ -908,7 +908,9 @@ async function videoFileToAudioBlob(file: File): Promise<Blob> {
 
     video.onloadedmetadata = async () => {
       try {
-        const capture = (video.captureStream || (video as unknown as { mozCaptureStream?: () => MediaStream }).mozCaptureStream)?.call(video)
+        const capture = (video as HTMLVideoElement & { captureStream?: () => MediaStream; mozCaptureStream?: () => MediaStream })
+          .captureStream?.call(video) ?? (video as HTMLVideoElement & { captureStream?: () => MediaStream; mozCaptureStream?: () => MediaStream })
+          .mozCaptureStream?.call(video)
         if (!capture) return fail('Browser cannot capture audio from video file')
 
         const audioTracks = capture.getAudioTracks()
