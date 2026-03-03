@@ -10,43 +10,72 @@ export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData()
     const audioFile = formData.get('audio') as File | null
-    const model = (formData.get('model') as string) || 'voxtral-mini-transcribe-2602'
+    const model = (formData.get('model') as string) || 'voxtral-mini-transcribe-2507'
 
     if (!audioFile) {
       return NextResponse.json({ error: 'Audio file is required' }, { status: 400 })
     }
 
-    const isOpenAiModel = model.startsWith('gpt-4o') || model.startsWith('gpt-realtime')
-    const apiKey = isOpenAiModel ? process.env.OPENAI_API_KEY : process.env.MISTRAL_API_KEY
-    if (!apiKey) {
+    const isAzureOpenAiModel = model.startsWith('gpt-4o') || model.startsWith('gpt-realtime')
+    const mistralApiKey = process.env.MISTRAL_API_KEY
+    const azureOpenAiApiKey = process.env.AZURE_OPENAI_API_KEY
+    const azureOpenAiEndpoint = process.env.AZURE_OPENAI_ENDPOINT?.replace(/\/+$/, '')
+    const azureOpenAiApiVersion = process.env.AZURE_OPENAI_API_VERSION || '2025-03-01-preview'
+
+    if (!isAzureOpenAiModel && !mistralApiKey) {
+      return NextResponse.json({ error: 'MISTRAL_API_KEY not configured' }, { status: 500 })
+    }
+
+    if (isAzureOpenAiModel && (!azureOpenAiApiKey || !azureOpenAiEndpoint)) {
       return NextResponse.json(
-        { error: isOpenAiModel ? 'OPENAI_API_KEY not configured' : 'MISTRAL_API_KEY not configured' },
+        { error: 'AZURE_OPENAI_API_KEY or AZURE_OPENAI_ENDPOINT not configured' },
         { status: 500 }
       )
     }
 
     const upstreamForm = new FormData()
     upstreamForm.append('file', audioFile)
-    upstreamForm.append('model', model)
 
     let url = 'https://api.mistral.ai/v1/audio/transcriptions'
-    if (isOpenAiModel) {
-      url = 'https://api.openai.com/v1/audio/transcriptions'
-      upstreamForm.append('response_format', 'verbose_json')
-      upstreamForm.append('timestamp_granularities[]', 'segment')
+
+    let headers: Record<string, string> = {}
+    if (isAzureOpenAiModel) {
+      const deployment =
+        model === 'gpt-4o-transcribe'
+          ? process.env.AZURE_OPENAI_STT_DEPLOYMENT_GPT4O_TRANSCRIBE || model
+          : model === 'gpt-4o-transcribe-diarize'
+            ? process.env.AZURE_OPENAI_STT_DEPLOYMENT_GPT4O_TRANSCRIBE_DIARIZE || model
+            : model === 'gpt-4o-mini-transcribe'
+              ? process.env.AZURE_OPENAI_STT_DEPLOYMENT_GPT4O_MINI_TRANSCRIBE || model
+              : model
+
+      url = `${azureOpenAiEndpoint}/openai/deployments/${encodeURIComponent(deployment)}/audio/transcriptions?api-version=${encodeURIComponent(azureOpenAiApiVersion)}`
+      headers = { 'api-key': azureOpenAiApiKey! }
+      upstreamForm.append('response_format', 'json')
     } else {
+      headers = { Authorization: `Bearer ${mistralApiKey!}` }
+      upstreamForm.append('model', model)
       upstreamForm.append('timestamp_granularities', 'segment')
     }
 
     const res = await fetch(url, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}` },
+      headers,
       body: upstreamForm,
     })
 
     if (!res.ok) {
       const err = await res.text()
       console.error('STT provider error:', err)
+      if (isAzureOpenAiModel && res.status === 404) {
+        return NextResponse.json(
+          {
+            error: 'Azure OpenAI deployment not found for selected model',
+            details: err,
+          },
+          { status: 404 }
+        )
+      }
       return NextResponse.json({ error: 'Transcription failed' }, { status: res.status })
     }
 

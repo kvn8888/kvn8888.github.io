@@ -429,7 +429,7 @@ function writeString(view: DataView, offset: number, str: string) {
 
 /* ─── STT Panel ─── */
 function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
-  const [model, setModel] = useState<'voxtral-mini-transcribe-2602' | 'voxtral-mini-transcribe-realtime-2602' | 'gpt-4o-transcribe' | 'gpt-4o-mini-transcribe'>('voxtral-mini-transcribe-2602')
+  const [model, setModel] = useState<'voxtral-mini-transcribe-2507' | 'voxtral-mini-latest' | 'gpt-4o-transcribe' | 'gpt-4o-transcribe-diarize'>('voxtral-mini-transcribe-2507')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [transcript, setTranscript] = useState<string | null>(null)
@@ -524,7 +524,7 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
         <span className="material-symbols-outlined text-foreground/40">mic</span>
         <div>
           <h3 className="font-medium text-foreground">Voxtral Transcription</h3>
-          <p className="text-xs text-foreground/40">Powered by Mistral + OpenAI models (GPT‑4o audio options included)</p>
+          <p className="text-xs text-foreground/40">Powered by Mistral + Azure OpenAI (GPT‑4o transcription + diarization)</p>
         </div>
       </div>
 
@@ -533,26 +533,26 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
         <label className="text-sm font-medium text-foreground/70">Model</label>
         <div className="grid grid-cols-2 gap-2">
           <button
-            onClick={() => setModel('voxtral-mini-transcribe-2602')}
+            onClick={() => setModel('voxtral-mini-transcribe-2507')}
             className={`flex-1 px-4 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer ${
-              model === 'voxtral-mini-transcribe-2602'
+              model === 'voxtral-mini-transcribe-2507'
                 ? 'bg-foreground text-background'
                 : 'bg-foreground/5 text-foreground/50 hover:bg-foreground/10'
             }`}
           >
-            <div>Transcribe 2</div>
-            <div className="text-xs opacity-60 mt-0.5">Batch · diarization · timestamps</div>
+            <div>Transcribe (2507)</div>
+            <div className="text-xs opacity-60 mt-0.5">Batch · timestamps</div>
           </button>
           <button
-            onClick={() => setModel('voxtral-mini-transcribe-realtime-2602')}
+            onClick={() => setModel('voxtral-mini-latest')}
             className={`flex-1 px-4 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer ${
-              model === 'voxtral-mini-transcribe-realtime-2602'
+              model === 'voxtral-mini-latest'
                 ? 'bg-foreground text-background'
                 : 'bg-foreground/5 text-foreground/50 hover:bg-foreground/10'
             }`}
           >
-            <div>Realtime 2</div>
-            <div className="text-xs opacity-60 mt-0.5">Streaming · sub-200ms latency</div>
+            <div>Voxtral Mini Latest</div>
+            <div className="text-xs opacity-60 mt-0.5">Latest provider default</div>
           </button>
           <button
             onClick={() => setModel('gpt-4o-transcribe')}
@@ -563,18 +563,18 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
             }`}
           >
             <div>GPT‑4o Transcribe</div>
-            <div className="text-xs opacity-60 mt-0.5">OpenAI audio input</div>
+            <div className="text-xs opacity-60 mt-0.5">Azure OpenAI deployment</div>
           </button>
           <button
-            onClick={() => setModel('gpt-4o-mini-transcribe')}
+            onClick={() => setModel('gpt-4o-transcribe-diarize')}
             className={`flex-1 px-4 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer ${
-              model === 'gpt-4o-mini-transcribe'
+              model === 'gpt-4o-transcribe-diarize'
                 ? 'bg-foreground text-background'
                 : 'bg-foreground/5 text-foreground/50 hover:bg-foreground/10'
             }`}
           >
-            <div>GPT‑4o Mini Transcribe</div>
-            <div className="text-xs opacity-60 mt-0.5">Lower latency / cost</div>
+            <div>GPT‑4o Diarize</div>
+            <div className="text-xs opacity-60 mt-0.5">Azure OpenAI with speaker separation</div>
           </button>
         </div>
       </div>

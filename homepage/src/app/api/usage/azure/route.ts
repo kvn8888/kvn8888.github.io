@@ -1,6 +1,58 @@
 import { auth } from "@/auth"
 import { NextResponse } from "next/server"
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+let cachedAzurePayload: Record<string, unknown> | null = null
+let cachedAzureAt = 0
+
+function rememberAzurePayload(payload: Record<string, unknown>) {
+  cachedAzurePayload = payload
+  cachedAzureAt = Date.now()
+}
+
+function staleAzurePayload() {
+  if (!cachedAzurePayload) return null
+  return {
+    ...cachedAzurePayload,
+    stale: true,
+    warning: "Azure API throttled; showing cached data",
+    cachedAt: new Date(cachedAzureAt).toISOString(),
+  }
+}
+
+async function fetchAzureWithRetry(
+  url: string,
+  init: RequestInit,
+  maxAttempts = 4
+): Promise<Response> {
+  let lastRes: Response | null = null
+  let lastErr: unknown = null
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const res = await fetch(url, init)
+      lastRes = res
+
+      if (res.status !== 429) return res
+
+      const retryAfter = Number(res.headers.get("retry-after"))
+      const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
+        ? retryAfter * 1000
+        : 500 * (2 ** (attempt - 1))
+      await sleep(waitMs)
+    } catch (err) {
+      lastErr = err
+      if (attempt < maxAttempts) {
+        await sleep(500 * (2 ** (attempt - 1)))
+      }
+    }
+  }
+
+  if (lastRes) return lastRes
+  throw lastErr ?? new Error("Azure request failed")
+}
+
 async function getAzureAccessToken(
   tenantId: string,
   clientId: string,
@@ -48,7 +100,7 @@ export async function GET() {
 
     // Try Credits API first (works for MCA/Student accounts with billing profile)
     if (billingAccountId && billingProfileId) {
-      const creditsRes = await fetch(
+      const creditsRes = await fetchAzureWithRetry(
         `https://management.azure.com/providers/Microsoft.Billing/billingAccounts/${billingAccountId}/billingProfiles/${billingProfileId}/providers/Microsoft.Consumption/credits/balanceSummary?api-version=2024-08-01`,
         { headers, cache: "no-store" }
       )
@@ -56,7 +108,7 @@ export async function GET() {
       if (creditsRes.ok) {
         const credits = await creditsRes.json()
         const props = credits.properties
-        return NextResponse.json({
+        const payload = {
           type: "credits",
           currentBalance: props?.balanceSummary?.currentBalance?.value ?? null,
           estimatedBalance: props?.balanceSummary?.estimatedBalance?.value ?? null,
@@ -64,7 +116,14 @@ export async function GET() {
           expiredCredit: props?.expiredCredit?.value ?? 0,
           pendingCharges: props?.pendingEligibleCharges?.value ?? 0,
           dashboardUrl: "https://portal.azure.com/#view/Microsoft_Azure_Billing/BillingMenuBlade/~/Credits",
-        })
+        }
+        rememberAzurePayload(payload)
+        return NextResponse.json(payload)
+      }
+
+      if (creditsRes.status === 429) {
+        const stale = staleAzurePayload()
+        if (stale) return NextResponse.json(stale)
       }
     }
 
@@ -76,7 +135,7 @@ export async function GET() {
         .split("T")[0]
       const today = now.toISOString().split("T")[0]
 
-      const costRes = await fetch(
+      const costRes = await fetchAzureWithRetry(
         `https://management.azure.com/subscriptions/${subscriptionId}/providers/Microsoft.CostManagement/query?api-version=2023-11-01`,
         {
           method: "POST",
@@ -105,7 +164,7 @@ export async function GET() {
         // Azure for Students gives $100 credit
         const studentCredit = 100
 
-        return NextResponse.json({
+        const payload = {
           type: "cost_query",
           totalSpend: totalCost,
           currency,
@@ -113,7 +172,14 @@ export async function GET() {
           remaining: studentCredit - totalCost,
           period: `${startOfMonth} to ${today}`,
           dashboardUrl: `https://portal.azure.com/#view/Microsoft_Azure_CostManagement/Menu/~/costanalysis/openedBy/AzurePortal/scope/subscriptions%2F${subscriptionId}`,
-        })
+        }
+        rememberAzurePayload(payload)
+        return NextResponse.json(payload)
+      }
+
+      if (costRes.status === 429) {
+        const stale = staleAzurePayload()
+        if (stale) return NextResponse.json(stale)
       }
 
       const errText = await costRes.text()

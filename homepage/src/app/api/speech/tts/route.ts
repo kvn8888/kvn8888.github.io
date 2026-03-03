@@ -18,9 +18,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Text is required' }, { status: 400 })
     }
 
-    // If instructions provided (style, pacing, accent), prepend them to the text prompt
-    // Gemini TTS supports natural language prompts for controlling voice style
-    const promptText = instructions ? `${instructions}\n\n${text}` : text
+    // Force audio-only behavior; Gemini TTS can return 400 if prompt is ambiguous
+    // and it attempts text output.
+    const promptText = instructions
+      ? `Generate speech audio only. Do not output any text.\n\nStyle instructions: ${instructions}\n\nSpeak exactly: ${text}`
+      : `Generate speech audio only. Do not output any text. Speak exactly: ${text}`
 
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`,
@@ -30,10 +32,10 @@ export async function POST(req: NextRequest) {
         body: JSON.stringify({
           contents: [{ parts: [{ text: promptText }] }],
           generationConfig: {
-            responseModalities: ['AUDIO'],
-            speechConfig: {
-              voiceConfig: {
-                prebuiltVoiceConfig: { voiceName: voice },
+            response_modalities: ['AUDIO'],
+            speech_config: {
+              voice_config: {
+                prebuilt_voice_config: { voice_name: voice },
               },
             },
           },
