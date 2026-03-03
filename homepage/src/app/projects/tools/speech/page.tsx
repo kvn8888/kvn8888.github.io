@@ -263,7 +263,7 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
         throw new Error(data.error || 'TTS generation failed')
       }
 
-      const { audio, mimeType } = await res.json()
+      const { audio, mimeType, summary, storageUrl } = await res.json()
 
       // Convert base64 PCM → playable WAV blob
       const raw = atob(audio)
@@ -284,9 +284,9 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
       setAudioUrl(url)
       saveSpeechHistory({
         modality: 'tts',
-        title: `TTS · ${voice}`,
+        title: summary || `TTS · ${voice}`,
         content: text.trim().slice(0, 500),
-        metadata: { voice, mimeType: mimeType || 'audio/wav' },
+        metadata: { voice, mimeType: mimeType || 'audio/wav', ...(storageUrl ? { storageUrl } : {}) },
       })
       onHistorySaved()
     } catch (err) {
