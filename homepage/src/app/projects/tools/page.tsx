@@ -19,6 +19,12 @@ const toolLinks = [
     href: "/projects/tools/resume-tool",
     icon: "work",
   },
+  {
+    title: "Cover Letter Workbench",
+    description: "Assemble tailored cover letters from reusable building blocks with AI matching",
+    href: "/projects/tools/coverletter",
+    icon: "edit_note",
+  },
 ]
 
 export default async function ToolsPage() {
