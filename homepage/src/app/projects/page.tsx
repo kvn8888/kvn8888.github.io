@@ -8,6 +8,12 @@ const projectLinks = [
     icon: "monitoring",
   },
   {
+    title: "Sign-In Manager",
+    description: "Review login attempts, approve or reject access, and manage email whitelists",
+    href: "/projects/logins",
+    icon: "shield_person",
+  },
+  {
     title: "Tools",
     description: "Internal tools and utilities",
     href: "/projects/tools",
