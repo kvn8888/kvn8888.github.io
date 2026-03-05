@@ -1017,14 +1017,24 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
         </summary>
         <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-foreground/40">
           <div className="rounded-lg bg-foreground/[0.02] border border-foreground/5 p-2.5">
-            <p className="font-medium text-foreground/50 mb-1">Mistral Voxtral</p>
-            <p>Max file: 25MB · Formats: WAV, MP3, FLAC, WebM, OGG</p>
-            <p>Free tier: 1 req/s · Paid: 5 req/s</p>
+            <p className="font-medium text-foreground/50 mb-1">Voxtral Mini Transcribe (2507)</p>
+            <p>App cap: 25MB upload · Mistral batch transcription supports long-form audio up to ~3 hours</p>
+            <p>Best with WAV/MP3/FLAC/WebM/OGG; M4A/AIFF/CAF are converted when needed</p>
           </div>
           <div className="rounded-lg bg-foreground/[0.02] border border-foreground/5 p-2.5">
-            <p className="font-medium text-foreground/50 mb-1">Azure OpenAI (GPT‑4o)</p>
-            <p>Max file: 25MB · Max duration: 2 hours</p>
+            <p className="font-medium text-foreground/50 mb-1">Voxtral Mini Latest</p>
+            <p>Same upload cap in this app (25MB) and same provider family constraints as above</p>
+            <p>Good default for Mistral path while model revisions roll forward</p>
+          </div>
+          <div className="rounded-lg bg-foreground/[0.02] border border-foreground/5 p-2.5">
+            <p className="font-medium text-foreground/50 mb-1">GPT‑4o Transcribe</p>
+            <p>Transcription API upload limit: 25MB per request</p>
             <p>Formats: MP3, MP4, MPEG, MPGA, M4A, WAV, WebM</p>
+          </div>
+          <div className="rounded-lg bg-foreground/[0.02] border border-foreground/5 p-2.5">
+            <p className="font-medium text-foreground/50 mb-1">GPT‑4o Transcribe Diarize</p>
+            <p>Same 25MB upload cap; use <code>diarized_json</code> upstream for speaker-attributed output</p>
+            <p>For long audio, chunking is still recommended to avoid provider timeouts</p>
           </div>
         </div>
       </details>
@@ -1072,9 +1082,11 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
       }
 
       const data = (await res.json()) as AzurePronunciationResponse
-      // Azure returns NBest[0].PronunciationAssessment
-      const assessment = data.NBest?.[0]?.PronunciationAssessment
-      const words = data.NBest?.[0]?.Words || []
+      // Azure usually returns NBest[0].PronunciationAssessment, but some
+      // payloads place assessment/words at top level.
+      const nbestTop = data.NBest?.[0]
+      const assessment = nbestTop?.PronunciationAssessment ?? data.PronunciationAssessment
+      const words = nbestTop?.Words || data.Words || []
 
       if (assessment) {
         const nextResult = {
@@ -1083,7 +1095,7 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
           completenessScore: assessment.CompletenessScore,
           prosodyScore: assessment.ProsodyScore,
           pronScore: assessment.PronScore,
-          displayText: data.DisplayText || resolvedReferenceText,
+          displayText: nbestTop?.Display || data.DisplayText || resolvedReferenceText,
           words: words.map((w: AzureWord) => ({
             word: w.Word,
             accuracyScore: w.PronunciationAssessment?.AccuracyScore ?? 0,
@@ -1477,7 +1489,16 @@ interface AzureWord {
 interface AzurePronunciationResponse {
   RecognitionStatus?: string
   DisplayText?: string
+  PronunciationAssessment?: {
+    AccuracyScore: number
+    FluencyScore: number
+    CompletenessScore: number
+    ProsodyScore?: number
+    PronScore: number
+  }
+  Words?: AzureWord[]
   NBest?: Array<{
+    Display?: string
     PronunciationAssessment?: {
       AccuracyScore: number
       FluencyScore: number
