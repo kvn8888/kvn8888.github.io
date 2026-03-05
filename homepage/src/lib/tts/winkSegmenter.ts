@@ -81,12 +81,17 @@ export function createWinkSegmenter(): SentenceSegmenter {
     /**
      * Splits `text` into sentences using wink-nlp's SBD (Sentence Boundary
      * Disambiguation) model.  Empty/whitespace-only sentences are excluded.
+     *
+     * `doc.sentences().out()` returns `string[]` per the wink-nlp type
+     * definitions (`Sentences.out(): string[]`) — the cast documents intent
+     * and matches the declared return type in wink-nlp's own types/index.d.ts.
      */
     segment(text: string): string[] {
       const doc = nlp.readDoc(text)
-      // doc.sentences().out() returns string[] — the raw text of each sentence
-      // including trailing whitespace.  Filter empties for consistency.
-      return (doc.sentences().out() as string[]).filter((s) => s.trim().length > 0)
+      // wink-nlp types declare out() → string[] on the Sentences collection.
+      // We filter empties for consistency with the IntlSegmenter adapter.
+      const raw: string[] = doc.sentences().out()
+      return raw.filter((s) => s.trim().length > 0)
     },
   }
 }

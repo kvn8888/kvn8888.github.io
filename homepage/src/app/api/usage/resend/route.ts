@@ -96,6 +96,7 @@ export async function GET() {
       // status values: not_started | pending | verified | failure | temporary_failure
       status: d.status,
       region: d.region,
+      // Normalize snake_case API field to camelCase for the frontend interface
       createdAt: d.created_at,
     })),
     apiKeyCount: apiKeys.length,

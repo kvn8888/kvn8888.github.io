@@ -214,6 +214,16 @@ function UsageMeter({
   )
 }
 
+/**
+ * Maps a Resend domain status string to a Tailwind dot color class.
+ * Resend status values: not_started | pending | verified | failure | temporary_failure
+ */
+function resendDomainStatusColor(status: string): string {
+  if (status === 'verified') return 'bg-emerald-400'
+  if (status === 'pending') return 'bg-amber-400'
+  return 'bg-red-400' // failure | temporary_failure | not_started
+}
+
 function ServiceCard({
   title,
   icon,
@@ -1402,10 +1412,7 @@ export default function UsagePage() {
                     {resend.domains.slice(0, 5).map((d) => (
                       <div key={d.id} className="flex items-center justify-between text-sm">
                         <div className="flex items-center gap-2">
-                          <span className={`w-2 h-2 rounded-full ${
-                            d.status === 'verified' ? 'bg-emerald-400' :
-                            d.status === 'pending' ? 'bg-amber-400' : 'bg-red-400'
-                          }`} />
+                          <span className={`w-2 h-2 rounded-full ${resendDomainStatusColor(d.status)}`} />
                           <span className="text-foreground/70 truncate max-w-[120px]">{d.name}</span>
                         </div>
                         <div className="text-right">
