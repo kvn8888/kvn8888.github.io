@@ -357,3 +357,20 @@ html {
 .hl-card:active {
   cursor: grabbing !important;
 }
+
+/*
+ * Squircle shape — uses a CSS mask with an inline SVG to create a
+ * mathematically smooth superellipse instead of standard border-radius.
+ * The superellipse path (C 12 0 → C 0 12 → etc.) gives the characteristic
+ * iOS-style smooth corners that border-radius can't achieve.
+ */
+.squircle {
+  mask-image: url("data:image/svg+xml,%3Csvg width='100' height='100' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M 50 0 C 12 0 0 12 0 50 C 0 88 12 100 50 100 C 88 100 100 88 100 50 C 100 12 88 0 50 0 Z'/%3E%3C/svg%3E");
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg width='100' height='100' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M 50 0 C 12 0 0 12 0 50 C 0 88 12 100 50 100 C 88 100 100 88 100 50 C 100 12 88 0 50 0 Z'/%3E%3C/svg%3E");
+  mask-size: contain;
+  -webkit-mask-size: contain;
+  mask-repeat: no-repeat;
+  -webkit-mask-repeat: no-repeat;
+  mask-position: center;
+  -webkit-mask-position: center;
+}

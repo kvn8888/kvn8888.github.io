@@ -386,34 +386,34 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
 
         {/* ── Floating squircle X button ──
             Rendered as a React element positioned absolutely at the
-            top-right corner of whichever highlight card is hovered.
-            "Squircle" = rounded square (border-radius: 6px, not 50%). */}
+            top-right of whichever highlight card is hovered.
+
+            Structure: shadow wrapper div > squircle-masked button
+            - The wrapper uses drop-shadow filter because CSS masks clip
+              standard box-shadow. drop-shadow hugs the mask shape.
+            - The button uses a superellipse SVG mask (.squircle class)
+              for smooth iOS-style corners instead of border-radius.
+            - On hover: lifts up (-translate-y-0.5), deeper shadow,
+              background turns red to signal destructive action.
+            - On active: presses down, smaller shadow, slight scale. */}
         {xBtnPos && (
-          <button
-            className="hl-floating-x absolute z-50 flex items-center justify-center w-5 h-5 text-xs cursor-pointer transition-all"
-            style={{
-              left: xBtnPos.x,
-              top: xBtnPos.y,
-              borderRadius: '6px',
-              background: 'rgba(0,0,0,0.15)',
-              color: 'rgba(0,0,0,0.6)',
-              border: 'none',
-              lineHeight: 1,
-            }}
-            onMouseEnter={(e) => {
-              // Turn red on hover to indicate destructive action
-              e.currentTarget.style.background = 'rgba(239,68,68,0.9)'
-              e.currentTarget.style.color = '#fff'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'rgba(0,0,0,0.15)'
-              e.currentTarget.style.color = 'rgba(0,0,0,0.6)'
-              setXBtnPos(null)
-            }}
-            onClick={() => { if (xBtnPos.card) removeCard(xBtnPos.card) }}
+          <div
+            className="hl-floating-x absolute z-50 group/x inline-flex drop-shadow-sm hover:drop-shadow-md transition-all duration-300 hover:-translate-y-0.5 active:translate-y-0 active:drop-shadow-sm active:scale-95"
+            style={{ left: xBtnPos.x, top: xBtnPos.y }}
+            onMouseLeave={() => setXBtnPos(null)}
           >
-            ×
-          </button>
+            <button
+              className="squircle relative w-6 h-6 bg-white dark:bg-neutral-700 flex items-center justify-center text-neutral-400 group-hover/x:bg-red-500 group-hover/x:text-white transition-colors duration-200 cursor-pointer focus:outline-none"
+              aria-label="Remove highlight"
+              onClick={() => { if (xBtnPos.card) removeCard(xBtnPos.card) }}
+            >
+              {/* SVG X icon — two crossed lines */}
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
         )}
 
         {/* ── "Create Card" popup ──
