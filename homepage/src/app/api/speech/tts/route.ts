@@ -36,6 +36,8 @@ function createWavBuffer(pcmBase64: string, sampleRate: number, channels: number
 
 const MIN_TEXT_LENGTH_FOR_SUMMARY = 40
 const MAX_SUMMARY_LENGTH = 120
+const GEMINI_TEXT_LIMIT = 4096
+const CHIRP3_TEXT_LIMIT_BYTES = 5000
 
 async function summarizeText(apiKey: string, text: string): Promise<string | null> {
   if (text.length < MIN_TEXT_LENGTH_FOR_SUMMARY) return null
@@ -183,13 +185,22 @@ export async function POST(req: NextRequest) {
     }
 
     const isChirp3 = provider === 'chirp3' || String(voice).startsWith('chirp3:')
+    const normalizedText = String(text)
+
+    if (!isChirp3 && normalizedText.length > GEMINI_TEXT_LIMIT) {
+      return NextResponse.json({ error: `Gemini TTS input exceeds ${GEMINI_TEXT_LIMIT} characters` }, { status: 400 })
+    }
+
+    if (isChirp3 && Buffer.byteLength(normalizedText, 'utf8') > CHIRP3_TEXT_LIMIT_BYTES) {
+      return NextResponse.json({ error: `Chirp 3 input exceeds ${CHIRP3_TEXT_LIMIT_BYTES} bytes` }, { status: 400 })
+    }
 
     if (isChirp3) {
       const chirpVoiceName = String(voice).replace(/^chirp3:/, '')
-      const chirp = await synthesizeChirp3(text, chirpVoiceName)
+      const chirp = await synthesizeChirp3(normalizedText, chirpVoiceName)
 
       // Optional summarization if Gemini key exists; non-fatal if unavailable.
-      const summary = apiKey ? await summarizeText(apiKey, text) : null
+      const summary = apiKey ? await summarizeText(apiKey, normalizedText) : null
 
       return NextResponse.json({
         audio: chirp.audio,
@@ -205,8 +216,8 @@ export async function POST(req: NextRequest) {
     // Force audio-only behavior; Gemini TTS can return 400 if prompt is ambiguous
     // and it attempts text output.
     const promptText = instructions
-      ? `Generate speech audio only. Do not output any text.\n\nStyle instructions: ${instructions}\n\nSpeak exactly: ${text}`
-      : `Generate speech audio only. Do not output any text. Speak exactly: ${text}`
+      ? `Generate speech audio only. Do not output any text.\n\nStyle instructions: ${instructions}\n\nSpeak exactly: ${normalizedText}`
+      : `Generate speech audio only. Do not output any text. Speak exactly: ${normalizedText}`
 
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`,
@@ -241,7 +252,7 @@ export async function POST(req: NextRequest) {
 
     // Best-effort: summarize + upload in parallel without blocking the response
     const [summary, storageUrl] = await Promise.all([
-      summarizeText(apiKey, text),
+      summarizeText(apiKey, normalizedText),
       process.env.SPEECH_S3_BUCKET
         ? uploadToS3(
             createWavBuffer(audioData, 24000, 1, 16),

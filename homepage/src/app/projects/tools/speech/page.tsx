@@ -233,6 +233,9 @@ const chirp3Voices = [
   { name: 'en-US-Chirp3-HD-Zephyr', style: 'Bright (US)' },
 ]
 
+const GEMINI_TEXT_LIMIT = 4096
+const CHIRP3_TEXT_LIMIT = 5000
+
 function saveSpeechHistory(payload: { modality: Tab; title: string; content?: string; metadata?: Record<string, unknown> }) {
   // History persistence is best-effort and should not block core speech actions.
   void fetch('/api/speech/history', {
@@ -310,6 +313,7 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
   const [error, setError] = useState<string | null>(null)
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
   const isChirp3Voice = voice.startsWith('chirp3:')
+  const maxChars = isChirp3Voice ? CHIRP3_TEXT_LIMIT : GEMINI_TEXT_LIMIT
 
   const handleGenerate = async () => {
     if (!text.trim()) return
@@ -391,10 +395,12 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
           }}
           placeholder="Enter text to speak..."
           rows={4}
-          maxLength={4096}
+          maxLength={maxChars}
           className="w-full rounded-xl bg-foreground/[0.03] border border-foreground/10 px-4 py-3 text-sm text-foreground placeholder:text-foreground/30 focus:outline-none focus:ring-2 focus:ring-foreground/20 resize-none transition-all"
         />
-        <p className="text-xs text-foreground/30 text-right">{text.length} / 4096 · ⌘/Ctrl+Enter to generate</p>
+        <p className="text-xs text-foreground/30 text-right">
+          {text.length} / {maxChars} · {isChirp3Voice ? 'Chirp 3 max input' : 'Gemini max input'} · ⌘/Ctrl+Enter to generate
+        </p>
       </div>
 
       {/* Voice selector */}
@@ -495,6 +501,7 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
           </div>
           <div className="rounded-lg bg-foreground/[0.02] border border-foreground/5 p-2.5">
             <p className="font-medium text-foreground/50 mb-1">Chirp 3 HD</p>
+            <p>Max input: 5,000 bytes per request</p>
             <p>High-fidelity Google Cloud voices via Text-to-Speech API</p>
             <p>Output: MP3 (API default in this app)</p>
           </div>
@@ -1613,6 +1620,7 @@ function SemiCircleGauge({ label, score, size = 160 }: { label: string; score: n
 }
 
 function ScoreCard({ label, score, tooltip }: { label: string; score: number; tooltip?: string }) {
+  const [showTooltip, setShowTooltip] = useState(false)
   const color =
     score >= SCORE_EXCELLENT ? 'text-emerald-600' : score >= SCORE_GOOD ? 'text-amber-600' : 'text-red-600'
   const bgColor =
@@ -1620,16 +1628,23 @@ function ScoreCard({ label, score, tooltip }: { label: string; score: number; to
 
   return (
     <div className={`rounded-xl px-4 py-3 border ${bgColor} text-center`}>
-      <div className="inline-flex items-center gap-1 mb-1">
+      <div className="inline-flex items-center gap-1 mb-1 relative">
         <p className="text-xs text-foreground/40">{label}</p>
         {tooltip && (
-          <span
+          <button
+            type="button"
             title={tooltip}
-            className="material-symbols-outlined text-[14px] text-foreground/35 cursor-help"
+            className="material-symbols-outlined text-[14px] text-foreground/35 cursor-help bg-transparent border-0 p-0 leading-none"
             aria-label={`${label} info`}
+            onClick={() => setShowTooltip((prev) => !prev)}
           >
             help
-          </span>
+          </button>
+        )}
+        {tooltip && showTooltip && (
+          <div className="absolute z-10 top-full mt-1 left-1/2 -translate-x-1/2 w-52 rounded-lg bg-glass backdrop-blur-md border border-glass-border px-2 py-1.5 text-[11px] text-foreground/70 text-left shadow-lg">
+            {tooltip}
+          </div>
         )}
       </div>
       <p className={`text-2xl font-medium tabular-nums ${color}`}>{Math.round(score)}</p>

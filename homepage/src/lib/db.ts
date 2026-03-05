@@ -91,10 +91,40 @@ export async function updateAttemptStatus(id: number, status: 'approved' | 'reje
   if (!db) return false
   await initSchema()
 
+  const attempt = await db.execute({
+    sql: `SELECT email, status FROM login_attempts WHERE id = ? LIMIT 1`,
+    args: [id],
+  })
+
+  if (attempt.rows.length === 0) return false
+
+  const email = String(attempt.rows[0].email).toLowerCase()
+  const currentStatus = String(attempt.rows[0].status)
+
+  if (status === 'approved') {
+    await db.execute({
+      sql: `UPDATE login_attempts
+            SET status = 'approved', updated_at = datetime('now')
+            WHERE email = ?`,
+      args: [email],
+    })
+    return true
+  }
+
+  if (currentStatus === 'approved') {
+    await db.execute({
+      sql: `UPDATE login_attempts
+            SET status = 'rejected', updated_at = datetime('now')
+            WHERE email = ? AND status = 'approved'`,
+      args: [email],
+    })
+    return true
+  }
+
   await db.execute({
-    sql: `UPDATE login_attempts SET status = ?, updated_at = datetime('now')
+    sql: `UPDATE login_attempts SET status = 'rejected', updated_at = datetime('now')
           WHERE id = ?`,
-    args: [status, id],
+    args: [id],
   })
   return true
 }

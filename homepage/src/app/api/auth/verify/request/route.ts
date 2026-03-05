@@ -1,5 +1,27 @@
 import { NextResponse } from 'next/server'
-import { createLoginAttempt, generateVerificationCode } from '@/lib/db'
+import { createLoginAttempt, generateVerificationCode, isEmailApproved } from '@/lib/db'
+
+async function sendVerificationEmail(email: string, code: string): Promise<boolean> {
+  const apiKey = process.env.RESEND_API_KEY
+  const from = process.env.AUTH_EMAIL_FROM
+  if (!apiKey || !from) return false
+
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from,
+      to: [email],
+      subject: 'Your KevinC.dev verification code',
+      html: `<p>Your verification code is:</p><p style="font-size: 24px; font-family: monospace;"><strong>${code}</strong></p><p>This code expires once used.</p>`,
+    }),
+  })
+
+  return response.ok
+}
 
 export async function POST(request: Request) {
   try {
@@ -14,6 +36,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Invalid email format' }, { status: 400 })
     }
 
+    if (await isEmailApproved(email)) {
+      return NextResponse.json({
+        success: true,
+        alreadyApproved: true,
+      })
+    }
+
     const code = generateVerificationCode()
     const id = await createLoginAttempt(email, 'email', code)
 
@@ -24,13 +53,17 @@ export async function POST(request: Request) {
       )
     }
 
-    // In production, send the code via email and don't include it in the response.
-    // In development/demo mode, return it for display.
+    const emailSent = await sendVerificationEmail(email, code)
+
+    // In development/demo mode, or when email delivery is not configured,
+    // return the code for manual verification.
     const isDemoMode = process.env.NODE_ENV !== 'production'
+    const includeCode = isDemoMode || !emailSent
 
     return NextResponse.json({
       success: true,
-      ...(isDemoMode ? { code } : {}),
+      ...(includeCode ? { code } : {}),
+      delivery: emailSent ? 'email' : 'manual',
       id: Number(id),
     })
   } catch {

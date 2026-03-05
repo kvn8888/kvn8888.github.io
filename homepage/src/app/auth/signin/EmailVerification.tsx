@@ -10,11 +10,13 @@ export function EmailVerification() {
   const [displayCode, setDisplayCode] = useState('')
   const [userCode, setUserCode] = useState('')
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
   const [loading, setLoading] = useState(false)
 
   async function handleRequestCode(e: React.FormEvent) {
     e.preventDefault()
     setError('')
+    setNotice('')
     setLoading(true)
 
     try {
@@ -30,6 +32,15 @@ export function EmailVerification() {
         return
       }
 
+      if (data.alreadyApproved) {
+        setNotice('This email is already approved. Please continue with Google sign-in.')
+        return
+      }
+
+      if (data.delivery === 'manual') {
+        setNotice('Email delivery is not configured. Use the code below to continue.')
+      }
+
       setDisplayCode(data.code || '')
       setStep('code')
     } catch {
@@ -42,6 +53,7 @@ export function EmailVerification() {
   async function handleVerifyCode(e: React.FormEvent) {
     e.preventDefault()
     setError('')
+    setNotice('')
     setLoading(true)
 
     try {
@@ -131,6 +143,10 @@ export function EmailVerification() {
             <p className="text-sm text-red-500 text-center">{error}</p>
           )}
 
+          {notice && (
+            <p className="text-sm text-foreground/60 text-center">{notice}</p>
+          )}
+
           <button
             type="submit"
             disabled={loading || userCode.length !== 6}
@@ -177,6 +193,7 @@ export function EmailVerification() {
       </div>
 
       {error && <p className="text-sm text-red-500 text-center">{error}</p>}
+      {notice && <p className="text-sm text-foreground/60 text-center">{notice}</p>}
 
       <button
         type="submit"

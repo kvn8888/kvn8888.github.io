@@ -70,7 +70,7 @@ export function ProfileMenu({ userName, userEmail, userImage, signOutAction }: P
 
       {/* Popover card */}
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-72 rounded-2xl bg-glass/95 backdrop-blur-xl border border-glass-border shadow-xl z-50 overflow-hidden">
+        <div className="absolute right-0 top-full mt-2 w-72 rounded-2xl bg-glass backdrop-blur-2xl border border-glass-border shadow-xl shadow-black/10 z-50 overflow-hidden">
           {/* User info */}
           <div className="px-5 py-4 flex items-center gap-3 border-b border-foreground/5">
             {userImage ? (
