@@ -10,6 +10,11 @@ export async function GET() {
   const apiToken = process.env.TURSO_API_TOKEN
   const orgSlug = process.env.TURSO_ORG_SLUG
   if (!apiToken || !orgSlug) {
+    console.error('Turso usage route missing config', {
+      hasApiToken: Boolean(apiToken),
+      hasOrgSlug: Boolean(orgSlug),
+      userEmail: session.user.email?.toLowerCase() || 'unknown',
+    })
     return NextResponse.json({ error: "TURSO_API_TOKEN or TURSO_ORG_SLUG not configured" }, { status: 500 })
   }
 
@@ -24,6 +29,12 @@ export async function GET() {
 
     if (!res.ok) {
       const errText = await res.text()
+      console.error('Turso usage upstream API error', {
+        status: res.status,
+        statusText: res.statusText,
+        orgSlug,
+        body: errText,
+      })
       return NextResponse.json({ error: "Turso API error", details: errText }, { status: res.status })
     }
 
@@ -61,6 +72,12 @@ export async function GET() {
       dashboardUrl: "https://turso.tech/app",
     })
   } catch (err) {
+    console.error('Failed to fetch Turso usage', {
+      error: err,
+      message: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+      orgSlug,
+    })
     return NextResponse.json(
       { error: "Failed to fetch Turso usage", details: String(err) },
       { status: 500 }

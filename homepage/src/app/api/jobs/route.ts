@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from 'next/server'
 export async function GET(req: NextRequest) {
   const session = await auth()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const userEmail = session.user?.email?.toLowerCase() || 'unknown'
 
   const { searchParams } = new URL(req.url)
   const q = searchParams.get('q') || ''
@@ -49,7 +50,15 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ jobs, total })
   } catch (err) {
-    console.error('GET /api/jobs error:', err)
+    console.error('GET /api/jobs error:', {
+      error: err,
+      message: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+      q,
+      limit,
+      offset,
+      userEmail,
+    })
     return NextResponse.json({ error: 'Failed to fetch jobs', details: String(err) }, { status: 500 })
   }
 }
@@ -57,6 +66,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const session = await auth()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const userEmail = session.user?.email?.toLowerCase() || 'unknown'
 
   try {
     const body = await req.json()
@@ -94,7 +104,12 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ id, message: 'Created' }, { status: 201 })
   } catch (err) {
-    console.error('POST /api/jobs error:', err)
+    console.error('POST /api/jobs error:', {
+      error: err,
+      message: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+      userEmail,
+    })
     return NextResponse.json({ error: 'Failed to create job', details: String(err) }, { status: 500 })
   }
 }

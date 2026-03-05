@@ -13,6 +13,7 @@ function getMondayISO(date: Date): string {
 export async function GET() {
   const session = await auth()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const userEmail = session.user?.email?.toLowerCase() || 'unknown'
 
   try {
     const db = getJobsDb()
@@ -80,7 +81,12 @@ export async function GET() {
       weekComparison,
     })
   } catch (err) {
-    console.error('GET /api/jobs/stats error:', err)
+    console.error('GET /api/jobs/stats error:', {
+      error: err,
+      message: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+      userEmail,
+    })
     return NextResponse.json({ error: 'Failed to fetch stats', details: String(err) }, { status: 500 })
   }
 }

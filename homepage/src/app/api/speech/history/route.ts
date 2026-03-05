@@ -8,7 +8,13 @@ const MAX_METADATA_LENGTH = 5000
 
 async function ensureTable() {
   const client = getTursoClient()
-  if (!client) return null
+  if (!client) {
+    console.error('Speech history Turso client unavailable', {
+      hasDatabaseUrl: Boolean(process.env.TURSO_DATABASE_URL),
+      hasAuthToken: Boolean(process.env.TURSO_AUTH_TOKEN),
+    })
+    return null
+  }
 
   await client.execute(`
     CREATE TABLE IF NOT EXISTS speech_history (
@@ -74,7 +80,12 @@ export async function GET() {
 
     return NextResponse.json({ items })
   } catch (error) {
-    console.error('Speech history GET error:', error)
+    console.error('Speech history GET error:', {
+      error,
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      email,
+    })
     return NextResponse.json({ error: 'Failed to load speech history' }, { status: 500 })
   }
 }
@@ -121,7 +132,12 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true, id })
   } catch (error) {
-    console.error('Speech history POST error:', error)
+    console.error('Speech history POST error:', {
+      error,
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      email,
+    })
     return NextResponse.json({ error: 'Failed to save speech history' }, { status: 500 })
   }
 }
@@ -154,7 +170,12 @@ export async function DELETE(req: NextRequest) {
 
     return NextResponse.json({ ok: true })
   } catch (error) {
-    console.error('Speech history DELETE error:', error)
+    console.error('Speech history DELETE error:', {
+      error,
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      email,
+    })
     return NextResponse.json({ error: 'Failed to delete speech history item' }, { status: 500 })
   }
 }

@@ -8,6 +8,7 @@ type AllowedField = (typeof ALLOWED_FIELDS)[number]
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const userEmail = session.user?.email?.toLowerCase() || 'unknown'
 
   const { id } = await params
   const numericId = parseInt(id, 10)
@@ -41,7 +42,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     return NextResponse.json({ message: 'Updated' })
   } catch (err) {
-    console.error(`PATCH /api/jobs/${id} error:`, err)
+    console.error(`PATCH /api/jobs/${id} error:`, {
+      error: err,
+      message: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+      id,
+      userEmail,
+    })
     return NextResponse.json({ error: 'Failed to update job', details: String(err) }, { status: 500 })
   }
 }
