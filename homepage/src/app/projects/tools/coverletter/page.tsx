@@ -179,6 +179,7 @@ export default function CoverLetterWorkbench() {
             ref={editorRef}
             onBlockCountChange={setEditorBlockCount}
             onCopy={handleCopy}
+            onCreateCard={(block) => setLibraryBlocks((prev) => [...prev, block])}
             isDragOver={isDragOver}
             setIsDragOver={setIsDragOver}
           />

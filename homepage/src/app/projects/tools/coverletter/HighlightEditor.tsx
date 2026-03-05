@@ -36,6 +36,7 @@ export interface HighlightEditorHandle {
 interface HighlightEditorProps {
   onBlockCountChange: (count: number) => void  // Reports block count changes
   onCopy: () => void                           // Called after copy-to-clipboard
+  onCreateCard?: (block: Block) => void        // Called when user creates a card from selection (saves to library)
   isDragOver: boolean                          // Visual state for drop zone
   setIsDragOver: (v: boolean) => void          // Updates drag state in parent
 }
@@ -43,7 +44,7 @@ interface HighlightEditorProps {
 // ─── Component ──────────────────────────────────────────────────────────────
 
 const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
-  function HighlightEditor({ onBlockCountChange, onCopy, isDragOver, setIsDragOver }, ref) {
+  function HighlightEditor({ onBlockCountChange, onCopy, onCreateCard, isDragOver, setIsDragOver }, ref) {
 
   // Refs for the contentEditable editor and its wrapper (for positioning)
   const editorRef = useRef<HTMLDivElement>(null)
@@ -51,6 +52,7 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
 
   // UI state
   const [popup, setPopup] = useState<{ x: number; y: number } | null>(null)
+  const [popupCategory, setPopupCategory] = useState('Custom') // Category for "Create Card" popup
   const [blockCount, setBlockCount] = useState(0)
   const { resolvedTheme } = useTheme()
 
@@ -75,11 +77,18 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
     localStorage.setItem('cl-editor-html', editorRef.current.innerHTML)
   }, [])
 
-  // ── Attach hover events to a highlight span ──
-  // When the user hovers over a highlighted span, we calculate
-  // its bounding rect relative to the wrapper div and position
-  // a floating X button at the top-right corner.
+  // ── Attach hover + drag events to a highlight span ──
+  // - Hover: calculate bounding rect relative to wrapper, show floating X
+  // - Drag: make the span a draggable block for reordering within the editor
+  //   Setting contentEditable=false on the span prevents text-selection drag
+  //   from intercepting the HTML5 drag-and-drop API.
   const attachCardEvents = useCallback((span: HTMLSpanElement) => {
+    // Make the span a discrete draggable element, not editable inline text
+    span.draggable = true
+    span.contentEditable = 'false'
+    span.style.cursor = 'grab'
+
+    // Hover: position the floating X button at the span's top-right corner
     span.addEventListener('mouseenter', () => {
       const wr = wrapperRef.current?.getBoundingClientRect()
       const sr = span.getBoundingClientRect()
@@ -95,6 +104,26 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
       const related = e.relatedTarget as HTMLElement | null
       if (related?.closest?.('.hl-floating-x')) return
       setXBtnPos(null)
+    })
+
+    // Drag: serialize the block data so the drop handler can distinguish
+    // a reorder (existing card in editor) from a new insert (library card).
+    // We set a 'source:editor' flag so the drop handler knows to MOVE
+    // rather than COPY.
+    span.addEventListener('dragstart', (e: DragEvent) => {
+      const blockData = {
+        id: span.dataset.blockId || '',
+        category: span.dataset.category || 'Custom',
+        text: span.textContent || '',
+        source: 'editor',  // distinguishes from library cards
+      }
+      e.dataTransfer?.setData('application/json', JSON.stringify(blockData))
+      if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
+      span.style.opacity = '0.4'  // visual feedback: ghost the original
+      setXBtnPos(null)             // hide X button during drag
+    })
+    span.addEventListener('dragend', () => {
+      span.style.opacity = '1'    // restore opacity after drag
     })
   }, [])
 
@@ -191,6 +220,9 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
     }
 
     // Handle the actual drop — read block data and insert as highlighted span
+    // Two modes:
+    //   1. Library → editor (source !== 'editor'): create a NEW span (copy)
+    //   2. Editor → editor (source === 'editor'): MOVE the existing span
     const handleDrop = (e: DragEvent) => {
       e.preventDefault()
       e.stopPropagation()
@@ -200,8 +232,31 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
       const jsonData = e.dataTransfer?.getData('application/json')
       if (jsonData) {
         try {
-          const block: Block = JSON.parse(jsonData)
-          const span = createHighlightSpan(block.text, block.category)
+          const data = JSON.parse(jsonData)
+          const isReorder = data.source === 'editor'
+
+          // For reorder: find and detach the original span first
+          let existingSpan: HTMLSpanElement | null = null
+          if (isReorder && el) {
+            // Find the span by matching text content and category
+            const allCards = el.querySelectorAll('.hl-card')
+            for (const card of allCards) {
+              if (
+                card.textContent === data.text &&
+                (card as HTMLSpanElement).dataset.category === data.category
+              ) {
+                existingSpan = card as HTMLSpanElement
+                break
+              }
+            }
+            // Remove the original from its current position
+            if (existingSpan?.parentNode) {
+              existingSpan.parentNode.removeChild(existingSpan)
+            }
+          }
+
+          // Create the span to insert (reuse existing for reorder, new for library)
+          const span = existingSpan || createHighlightSpan(data.text, data.category)
 
           // Try to insert at the exact drop position using caret detection
           let range: Range | null = null
@@ -301,15 +356,24 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
   }, [])
 
   // ── Create a card from the current text selection ──
+  // Uses the category chosen in the popup dropdown (popupCategory state).
+  // Also saves the new block to the library via onCreateCard callback.
   const createCardFromSelection = useCallback(() => {
     const sel = window.getSelection()
     if (!sel || sel.isCollapsed) return
     const range = sel.getRangeAt(0)
-    const color = nextPaletteColor()
+    const selectedText = range.toString().trim()
+    if (!selectedText) return
+
+    // Use the selected category's color, or fall back to palette cycling
+    const cat = CATEGORIES[popupCategory]
+    const color = cat
+      ? { bg: cat.bg, darkBg: cat.darkBg, border: cat.dot }
+      : nextPaletteColor()
 
     const span = document.createElement('span')
     span.className = 'hl-card'
-    span.dataset.category = 'Custom'
+    span.dataset.category = popupCategory
     const bgColor = resolvedTheme === 'dark' ? color.darkBg : color.bg
     span.style.cssText = [
       `background: ${bgColor}`,
@@ -337,9 +401,17 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
     range.insertNode(span)
     sel.removeAllRanges()
     setPopup(null)
+
+    // Save the new block to the library so it persists and is reusable
+    onCreateCard?.({
+      id: Date.now().toString(),
+      category: popupCategory,
+      text: selectedText,
+    })
+
     recount()
     saveContent()
-  }, [resolvedTheme, recount, saveContent, attachCardEvents])
+  }, [resolvedTheme, popupCategory, recount, saveContent, attachCardEvents, onCreateCard])
 
   // ── Auto-remove empty cards on any input event ──
   const onInput = useCallback(() => {
@@ -418,11 +490,11 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
 
         {/* ── "Create Card" popup ──
             Appears above text when the user selects text in the editor.
-            Clicking it wraps the selection in a new highlight span. */}
+            Contains a category dropdown and a button to wrap the selection
+            in a new highlight span and save it to the library. */}
         {popup && (
-          <button
-            onClick={createCardFromSelection}
-            className="absolute z-50 bg-foreground text-background border-none px-4 py-2 rounded-xl text-xs font-medium cursor-pointer shadow-lg"
+          <div
+            className="absolute z-50 bg-foreground text-background rounded-xl text-xs font-medium shadow-lg flex items-center gap-1.5 px-2 py-1.5"
             style={{
               left: popup.x,
               top: popup.y,
@@ -430,8 +502,26 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
               animation: 'popIn 0.15s cubic-bezier(0.34,1.56,0.64,1) both',
             }}
           >
-            Create Card
-          </button>
+            {/* Category dropdown — lets user choose where to file the new block */}
+            <select
+              value={popupCategory}
+              onChange={(e) => setPopupCategory(e.target.value)}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-background/20 text-background border border-background/20 rounded-lg px-1.5 py-1 text-[10px] font-medium outline-none cursor-pointer"
+            >
+              {Object.keys(CATEGORIES).map((cat) => (
+                <option key={cat} value={cat} className="text-foreground bg-background">{cat}</option>
+              ))}
+              <option value="Custom" className="text-foreground bg-background">Custom</option>
+            </select>
+            {/* Create button — wraps selection in highlight + saves to library */}
+            <button
+              onClick={createCardFromSelection}
+              className="bg-background/20 hover:bg-background/30 text-background border-none px-3 py-1 rounded-lg text-xs font-medium cursor-pointer transition-colors"
+            >
+              + Create Card
+            </button>
+          </div>
         )}
 
         {/* ── The contentEditable editor area ──

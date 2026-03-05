@@ -349,7 +349,11 @@ html {
   to { opacity: 1; transform: translate(-50%, 0) scale(1); }
 }
 
-/* Highlight card hover effect in the cover letter editor */
+/* Highlight card styles in the cover letter editor */
+/* Cards are draggable blocks — cursor indicates grab affordance */
+.hl-card {
+  cursor: grab;
+}
 .hl-card:hover {
   filter: brightness(1.03);
   box-shadow: 0 2px 12px rgba(0,0,0,0.1) !important;
