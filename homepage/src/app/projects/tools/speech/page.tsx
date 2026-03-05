@@ -232,6 +232,63 @@ function saveSpeechHistory(payload: { modality: Tab; title: string; content?: st
   })
 }
 
+function audioBufferToWavBlob(audioBuffer: AudioBuffer): Blob {
+  const numChannels = 1
+  const sampleRate = audioBuffer.sampleRate
+  const samples = audioBuffer.length
+  const bytesPerSample = 2
+  const dataSize = samples * numChannels * bytesPerSample
+  const wavBuffer = new ArrayBuffer(44 + dataSize)
+  const view = new DataView(wavBuffer)
+
+  const writeString = (offset: number, value: string) => {
+    for (let i = 0; i < value.length; i += 1) {
+      view.setUint8(offset + i, value.charCodeAt(i))
+    }
+  }
+
+  writeString(0, 'RIFF')
+  view.setUint32(4, 36 + dataSize, true)
+  writeString(8, 'WAVE')
+  writeString(12, 'fmt ')
+  view.setUint32(16, 16, true)
+  view.setUint16(20, 1, true)
+  view.setUint16(22, numChannels, true)
+  view.setUint32(24, sampleRate, true)
+  view.setUint32(28, sampleRate * numChannels * bytesPerSample, true)
+  view.setUint16(32, numChannels * bytesPerSample, true)
+  view.setUint16(34, 16, true)
+  writeString(36, 'data')
+  view.setUint32(40, dataSize, true)
+
+  const channels = Array.from({ length: audioBuffer.numberOfChannels }, (_, index) => audioBuffer.getChannelData(index))
+  let offset = 44
+  for (let i = 0; i < samples; i += 1) {
+    // Mix down to mono to align with common REST STT expectations.
+    const mono = channels.reduce((sum, channel) => sum + channel[i], 0) / channels.length
+    const clamped = Math.max(-1, Math.min(1, mono))
+    view.setInt16(offset, clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff, true)
+    offset += bytesPerSample
+  }
+
+  return new Blob([wavBuffer], { type: 'audio/wav' })
+}
+
+async function convertRecordedBlobToWav(audioBlob: Blob): Promise<Blob> {
+  if (audioBlob.type.includes('wav')) {
+    return audioBlob
+  }
+
+  const audioContext = new AudioContext()
+  try {
+    const arrayBuffer = await audioBlob.arrayBuffer()
+    const decoded = await audioContext.decodeAudioData(arrayBuffer.slice(0))
+    return audioBufferToWavBlob(decoded)
+  } finally {
+    await audioContext.close()
+  }
+}
+
 /* ─── TTS Panel ─── */
 function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
   const [text, setText] = useState('')
@@ -449,9 +506,72 @@ function writeString(view: DataView, offset: number, str: string) {
 
 /* ─── STT Panel ─── */
 
-const ACCEPTED_AUDIO_TYPES = ['audio/wav', 'audio/webm', 'audio/mp3', 'audio/mpeg', 'audio/ogg', 'audio/flac', 'audio/m4a', 'audio/aac', 'audio/mp4']
-const ACCEPTED_VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/ogg', 'video/quicktime', 'video/x-msvideo', 'video/x-matroska']
+const ACCEPTED_AUDIO_TYPES = [
+  'audio/wav',
+  'audio/webm',
+  'audio/mp3',
+  'audio/mpeg',
+  'audio/ogg',
+  'audio/flac',
+  'audio/m4a',
+  'audio/aac',
+  'audio/mp4',
+  'audio/x-m4a',
+  'audio/mp4a-latm',
+  'audio/aiff',
+  'audio/x-aiff',
+  'audio/x-caf',
+]
+const ACCEPTED_VIDEO_TYPES = [
+  'video/mp4',
+  'video/webm',
+  'video/ogg',
+  'video/quicktime',
+  'video/x-msvideo',
+  'video/x-matroska',
+  'video/x-m4v',
+]
+const ACCEPTED_AUDIO_EXTENSIONS = ['wav', 'webm', 'mp3', 'mpeg', 'mpga', 'ogg', 'flac', 'm4a', 'aac', 'mp4', 'aif', 'aiff', 'caf']
+const ACCEPTED_VIDEO_EXTENSIONS = ['mp4', 'm4v', 'mov', 'avi', 'mkv', 'webm', 'ogv']
+const MISTRAL_COMPATIBLE_AUDIO_EXTENSIONS = ['wav', 'webm', 'mp3', 'mpeg', 'mpga', 'ogg', 'flac']
+const MISTRAL_COMPATIBLE_AUDIO_TYPES = ['audio/wav', 'audio/webm', 'audio/mp3', 'audio/mpeg', 'audio/ogg', 'audio/flac']
 const MAX_FILE_SIZE_MB = 25
+
+function getFileExtension(fileName: string): string {
+  const dotIndex = fileName.lastIndexOf('.')
+  if (dotIndex === -1 || dotIndex === fileName.length - 1) return ''
+  return fileName.slice(dotIndex + 1).toLowerCase()
+}
+
+function isAzureOpenAiSttModel(model: SttModel): boolean {
+  return model.startsWith('gpt-4o')
+}
+
+function isLikelyAudioFile(file: File): boolean {
+  const ext = getFileExtension(file.name)
+  return file.type.startsWith('audio/') || ACCEPTED_AUDIO_TYPES.includes(file.type) || ACCEPTED_AUDIO_EXTENSIONS.includes(ext)
+}
+
+function isLikelyVideoFile(file: File): boolean {
+  const ext = getFileExtension(file.name)
+  return file.type.startsWith('video/') || ACCEPTED_VIDEO_TYPES.includes(file.type) || ACCEPTED_VIDEO_EXTENSIONS.includes(ext)
+}
+
+function isLikelyMistralCompatibleAudio(file: File): boolean {
+  const ext = getFileExtension(file.name)
+  return MISTRAL_COMPATIBLE_AUDIO_TYPES.includes(file.type) || MISTRAL_COMPATIBLE_AUDIO_EXTENSIONS.includes(ext)
+}
+
+function isLikelyAzureVideoCompatible(file: File): boolean {
+  const ext = getFileExtension(file.name)
+  return file.type === 'video/mp4' || file.type === 'video/webm' || ext === 'mp4' || ext === 'm4v' || ext === 'webm'
+}
+
+function fileNameWithoutExtension(fileName: string): string {
+  const dotIndex = fileName.lastIndexOf('.')
+  if (dotIndex <= 0) return fileName
+  return fileName.slice(0, dotIndex)
+}
 
 function extractAudioFromVideo(videoFile: File): Promise<Blob> {
   return new Promise((resolve, reject) => {
@@ -467,7 +587,17 @@ function extractAudioFromVideo(videoFile: File): Promise<Blob> {
       const source = audioCtx.createMediaElementSource(video)
       source.connect(dest)
 
-      const recorder = new MediaRecorder(dest.stream, { mimeType: 'audio/webm' })
+      const preferredRecorderMimeTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
+      const selectedRecorderMimeType = preferredRecorderMimeTypes.find((value) => MediaRecorder.isTypeSupported(value))
+
+      if (!selectedRecorderMimeType) {
+        URL.revokeObjectURL(url)
+        void audioCtx.close()
+        reject(new Error('This browser cannot extract audio from video. Use GPT-4o Transcribe for direct MP4 upload.'))
+        return
+      }
+
+      const recorder = new MediaRecorder(dest.stream, { mimeType: selectedRecorderMimeType })
       const chunks: Blob[] = []
 
       recorder.ondataavailable = (e) => {
@@ -477,7 +607,8 @@ function extractAudioFromVideo(videoFile: File): Promise<Blob> {
       recorder.onstop = () => {
         URL.revokeObjectURL(url)
         void audioCtx.close()
-        resolve(new Blob(chunks, { type: 'audio/webm' }))
+        const blobType = selectedRecorderMimeType.includes('mp4') ? 'audio/mp4' : 'audio/webm'
+        resolve(new Blob(chunks, { type: blobType }))
       }
 
       recorder.onerror = () => {
@@ -526,7 +657,7 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
   const [convertingVideo, setConvertingVideo] = useState(false)
   const [fileName, setFileName] = useState<string | null>(null)
 
-  const handleTranscribe = async (audioBlob: Blob) => {
+  const handleTranscribe = async (audioBlob: Blob, uploadFileName = 'recording.webm') => {
     setLoading(true)
     setError(null)
     setTranscript(null)
@@ -534,7 +665,7 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
 
     try {
       const formData = new FormData()
-      formData.append('audio', audioBlob, 'recording.webm')
+      formData.append('audio', audioBlob, uploadFileName)
       formData.append('model', model)
 
       const res = await fetch('/api/speech/stt', {
@@ -578,21 +709,48 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
 
     setFileName(file.name)
 
-    if (ACCEPTED_VIDEO_TYPES.includes(file.type) || file.name.match(/\.(mp4|mov|avi|mkv|webm|ogv)$/i)) {
+    const isVideo = isLikelyVideoFile(file)
+    const isAudio = isLikelyAudioFile(file)
+
+    if (!isVideo && !isAudio) {
+      setError('Unsupported file format. Try WAV, MP3, M4A, MP4, MOV, or WebM.')
+      return
+    }
+
+    if (isVideo) {
       setConvertingVideo(true)
       setError(null)
       try {
+        // GPT-4o deployments can handle MP4/WebM video directly, which is faster
+        // than browser-side extraction for long recordings.
+        if (isAzureOpenAiSttModel(model) && isLikelyAzureVideoCompatible(file)) {
+          await handleTranscribe(file, file.name)
+          return
+        }
+
         const audioBlob = await extractAudioFromVideo(file)
-        setConvertingVideo(false)
-        await handleTranscribe(audioBlob)
+        const outputExt = audioBlob.type.includes('mp4') ? 'm4a' : 'webm'
+        await handleTranscribe(audioBlob, `${fileNameWithoutExtension(file.name)}-audio.${outputExt}`)
       } catch (err) {
-        setConvertingVideo(false)
         setError(err instanceof Error ? err.message : 'Video conversion failed')
+      } finally {
+        setConvertingVideo(false)
       }
       return
     }
 
-    await handleTranscribe(file)
+    if (!isAzureOpenAiSttModel(model) && !isLikelyMistralCompatibleAudio(file)) {
+      try {
+        const wavBlob = await convertRecordedBlobToWav(file)
+        await handleTranscribe(wavBlob, `${fileNameWithoutExtension(file.name)}.wav`)
+        return
+      } catch {
+        setError('Audio format conversion failed. Try selecting GPT-4o Transcribe or upload WAV/MP3/WebM.')
+        return
+      }
+    }
+
+    await handleTranscribe(file, file.name)
   }
 
   const handleDrop = (e: React.DragEvent) => {
@@ -615,7 +773,11 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' })
+      const preferredMimeTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
+      const selectedMimeType = preferredMimeTypes.find((value) => MediaRecorder.isTypeSupported(value))
+      const recorder = selectedMimeType
+        ? new MediaRecorder(stream, { mimeType: selectedMimeType })
+        : new MediaRecorder(stream)
       const chunks: Blob[] = []
 
       recorder.ondataavailable = (e) => {
@@ -624,8 +786,10 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
 
       recorder.onstop = () => {
         stream.getTracks().forEach((t) => t.stop())
-        const blob = new Blob(chunks, { type: 'audio/webm' })
-        handleTranscribe(blob)
+        const mimeType = recorder.mimeType || selectedMimeType || 'audio/webm'
+        const extension = mimeType.includes('mp4') ? 'm4a' : 'webm'
+        const blob = new Blob(chunks, { type: mimeType })
+        void handleTranscribe(blob, `recording.${extension}`)
       }
 
       recorder.start()
@@ -736,7 +900,7 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
                 Drag & drop audio or video files here
               </p>
               <p className="text-xs text-foreground/30">
-                Supports WAV, MP3, WebM, FLAC, M4A, MP4, MOV, AVI, MKV · Max {MAX_FILE_SIZE_MB}MB
+                Supports WAV, MP3, WebM, FLAC, M4A, AIFF, CAF, MP4, MOV, AVI, MKV · Max {MAX_FILE_SIZE_MB}MB
               </p>
               {fileName && !loading && (
                 <p className="text-xs text-foreground/40 mt-1">Last file: {fileName}</p>
@@ -891,8 +1055,9 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
     setResult(null)
 
     try {
+      const wavBlob = await convertRecordedBlobToWav(audioBlob)
       const formData = new FormData()
-      formData.append('audio', audioBlob, 'pronunciation.webm')
+      formData.append('audio', wavBlob, 'pronunciation.wav')
       formData.append('referenceText', resolvedReferenceText)
       formData.append('language', language)
 
@@ -906,7 +1071,7 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
         throw new Error(data.error || 'Pronunciation assessment failed')
       }
 
-      const data = await res.json()
+      const data = (await res.json()) as AzurePronunciationResponse
       // Azure returns NBest[0].PronunciationAssessment
       const assessment = data.NBest?.[0]?.PronunciationAssessment
       const words = data.NBest?.[0]?.Words || []
@@ -938,7 +1103,20 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
         })
         onHistorySaved()
       } else {
-        setError('No assessment data returned. Make sure you speak clearly.')
+        const recognitionStatus = data.RecognitionStatus
+        const recognizedText = data.DisplayText?.trim()
+        if (recognitionStatus || recognizedText) {
+          const diagnostic = [
+            'No assessment data returned.',
+            recognitionStatus ? `Status: ${recognitionStatus}.` : null,
+            recognizedText ? `Recognized: "${recognizedText}".` : null,
+          ]
+            .filter(Boolean)
+            .join(' ')
+          setError(diagnostic)
+        } else {
+          setError('No assessment data returned. Make sure you speak clearly and match the reference text.')
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
@@ -973,7 +1151,11 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' })
+      const preferredMimeTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
+      const selectedMimeType = preferredMimeTypes.find((value) => MediaRecorder.isTypeSupported(value))
+      const recorder = selectedMimeType
+        ? new MediaRecorder(stream, { mimeType: selectedMimeType })
+        : new MediaRecorder(stream)
       const chunks: Blob[] = []
 
       recorder.ondataavailable = (e) => {
@@ -982,7 +1164,7 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
 
       recorder.onstop = () => {
         stream.getTracks().forEach((t) => t.stop())
-        const blob = new Blob(chunks, { type: 'audio/webm' })
+        const blob = new Blob(chunks, { type: recorder.mimeType || selectedMimeType || 'audio/webm' })
         if (referenceSource === 'transcription') {
           void (async () => {
             try {
@@ -1290,4 +1472,19 @@ interface AzureWord {
     AccuracyScore: number
     ErrorType: string
   }
+}
+
+interface AzurePronunciationResponse {
+  RecognitionStatus?: string
+  DisplayText?: string
+  NBest?: Array<{
+    PronunciationAssessment?: {
+      AccuracyScore: number
+      FluencyScore: number
+      CompletenessScore: number
+      ProsodyScore?: number
+      PronScore: number
+    }
+    Words?: AzureWord[]
+  }>
 }

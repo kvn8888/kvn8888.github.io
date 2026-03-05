@@ -1,15 +1,6 @@
 import { auth } from '@/auth'
-import { createClient } from '@libsql/client'
+import { ensureJobsSchema, getJobsDb } from '@/lib/jobsDb'
 import { NextRequest, NextResponse } from 'next/server'
-
-function getDb() {
-  const url = process.env.TURSO_DATABASE_URL
-  const authToken = process.env.TURSO_AUTH_TOKEN
-  if (!url || !authToken) {
-    throw new Error('TURSO_DATABASE_URL or TURSO_AUTH_TOKEN not configured')
-  }
-  return createClient({ url, authToken })
-}
 
 export async function GET(req: NextRequest) {
   const session = await auth()
@@ -21,7 +12,8 @@ export async function GET(req: NextRequest) {
   const offset = parseInt(searchParams.get('offset') || '0', 10)
 
   try {
-    const db = getDb()
+    const db = getJobsDb()
+    await ensureJobsSchema(db)
 
     const whereClause = q ? `WHERE company LIKE '%' || ? || '%'` : ''
     const params = q ? [q, limit, offset] : [limit, offset]
@@ -76,7 +68,8 @@ export async function POST(req: NextRequest) {
 
     const jobDate = date || new Date().toISOString().slice(0, 10)
 
-    const db = getDb()
+    const db = getJobsDb()
+    await ensureJobsSchema(db)
     const result = await db.execute({
       sql: `INSERT INTO job_applications (company, role, description, date, source, type, cover_letter, resume_type)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,

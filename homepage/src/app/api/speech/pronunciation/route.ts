@@ -39,13 +39,18 @@ export async function POST(req: NextRequest) {
 
     const audioBuffer = Buffer.from(await audioFile.arrayBuffer())
 
+    const contentType = audioFile.type?.trim() || 'audio/wav'
+    const requestUrl =
+      `https://${speechRegion}.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1` +
+      `?language=${encodeURIComponent(language)}&format=detailed`
+
     const res = await fetch(
-      `https://${speechRegion}.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1?language=${language}`,
+      requestUrl,
       {
         method: 'POST',
         headers: {
           'Ocp-Apim-Subscription-Key': speechKey,
-          'Content-Type': 'audio/wav',
+          'Content-Type': contentType,
           'Pronunciation-Assessment': Buffer.from(
             JSON.stringify(pronunciationParams)
           ).toString('base64'),

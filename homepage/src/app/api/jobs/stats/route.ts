@@ -1,15 +1,6 @@
 import { auth } from '@/auth'
-import { createClient } from '@libsql/client'
+import { ensureJobsSchema, getJobsDb } from '@/lib/jobsDb'
 import { NextResponse } from 'next/server'
-
-function getDb() {
-  const url = process.env.TURSO_DATABASE_URL
-  const authToken = process.env.TURSO_AUTH_TOKEN
-  if (!url || !authToken) {
-    throw new Error('TURSO_DATABASE_URL or TURSO_AUTH_TOKEN not configured')
-  }
-  return createClient({ url, authToken })
-}
 
 function getMondayISO(date: Date): string {
   const d = new Date(date)
@@ -24,7 +15,8 @@ export async function GET() {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   try {
-    const db = getDb()
+    const db = getJobsDb()
+    await ensureJobsSchema(db)
     const now = new Date()
     const today = now.toISOString().slice(0, 10)
 

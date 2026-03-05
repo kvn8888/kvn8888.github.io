@@ -1,15 +1,6 @@
 import { auth } from '@/auth'
-import { createClient } from '@libsql/client'
+import { ensureJobsSchema, getJobsDb } from '@/lib/jobsDb'
 import { NextRequest, NextResponse } from 'next/server'
-
-function getDb() {
-  const url = process.env.TURSO_DATABASE_URL
-  const authToken = process.env.TURSO_AUTH_TOKEN
-  if (!url || !authToken) {
-    throw new Error('TURSO_DATABASE_URL or TURSO_AUTH_TOKEN not configured')
-  }
-  return createClient({ url, authToken })
-}
 
 const ALLOWED_FIELDS = ['company', 'role', 'type', 'source', 'cover_letter', 'resume_type', 'interviewed', 'description'] as const
 type AllowedField = (typeof ALLOWED_FIELDS)[number]
@@ -41,7 +32,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const setClauses = Object.keys(updates).map((f) => `${f} = ?`).join(', ')
     const values: (string | number | boolean | null)[] = [...Object.values(updates) as (string | number | boolean | null)[], numericId]
 
-    const db = getDb()
+    const db = getJobsDb()
+    await ensureJobsSchema(db)
     await db.execute({
       sql: `UPDATE job_applications SET ${setClauses} WHERE id = ?`,
       args: values,
