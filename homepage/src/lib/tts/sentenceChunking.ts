@@ -22,6 +22,10 @@ const COMMON_ABBREVIATIONS = new Set([
   "i.e.",
 ]);
 
+const MAX_ABBREVIATION_LENGTH = Math.max(
+  ...Array.from(COMMON_ABBREVIATIONS, (abbreviation) => abbreviation.length),
+);
+
 function shouldSplitAtPeriod(text: string, index: number): boolean {
   const prev = text[index - 1] ?? "";
   const next = text[index + 1] ?? "";
@@ -30,7 +34,7 @@ function shouldSplitAtPeriod(text: string, index: number): boolean {
     return false;
   }
 
-  const lookBack = text.slice(Math.max(0, index - 12), index + 1).toLowerCase();
+  const lookBack = text.slice(Math.max(0, index - MAX_ABBREVIATION_LENGTH), index + 1).toLowerCase();
   for (const abbreviation of COMMON_ABBREVIATIONS) {
     if (lookBack.endsWith(abbreviation)) {
       return false;
@@ -49,21 +53,23 @@ export function splitIntoSentences(text: string): string[] {
 
   for (let i = 0; i < normalized.length; i += 1) {
     const char = normalized[i];
+    if (char !== "." && char !== "!" && char !== "?") {
+      continue;
+    }
+
     if (char === "." && !shouldSplitAtPeriod(normalized, i)) {
       continue;
     }
 
-    if (char === "." || char === "!" || char === "?") {
-      const next = normalized[i + 1];
-      const atBoundary = !next || /\s/.test(next);
-      if (atBoundary) {
-        const sentence = normalized.slice(start, i + 1).trim();
-        if (sentence) sentences.push(sentence);
+    const next = normalized[i + 1];
+    const atBoundary = !next || /\s/.test(next);
+    if (atBoundary) {
+      const sentence = normalized.slice(start, i + 1).trim();
+      if (sentence) sentences.push(sentence);
 
-        let nextStart = i + 1;
-        while (normalized[nextStart] === " ") nextStart += 1;
-        start = nextStart;
-      }
+      let nextStart = i + 1;
+      while (normalized[nextStart] === " ") nextStart += 1;
+      start = nextStart;
     }
   }
 

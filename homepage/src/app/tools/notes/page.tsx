@@ -2,6 +2,9 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { ReactNode } from "react";
 
+const DOCS_DIR = "docs";
+const DEFAULT_NOTES_FILE = "tts-nlp-batching.md";
+
 function renderInlineMarkdown(line: string): ReactNode[] {
   return line.split(/(`[^`]+`|\*\*[^*]+\*\*)/g).filter(Boolean).map((part, index) => {
     if (part.startsWith("`") && part.endsWith("`")) {
@@ -125,8 +128,8 @@ function renderMarkdown(markdown: string) {
 }
 
 export default async function NotesPage() {
-  const docsDir = path.join(process.cwd(), "docs");
-  const notesPath = path.join(docsDir, "tts-nlp-batching.md");
+  const docsDir = path.join(process.cwd(), DOCS_DIR);
+  const notesPath = path.join(docsDir, DEFAULT_NOTES_FILE);
   const markdown = await fs.readFile(notesPath, "utf8");
 
   return (
