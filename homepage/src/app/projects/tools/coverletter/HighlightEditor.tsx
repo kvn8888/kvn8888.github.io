@@ -823,10 +823,10 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
             }
           }}
           onBlur={() => { setTimeout(() => setPopup(null), 200); saveContent() }}
-          className={`min-h-[200px] rounded-xl p-5 text-sm leading-[2.2] text-foreground outline-none transition-all ${
+          className={`h-[400px] overflow-y-auto rounded-xl p-5 text-sm leading-[2.2] text-foreground outline-none transition-colors ${
             isDragOver
               ? 'border-2 border-dashed border-blue-400 bg-blue-500/5'
-              : 'border border-glass-border bg-foreground/[0.02]'
+              : 'border-2 border-transparent border-glass-border bg-foreground/[0.02]'
           }`}
           style={{ overflowWrap: 'break-word' }}
         />
