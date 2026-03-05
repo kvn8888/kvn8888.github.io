@@ -67,9 +67,9 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
   // Used for visual selection ring, persistent X button, and keyboard delete.
   const [selectedCard, setSelectedCard] = useState<HTMLSpanElement | null>(null)
 
-  // Drop indicator: shows a horizontal line where a dragged block will be inserted.
-  // `y` is the vertical position relative to the wrapper div.
-  const [dropIndicatorY, setDropIndicatorY] = useState<number | null>(null)
+  // Drop indicator: shows a vertical cursor line where a dragged block will be inserted.
+  // Stores {x, y} position relative to the wrapper div.
+  const [dropIndicator, setDropIndicator] = useState<{ x: number; y: number; height: number } | null>(null)
 
   // Undo stack: stores previous innerHTML states for Cmd+Z support.
   // Limited to 50 entries to prevent memory bloat.
@@ -344,40 +344,53 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
       return null
     }
 
-    // Helper: find the Y position for the drop indicator based on mouse coords.
-    // First tries caretRangeFromPoint (text areas), then block-based Y comparison.
-    // Returns the Y offset relative to the wrapper div.
-    const calcDropIndicatorY = (clientX: number, clientY: number): number | null => {
+    // Helper: calculate the vertical cursor position for the drop indicator.
+    // Returns {x, y, height} relative to the wrapper div, like a text caret.
+    const calcDropIndicator = (clientX: number, clientY: number): { x: number; y: number; height: number } | null => {
       const wr = wrapperRef.current?.getBoundingClientRect()
       if (!wr) return null
 
-      // Strategy 1: caret in text area between blocks
+      // Strategy 1: caret in text area — get exact cursor position
       if (document.caretRangeFromPoint) {
         const range = document.caretRangeFromPoint(clientX, clientY)
         if (range && el.contains(range.startContainer) && !isInsideCard(range.startContainer)) {
           const rects = range.getClientRects()
           if (rects.length > 0) {
-            return rects[0].top - wr.top
+            const r = rects[0]
+            return {
+              x: r.left - wr.left,
+              y: r.top - wr.top,
+              height: r.height || 20,
+            }
           }
         }
       }
 
-      // Strategy 2: between blocks — find the nearest block edge
+      // Strategy 2: near a block — show cursor at the block edge
       const allCards = Array.from(el.querySelectorAll('.hl-card')) as HTMLSpanElement[]
       for (const card of allCards) {
         const rect = card.getBoundingClientRect()
         const midY = rect.top + rect.height / 2
         if (clientY <= midY) {
-          return rect.top - wr.top - 2  // line just above this card
+          // Before this card — show cursor at its left edge
+          return {
+            x: rect.left - wr.left - 2,
+            y: rect.top - wr.top,
+            height: rect.height,
+          }
         }
       }
-      // Below all cards — show line at the bottom of the last card
+      // After all cards — show cursor at right edge of last card
       if (allCards.length > 0) {
         const lastRect = allCards[allCards.length - 1].getBoundingClientRect()
-        return lastRect.bottom - wr.top + 2
+        return {
+          x: lastRect.right - wr.left + 2,
+          y: lastRect.top - wr.top,
+          height: lastRect.height,
+        }
       }
-      // No cards at all — show line at the mouse Y position
-      return clientY - wr.top
+      // No cards — use mouse position
+      return { x: clientX - wr.left, y: clientY - wr.top, height: 20 }
     }
 
     // Allow drops + show drop indicator during dragover
@@ -386,15 +399,15 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
       e.stopPropagation()
       if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
       setIsDragOver(true)
-      // Calculate and show the drop indicator line
-      const y = calcDropIndicatorY(e.clientX, e.clientY)
-      setDropIndicatorY(y)
+      // Calculate and show the drop indicator cursor
+      const pos = calcDropIndicator(e.clientX, e.clientY)
+      setDropIndicator(pos)
     }
 
     // Reset visual state when drag leaves the editor
     const handleDragLeave = () => {
       setIsDragOver(false)
-      setDropIndicatorY(null)
+      setDropIndicator(null)
     }
 
     // Handle the actual drop
@@ -402,7 +415,7 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
       e.preventDefault()
       e.stopPropagation()
       setIsDragOver(false)
-      setDropIndicatorY(null)  // hide indicator
+      setDropIndicator(null)  // hide indicator
 
       const jsonData = e.dataTransfer?.getData('application/json')
       if (!jsonData || !el) return
@@ -732,15 +745,22 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
           </div>
         )}
 
-        {/* ── Drop indicator line ──
-            A horizontal blue line that shows where a dragged block will
+        {/* ── Drop indicator cursor ──
+            A vertical blinking cursor that shows where a dragged block will
             be inserted. Appears during dragover, hidden on drop/dragleave. */}
-        {dropIndicatorY !== null && (
+        {dropIndicator && (
           <div
-            className="absolute left-2 right-2 z-40 pointer-events-none"
-            style={{ top: dropIndicatorY }}
+            className="absolute z-40 pointer-events-none"
+            style={{
+              left: dropIndicator.x,
+              top: dropIndicator.y,
+              height: dropIndicator.height,
+            }}
           >
-            <div className="h-0.5 bg-blue-500 rounded-full shadow-sm shadow-blue-500/50" />
+            <div
+              className="w-0.5 h-full bg-blue-500 rounded-full animate-pulse"
+              style={{ boxShadow: '0 0 4px rgba(59, 130, 246, 0.5)' }}
+            />
           </div>
         )}
 
