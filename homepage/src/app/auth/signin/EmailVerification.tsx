@@ -10,11 +10,15 @@ export function EmailVerification() {
   const [displayCode, setDisplayCode] = useState('')
   const [userCode, setUserCode] = useState('')
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [alreadyApproved, setAlreadyApproved] = useState(false)
   const [loading, setLoading] = useState(false)
 
   async function handleRequestCode(e: React.FormEvent) {
     e.preventDefault()
     setError('')
+    setNotice('')
+    setAlreadyApproved(false)
     setLoading(true)
 
     try {
@@ -30,6 +34,16 @@ export function EmailVerification() {
         return
       }
 
+      if (data.alreadyApproved) {
+        setAlreadyApproved(true)
+        setNotice('This email is already approved. Please continue with Google sign-in.')
+        return
+      }
+
+      if (data.delivery === 'manual') {
+        setNotice('Email delivery is not configured. Use the code below to continue.')
+      }
+
       setDisplayCode(data.code || '')
       setStep('code')
     } catch {
@@ -42,6 +56,8 @@ export function EmailVerification() {
   async function handleVerifyCode(e: React.FormEvent) {
     e.preventDefault()
     setError('')
+    setNotice('')
+    setAlreadyApproved(false)
     setLoading(true)
 
     try {
@@ -131,6 +147,10 @@ export function EmailVerification() {
             <p className="text-sm text-red-500 text-center">{error}</p>
           )}
 
+          {notice && (
+            <p className="text-sm text-foreground/60 text-center">{notice}</p>
+          )}
+
           <button
             type="submit"
             disabled={loading || userCode.length !== 6}
@@ -177,14 +197,27 @@ export function EmailVerification() {
       </div>
 
       {error && <p className="text-sm text-red-500 text-center">{error}</p>}
+      {notice && <p className="text-sm text-foreground/60 text-center">{notice}</p>}
 
-      <button
-        type="submit"
-        disabled={loading || !email}
-        className="w-full px-4 py-3 rounded-xl bg-foreground text-background font-medium hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        {loading ? 'Sending...' : 'Send Verification Code'}
-      </button>
+      {alreadyApproved && (
+        <a
+          href="/api/auth/signin/google?callbackUrl=%2Fprojects"
+          role="button"
+          className="block w-full text-center px-4 py-3 rounded-xl bg-foreground text-background font-medium hover:opacity-90 transition-opacity"
+        >
+          Continue with Google
+        </a>
+      )}
+
+      {!alreadyApproved && (
+        <button
+          type="submit"
+          disabled={loading || !email}
+          className="w-full px-4 py-3 rounded-xl bg-foreground text-background font-medium hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {loading ? 'Sending...' : 'Send Verification Code'}
+        </button>
+      )}
     </form>
   )
 }

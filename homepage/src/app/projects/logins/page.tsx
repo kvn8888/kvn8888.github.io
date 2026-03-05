@@ -89,6 +89,9 @@ export default function LoginsPage() {
     approved: attempts.filter((a) => a.status === 'approved').length,
     rejected: attempts.filter((a) => a.status === 'rejected').length,
   }
+  const approvedEmails = Array.from(
+    new Set(attempts.filter((a) => a.status === 'approved').map((a) => a.email.toLowerCase()))
+  )
 
   function StatusBadge({ status }: { status: string }) {
     const styles: Record<string, string> = {
@@ -188,6 +191,21 @@ export default function LoginsPage() {
         ))}
       </div>
 
+      {approvedEmails.length > 0 && (
+        <div className="mb-4 p-3 rounded-xl bg-glass/60 backdrop-blur-sm border border-glass-border blur-reveal-2">
+          <p className="text-xs text-foreground/50 mb-2">
+            Approved emails ({approvedEmails.length}) stay approved until revoked.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {approvedEmails.map((email) => (
+              <span key={email} className="inline-flex items-center rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 px-2.5 py-1 text-xs">
+                {email}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
       {loading ? (
         <div className="text-center py-12 text-foreground/40">
           <span className="material-symbols-outlined text-4xl animate-spin">
@@ -263,6 +281,18 @@ export default function LoginsPage() {
                       </span>
                     </button>
                   </div>
+                )}
+
+                {attempt.status === 'approved' && (
+                  <button
+                    onClick={() => handleStatusUpdate(attempt.id, 'rejected')}
+                    disabled={actionLoading === attempt.id}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-50 border border-red-200 text-red-700 hover:bg-red-100 transition-colors cursor-pointer disabled:opacity-50"
+                    title="Revoke approval"
+                  >
+                    <span className="material-symbols-outlined text-base">person_remove</span>
+                    <span className="text-xs">Revoke</span>
+                  </button>
                 )}
               </div>
             </div>

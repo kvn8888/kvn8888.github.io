@@ -3,15 +3,17 @@ import { createClient, type Client } from '@libsql/client'
 let schemaInitialized = false
 
 export function getJobsDb(): Client {
-  const url = process.env.TURSO_DATABASE_URL
-  const authToken = process.env.TURSO_AUTH_TOKEN
+  const url = process.env.JOBS_TURSO_DATABASE_URL || process.env.TURSO_DATABASE_URL
+  const authToken = process.env.JOBS_TURSO_AUTH_TOKEN || process.env.TURSO_AUTH_TOKEN
   if (!url || !authToken) {
     console.error('Jobs DB Turso config missing', {
-      hasDatabaseUrl: Boolean(url),
-      hasAuthToken: Boolean(authToken),
+      hasJobsDatabaseUrl: Boolean(process.env.JOBS_TURSO_DATABASE_URL),
+      hasJobsAuthToken: Boolean(process.env.JOBS_TURSO_AUTH_TOKEN),
+      hasDefaultDatabaseUrl: Boolean(process.env.TURSO_DATABASE_URL),
+      hasDefaultAuthToken: Boolean(process.env.TURSO_AUTH_TOKEN),
       nodeEnv: process.env.NODE_ENV,
     })
-    throw new Error('TURSO_DATABASE_URL or TURSO_AUTH_TOKEN not configured')
+    throw new Error('JOBS_TURSO_DATABASE_URL/JOBS_TURSO_AUTH_TOKEN (or TURSO fallback) not configured')
   }
 
   try {

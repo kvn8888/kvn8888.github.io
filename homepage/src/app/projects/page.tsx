@@ -8,28 +8,28 @@ const projectLinks = [
     icon: "monitoring",
   },
   {
-    title: "Sign-In Manager",
-    description: "Review login attempts, approve or reject access, and manage email whitelists",
-    href: "/projects/logins",
-    icon: "shield_person",
+    title: "Speech Studio",
+    description: "Text-to-speech, transcription, and pronunciation tools",
+    href: "/projects/speech-studio",
+    icon: "record_voice_over",
+  },
+  {
+    title: "Cover Letter Workbench",
+    description: "Assemble tailored cover letters from reusable building blocks with AI matching",
+    href: "/projects/cover-letter-workbench",
+    icon: "edit_note",
+  },
+  {
+    title: "Job Tracker",
+    description: "Add, browse, and track job applications with Gemini-powered parsing",
+    href: "/projects/job-tracker",
+    icon: "work",
   },
   {
     title: "Tools",
-    description: "Internal tools and utilities",
-    href: "/projects/tools",
+    description: "Sign-in manager, notes, and project dashboard",
+    href: "/tools",
     icon: "build",
-  },
-  {
-    title: "Project Dashboard",
-    description: "Overview of all active projects and their status",
-    href: "/projects/dashboard",
-    icon: "dashboard",
-  },
-  {
-    title: "Notes",
-    description: "Private notes and documentation",
-    href: "/projects/notes",
-    icon: "edit_note",
   },
 ]
 
