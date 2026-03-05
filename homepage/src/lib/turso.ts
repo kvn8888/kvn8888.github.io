@@ -7,11 +7,25 @@ export function getTursoClient() {
   const authToken = process.env.TURSO_AUTH_TOKEN
 
   if (!url || !authToken) {
+    console.error('Turso client not configured', {
+      hasDatabaseUrl: Boolean(url),
+      hasAuthToken: Boolean(authToken),
+      nodeEnv: process.env.NODE_ENV,
+    })
     return null
   }
 
   if (!cachedClient) {
-    cachedClient = createClient({ url, authToken })
+    try {
+      cachedClient = createClient({ url, authToken })
+    } catch (error) {
+      console.error('Failed to initialize Turso client', {
+        error,
+        message: error instanceof Error ? error.message : String(error),
+        urlPreview: url.slice(0, 32),
+      })
+      throw error
+    }
   }
 
   return cachedClient
