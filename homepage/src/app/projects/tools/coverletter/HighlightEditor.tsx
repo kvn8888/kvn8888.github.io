@@ -67,6 +67,10 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
   // Used for visual selection ring, persistent X button, and keyboard delete.
   const [selectedCard, setSelectedCard] = useState<HTMLSpanElement | null>(null)
 
+  // Drop indicator: shows a horizontal line where a dragged block will be inserted.
+  // `y` is the vertical position relative to the wrapper div.
+  const [dropIndicatorY, setDropIndicatorY] = useState<number | null>(null)
+
   // Undo stack: stores previous innerHTML states for Cmd+Z support.
   // Limited to 50 entries to prevent memory bloat.
   const undoStackRef = useRef<string[]>([])
@@ -321,34 +325,15 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
   }, [])
 
   // ── Native drag-and-drop event listeners ──
-  // We use native DOM event listeners instead of React's onDragOver/onDrop
-  // because contentEditable elements intercept React's synthetic drag events.
-  //
-  // Drop positioning uses a HYBRID approach:
-  //   1. Try caretRangeFromPoint first — works for text positions BETWEEN
-  //      blocks (the regular editable text areas inside the editor).
-  //   2. If the caret lands INSIDE an existing .hl-card (contentEditable=false
-  //      blocks don't support caret placement), fall back to block-based
-  //      positioning using Y coordinate comparison.
-  //   3. If caretRangeFromPoint returns null, append at end.
+  // Uses a HYBRID positioning approach with a visual drop indicator.
+  // During dragover: calculates where the block would be inserted and
+  // shows a blue horizontal line at that Y position.
+  // On drop: inserts the block at the calculated position.
   useEffect(() => {
     const el = editorRef.current
     if (!el) return
 
-    // Allow drops by preventing the default dragover behavior
-    const handleDragOver = (e: DragEvent) => {
-      e.preventDefault()
-      e.stopPropagation()
-      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
-      setIsDragOver(true)
-    }
-
-    // Reset visual state when drag leaves the editor
-    const handleDragLeave = () => {
-      setIsDragOver(false)
-    }
-
-    // ── Helper: check if a DOM node is inside an .hl-card span ──
+    // Helper: check if a DOM node is inside an .hl-card span
     const isInsideCard = (node: Node | null): HTMLSpanElement | null => {
       while (node && node !== el) {
         if ((node as HTMLElement).classList?.contains('hl-card')) {
@@ -359,13 +344,65 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
       return null
     }
 
-    // Handle the actual drop — two modes:
-    //   1. Library → editor (no source flag): create a NEW span (copy)
-    //   2. Editor → editor (source === 'editor'): MOVE the existing span
+    // Helper: find the Y position for the drop indicator based on mouse coords.
+    // First tries caretRangeFromPoint (text areas), then block-based Y comparison.
+    // Returns the Y offset relative to the wrapper div.
+    const calcDropIndicatorY = (clientX: number, clientY: number): number | null => {
+      const wr = wrapperRef.current?.getBoundingClientRect()
+      if (!wr) return null
+
+      // Strategy 1: caret in text area between blocks
+      if (document.caretRangeFromPoint) {
+        const range = document.caretRangeFromPoint(clientX, clientY)
+        if (range && el.contains(range.startContainer) && !isInsideCard(range.startContainer)) {
+          const rects = range.getClientRects()
+          if (rects.length > 0) {
+            return rects[0].top - wr.top
+          }
+        }
+      }
+
+      // Strategy 2: between blocks — find the nearest block edge
+      const allCards = Array.from(el.querySelectorAll('.hl-card')) as HTMLSpanElement[]
+      for (const card of allCards) {
+        const rect = card.getBoundingClientRect()
+        const midY = rect.top + rect.height / 2
+        if (clientY <= midY) {
+          return rect.top - wr.top - 2  // line just above this card
+        }
+      }
+      // Below all cards — show line at the bottom of the last card
+      if (allCards.length > 0) {
+        const lastRect = allCards[allCards.length - 1].getBoundingClientRect()
+        return lastRect.bottom - wr.top + 2
+      }
+      // No cards at all — show line at the mouse Y position
+      return clientY - wr.top
+    }
+
+    // Allow drops + show drop indicator during dragover
+    const handleDragOver = (e: DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+      setIsDragOver(true)
+      // Calculate and show the drop indicator line
+      const y = calcDropIndicatorY(e.clientX, e.clientY)
+      setDropIndicatorY(y)
+    }
+
+    // Reset visual state when drag leaves the editor
+    const handleDragLeave = () => {
+      setIsDragOver(false)
+      setDropIndicatorY(null)
+    }
+
+    // Handle the actual drop
     const handleDrop = (e: DragEvent) => {
       e.preventDefault()
       e.stopPropagation()
       setIsDragOver(false)
+      setDropIndicatorY(null)  // hide indicator
 
       const jsonData = e.dataTransfer?.getData('application/json')
       if (!jsonData || !el) return
@@ -373,9 +410,9 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
       try {
         const data = JSON.parse(jsonData)
         const isReorder = data.source === 'editor'
-        pushUndo() // Save state before mutation for Cmd+Z
+        pushUndo()
 
-        // For reorder: find the original span (will be moved, not copied)
+        // For reorder: find the original span
         let existingSpan: HTMLSpanElement | null = null
         if (isReorder) {
           const allCards = Array.from(el.querySelectorAll('.hl-card')) as HTMLSpanElement[]
@@ -385,8 +422,7 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
           ) || null
         }
 
-        // Remove the original span BEFORE calculating drop position
-        // (so the DOM doesn't shift under us)
+        // Remove original before calculating position
         if (existingSpan?.parentNode) {
           const prev = existingSpan.previousSibling
           const prev2 = prev?.previousSibling
@@ -395,30 +431,21 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
           existingSpan.parentNode.removeChild(existingSpan)
         }
 
-        // Create or reuse the span to insert
         const span = existingSpan || createHighlightSpan(data.text, data.category)
         let inserted = false
 
-        // ── Strategy 1: caretRangeFromPoint ──
-        // Works when dropping into regular text areas between blocks.
+        // Strategy 1: caretRangeFromPoint (text areas)
         if (document.caretRangeFromPoint) {
           const range = document.caretRangeFromPoint(e.clientX, e.clientY)
-          if (range && el.contains(range.startContainer)) {
-            const cardParent = isInsideCard(range.startContainer)
-            if (!cardParent) {
-              // Caret is in regular text — insert at exact position
-              range.insertNode(span)
-              // Add a non-breaking space after for cursor flow
-              const space = document.createTextNode('\u00A0')
-              span.after(space)
-              inserted = true
-            }
-            // If inside a card, fall through to Strategy 2
+          if (range && el.contains(range.startContainer) && !isInsideCard(range.startContainer)) {
+            range.insertNode(span)
+            const space = document.createTextNode('\u00A0')
+            span.after(space)
+            inserted = true
           }
         }
 
-        // ── Strategy 2: block-based Y positioning ──
-        // Used when caret lands inside a block or caretRangeFromPoint fails.
+        // Strategy 2: block-based Y positioning
         if (!inserted) {
           const allCards = Array.from(el.querySelectorAll('.hl-card')) as HTMLSpanElement[]
           let targetCard: HTMLSpanElement | null = null
@@ -449,7 +476,6 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
               targetCard.parentNode.insertBefore(span, nextSib)
             }
           } else {
-            // No blocks at all — append at end
             if (el.innerHTML.trim()) {
               el.appendChild(document.createElement('br'))
               el.appendChild(document.createElement('br'))
@@ -460,7 +486,7 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
 
         recount()
         saveContent()
-      } catch { /* invalid JSON — not a library block, ignore */ }
+      } catch { /* invalid JSON */ }
     }
 
     el.addEventListener('dragover', handleDragOver)
@@ -703,6 +729,18 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
                 <line x1="6" y1="6" x2="18" y2="18" />
               </svg>
             </button>
+          </div>
+        )}
+
+        {/* ── Drop indicator line ──
+            A horizontal blue line that shows where a dragged block will
+            be inserted. Appears during dragover, hidden on drop/dragleave. */}
+        {dropIndicatorY !== null && (
+          <div
+            className="absolute left-2 right-2 z-40 pointer-events-none"
+            style={{ top: dropIndicatorY }}
+          >
+            <div className="h-0.5 bg-blue-500 rounded-full shadow-sm shadow-blue-500/50" />
           </div>
         )}
 

@@ -356,6 +356,7 @@ html {
   cursor: grab;
   user-select: none;
   -webkit-user-select: none;
+  transition: opacity 0.25s ease, filter 0.2s, box-shadow 0.2s;
 }
 /* When in edit mode (double-clicked), re-enable text selection */
 .hl-card[contenteditable="true"] {
