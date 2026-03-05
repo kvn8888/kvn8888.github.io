@@ -4,14 +4,24 @@ import { NextResponse } from 'next/server'
 /*
  * Replicate Usage API Proxy — /api/usage/replicate
  *
- * Fetches the Replicate account billing summary including:
- *   - Credit balance (prepaid)
- *   - Spend this billing period
- *   - Hardware usage
+ * Replicate's public API exposes account information but does NOT expose a
+ * billing or credit-balance endpoint in their REST API as of 2025-03.
+ * Spending and model usage can only be viewed on the billing dashboard.
+ *
+ * What's available via API:
+ *   GET /v1/account
+ *   Response schema:
+ *     {
+ *       "type":       "user" | "organization",
+ *       "username":   string,
+ *       "name":       string,
+ *       "github_url": string | null
+ *     }
+ *
+ * Note: Replicate uses "Token <token>" (not "Bearer") for auth.
+ * Replicate API docs: https://replicate.com/docs/reference/http#account.get
  *
  * Env var required: REPLICATE_API_TOKEN
- *
- * Replicate API docs: https://replicate.com/docs/reference/http#account
  */
 
 export async function GET() {
@@ -26,7 +36,8 @@ export async function GET() {
   try {
     const res = await fetch('https://api.replicate.com/v1/account', {
       headers: {
-        Authorization: `Bearer ${apiToken}`,
+        // Replicate uses "Token <token>" auth scheme, not "Bearer"
+        Authorization: `Token ${apiToken}`,
         'Content-Type': 'application/json',
       },
       cache: 'no-store',
@@ -41,20 +52,27 @@ export async function GET() {
       )
     }
 
-    const account = await res.json()
+    // Confirmed schema from Replicate REST API docs:
+    const account = await res.json() as {
+      type: 'user' | 'organization'
+      username: string
+      name: string
+      github_url: string | null
+    }
 
     return NextResponse.json({
       configured: true,
+      type: account.type,
       username: account.username,
       name: account.name,
-      type: account.type,
-      githubUrl: account.github_url,
+      githubUrl: account.github_url ?? null,
+      note: 'Replicate does not expose a billing API. Visit the dashboard for spend and credit details.',
       dashboardUrl: 'https://replicate.com/account/billing',
     })
   } catch (err) {
     console.error('Replicate usage fetch failed', { error: err })
     return NextResponse.json(
-      { configured: true, error: 'Failed to fetch Replicate usage', dashboardUrl: 'https://replicate.com/account/billing' },
+      { configured: true, error: 'Failed to fetch Replicate account info', dashboardUrl: 'https://replicate.com/account/billing' },
       { status: 200 }
     )
   }

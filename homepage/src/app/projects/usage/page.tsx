@@ -126,7 +126,17 @@ interface VeniceUsage {
 
 interface MistralUsage {
   configured: boolean
-  workspace?: { id: string; name: string; credits: number | null; plan: string | null }
+  // source: 'monthly_usage' — returned when key has billing:read
+  source?: 'monthly_usage' | 'models_list' | 'key_invalid' | 'error'
+  // Monthly usage data (when source === 'monthly_usage')
+  models?: { model: string; requests: number; prompt_tokens: number; completion_tokens: number; total_tokens: number }[]
+  period?: { start: string; end: string } | null
+  totalTokens?: number
+  totalRequests?: number
+  // Models list fallback (when source === 'models_list')
+  keyValid?: boolean
+  availableModels?: string[]
+  note?: string
   error?: string
   dashboardUrl: string
 }
@@ -135,8 +145,9 @@ interface ReplicateUsage {
   configured: boolean
   username?: string
   name?: string
-  type?: string
-  githubUrl?: string
+  type?: 'user' | 'organization' | string
+  githubUrl?: string | null
+  note?: string
   error?: string
   dashboardUrl: string
 }
@@ -147,6 +158,7 @@ interface S3Usage {
   speechBucket?: string | null
   bucketCount?: number
   buckets?: { name: string; region: string; createdAt: string | null }[]
+  ownerDisplayName?: string | null
   note?: string
   error?: string
   dashboardUrl: string
@@ -154,7 +166,7 @@ interface S3Usage {
 
 interface ResendUsage {
   configured: boolean
-  domains?: { id: string; name: string; status: string; region: string }[]
+  domains?: { id: string; name: string; status: string; region: string; createdAt?: string }[]
   apiKeyCount?: number
   warning?: string
   error?: string
@@ -1224,7 +1236,7 @@ export default function UsagePage() {
       <ServiceCard
         title="Mistral AI"
         icon="psychology"
-        plan={mistral?.workspace?.plan ?? undefined}
+        plan={mistral?.source === 'monthly_usage' ? 'Usage API' : (mistral?.keyValid ? 'Key Valid' : undefined)}
         status={mistralStatus}
         dashboardUrl={mistral?.dashboardUrl || 'https://console.mistral.ai/'}
       >
@@ -1232,18 +1244,51 @@ export default function UsagePage() {
           <>
             {mistral.error ? (
               <p className="text-sm text-foreground/40">{mistral.error}</p>
-            ) : mistral.workspace ? (
+            ) : mistral.source === 'monthly_usage' && mistral.models ? (
               <div className="space-y-2">
                 <div className="flex items-baseline justify-between text-sm">
-                  <span className="text-foreground/50">Workspace</span>
-                  <span className="tabular-nums font-medium text-foreground/70">{mistral.workspace.name || '—'}</span>
+                  <span className="text-foreground/50">Total Tokens (month)</span>
+                  <span className="tabular-nums font-semibold text-foreground">
+                    {(mistral.totalTokens ?? 0).toLocaleString()}
+                  </span>
                 </div>
-                {mistral.workspace.credits != null && (
+                <div className="flex items-baseline justify-between text-sm">
+                  <span className="text-foreground/50">Total Requests</span>
+                  <span className="tabular-nums text-foreground/60">{(mistral.totalRequests ?? 0).toLocaleString()}</span>
+                </div>
+                {mistral.period && (
                   <div className="flex items-baseline justify-between text-sm">
-                    <span className="text-foreground/50">Credit Balance</span>
-                    <span className="tabular-nums font-semibold text-foreground">${Number(mistral.workspace.credits).toFixed(2)}</span>
+                    <span className="text-foreground/50">Period</span>
+                    <span className="text-foreground/40 text-xs">
+                      {new Date(mistral.period.start).toLocaleDateString()} – {new Date(mistral.period.end).toLocaleDateString()}
+                    </span>
                   </div>
                 )}
+                {mistral.models.length > 0 && (
+                  <div className="pt-2 border-t border-foreground/5 space-y-1">
+                    <p className="text-xs text-foreground/40 uppercase tracking-wider font-medium">By Model</p>
+                    {mistral.models.slice(0, 4).map((m) => (
+                      <div key={m.model} className="flex items-center justify-between text-xs">
+                        <span className="text-foreground/50 truncate max-w-[140px]">{m.model}</span>
+                        <span className="tabular-nums text-foreground/40">{m.total_tokens.toLocaleString()} tok</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : mistral.source === 'models_list' ? (
+              <div className="space-y-2">
+                <div className="flex items-baseline justify-between text-sm">
+                  <span className="text-foreground/50">API Key</span>
+                  <span className="text-emerald-600 font-medium">Valid</span>
+                </div>
+                {mistral.availableModels && (
+                  <div className="flex items-baseline justify-between text-sm">
+                    <span className="text-foreground/50">Models Available</span>
+                    <span className="tabular-nums text-foreground/60">{mistral.availableModels.length}</span>
+                  </div>
+                )}
+                {mistral.note && <p className="text-xs text-foreground/30 italic">{mistral.note}</p>}
               </div>
             ) : (
               <p className="text-sm text-foreground/40">Mistral API key configured. Visit dashboard for detailed usage.</p>
@@ -1313,6 +1358,12 @@ export default function UsagePage() {
                     <span className="font-medium text-foreground/70 text-xs truncate max-w-[140px]">{s3Usage.speechBucket}</span>
                   </div>
                 )}
+                {s3Usage.ownerDisplayName && (
+                  <div className="flex items-baseline justify-between text-sm">
+                    <span className="text-foreground/50">Account</span>
+                    <span className="text-foreground/60">{s3Usage.ownerDisplayName}</span>
+                  </div>
+                )}
                 {s3Usage.region && (
                   <div className="flex items-baseline justify-between text-sm">
                     <span className="text-foreground/50">Default Region</span>
@@ -1346,15 +1397,25 @@ export default function UsagePage() {
                 {resend.domains && resend.domains.length > 0 && (
                   <>
                     <p className="text-xs text-foreground/40 uppercase tracking-wider font-medium">
-                      Verified Domains ({resend.domains.length})
+                      Domains ({resend.domains.length})
                     </p>
                     {resend.domains.slice(0, 5).map((d) => (
                       <div key={d.id} className="flex items-center justify-between text-sm">
                         <div className="flex items-center gap-2">
-                          <span className={`w-2 h-2 rounded-full ${d.status === 'verified' ? 'bg-emerald-400' : 'bg-amber-400'}`} />
-                          <span className="text-foreground/70 truncate max-w-[140px]">{d.name}</span>
+                          <span className={`w-2 h-2 rounded-full ${
+                            d.status === 'verified' ? 'bg-emerald-400' :
+                            d.status === 'pending' ? 'bg-amber-400' : 'bg-red-400'
+                          }`} />
+                          <span className="text-foreground/70 truncate max-w-[120px]">{d.name}</span>
                         </div>
-                        <span className="text-xs text-foreground/40">{d.region}</span>
+                        <div className="text-right">
+                          <span className="text-xs text-foreground/40">{d.region}</span>
+                          {d.createdAt && (
+                            <p className="text-xs text-foreground/25">
+                              {new Date(d.createdAt).toLocaleDateString()}
+                            </p>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </>

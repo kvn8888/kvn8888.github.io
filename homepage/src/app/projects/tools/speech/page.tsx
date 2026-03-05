@@ -1,6 +1,12 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { buildTtsBatches, textSize, createIntlSegmenter } from '@/lib/tts/sentenceSplitter'
+
+// The segmenter instance is created once at module load time (browser-safe).
+// To swap to wink-nlp: import { createWinkSegmenter } from '@/lib/tts/winkSegmenter'
+// and pass it as the third argument to buildTtsBatches().
+const _intlSegmenter = createIntlSegmenter()
 
 type Tab = 'tts' | 'stt' | 'pronunciation'
 type SpeechModality = Tab | 'all'
@@ -236,181 +242,9 @@ const chirp3Voices = [
 const GEMINI_TEXT_LIMIT = 4096
 const CHIRP3_TEXT_LIMIT_BYTES = 5000
 
-/*
- * ─── NLP Sentence Splitter & Batch Packer ──────────────────────────────────────
- *
- * MOTIVATION
- * ----------
- * TTS APIs enforce hard character/byte limits per request (Gemini: 4 096 chars,
- * Chirp 3: 5 000 UTF-8 bytes).  Long prose must therefore be broken into multiple
- * API calls whose results are later concatenated.
- *
- * A NAIVE period-split fails spectacularly for real text:
- *   "Today, the U.S. dollar is worth 1.2 CAD."
- *   → ["Today, the U", "S", " dollar is worth 1", "2 CAD", ""]
- * TTS pauses at every fragment, producing choppy, unnatural speech.
- *
- * WHY `Intl.Segmenter`
- * --------------------
- * The browser-native `Intl.Segmenter({ granularity: 'sentence' })` implements
- * Unicode Standard Annex #29 sentence boundary rules.  It correctly handles:
- *   • Abbreviations  (U.S., Dr., etc.)
- *   • Decimal numbers (1.2, $3.50)
- *   • Ellipses and quoted speech
- *   • Multiple white-space styles (CRLF, non-breaking space)
- *
- * DSA ANALYSIS — THE BIN-PACKING PROBLEM
- * ----------------------------------------
- * After segmentation we have N sentences s₀…sₙ₋₁ with lengths ℓ₀…ℓₙ₋₁.
- * We must pack them into batches (bins) each of capacity C (the API limit).
- *
- * General bin-packing is NP-hard (it reduces to Partition/Knapsack).
- * However our problem has a critical additional constraint:
- *   → ORDERING: Sentences must appear in their original sequence, because
- *     concatenated audio must be coherent.
- *
- * This ordering constraint makes the problem EQUIVALENT to the
- * "minimum-number-of-pages" or "weighted job scheduling" variant solvable in O(n):
- *
- * ALGORITHM: Greedy Sequential First-Fit
- * ──────────────────────────────────────
- *   currentBatch = []
- *   currentSize  = 0
- *   FOR each sentence s WITH length ℓ:
- *     IF currentSize + ℓ <= C:
- *       append s to currentBatch, currentSize += ℓ
- *     ELSE:
- *       IF currentBatch non-empty: flush currentBatch → batches
- *       IF ℓ > C: truncate s to C (oversized single sentence is unavoidable)
- *       start new currentBatch = [s], currentSize = ℓ
- *   flush remaining currentBatch → batches
- *
- * Time complexity : O(n)  — single pass over sentences
- * Space complexity: O(n)  — all sentences stored once
- *
- * Why NOT First-Fit Decreasing (FFD)?
- *   FFD sorts items by descending size to pack densely.  Sorting sentences by
- *   length would destroy the chronological order that coherent speech requires.
- *
- * Why is O(n) greedy good enough?
- *   Batch sizes are typically similar (prose sentences average 100-200 chars).
- *   With uniform item sizes, greedy sequential achieves the theoretical minimum
- *   number of batches (ceiling(totalLength / C)).  In the worst case (adversarial
- *   alternating large/small sentences) it may produce one extra batch, which is
- *   acceptable here — we prioritise ordering and simplicity.
- *
- * BYTE VS CHARACTER COUNTING
- * ---------------------------
- * Gemini limits are measured in Unicode code-points (characters).
- * Chirp 3 limits are measured in UTF-8 bytes.
- * For CJK text a single character can be 3 bytes.  The sizer function below
- * returns the appropriate metric for the selected provider.
- */
-
-/**
- * Returns the "size" of a text string appropriate for the given provider:
- * byte count for Chirp 3, character count for Gemini.
- */
-function textSize(text: string, isChirp3: boolean): number {
-  if (isChirp3) {
-    // UTF-8 byte length — mirrors what the server-side Buffer.byteLength check uses
-    return new TextEncoder().encode(text).length
-  }
-  // Unicode code-points (= JS string length for BMP text; fine for Western prose)
-  return text.length
-}
-
-/**
- * Split `text` into well-formed sentences using Unicode Annex #29 rules via
- * `Intl.Segmenter`, then pack those sentences into the fewest batches that each
- * stay within `limit` bytes/chars.
- *
- * Falls back to a single-element batch when Intl.Segmenter is unavailable
- * (e.g., very old Safari) — the caller should handle the resulting oversized
- * request gracefully (the server will reject it with a 400 and the UI will show
- * the error, prompting the user to shorten their input).
- *
- * @param text     - Input text to split and batch
- * @param limit    - Per-batch character (Gemini) or byte (Chirp 3) limit
- * @param isChirp3 - Whether to use byte counting (true) or char counting (false)
- * @returns        Array of batch strings, each within the limit
- */
-function buildTtsBatches(text: string, limit: number, isChirp3: boolean): string[] {
-  const trimmed = text.trim()
-  if (!trimmed) return []
-
-  // Fast path: entire text fits in a single batch
-  if (textSize(trimmed, isChirp3) <= limit) return [trimmed]
-
-  // Segment into sentences — needs Intl.Segmenter (baseline 2023+ browsers)
-  let sentences: string[]
-  if (typeof Intl !== 'undefined' && 'Segmenter' in Intl) {
-    const segmenter = new Intl.Segmenter(undefined, { granularity: 'sentence' })
-    sentences = Array.from(segmenter.segment(trimmed), (seg) => seg.segment).filter(
-      (s) => s.trim().length > 0
-    )
-  } else {
-    // Graceful degradation: treat the whole text as one sentence (server-side
-    // limit check will error; user sees a clear message to shorten their text)
-    sentences = [trimmed]
-  }
-
-  const batches: string[] = []
-  let currentBatch = ''
-  let currentSize = 0
-
-  for (const sentence of sentences) {
-    const size = textSize(sentence, isChirp3)
-
-    if (currentSize + size <= limit) {
-      // Sentence fits in the current batch
-      currentBatch += sentence
-      currentSize += size
-    } else {
-      // Flush current batch if non-empty
-      if (currentBatch.trim()) batches.push(currentBatch.trim())
-
-      if (size > limit) {
-        // Oversized single sentence — truncate to limit (rare; long run-on sentences)
-        // For byte-based truncation we must find a valid UTF-8 character boundary
-        // to avoid producing a replacement character (U+FFFD) in the output.
-        const encoder = new TextEncoder()
-        const decoder = new TextDecoder()
-        if (isChirp3) {
-          // Byte-based truncation for Chirp 3: walk backwards from `limit` to find
-          // the last byte that starts a valid UTF-8 code point.
-          // UTF-8 continuation bytes have the form 10xxxxxx (0x80-0xBF).
-          const encoded = encoder.encode(sentence)
-          let cutAt = Math.min(limit, encoded.length)
-          // Walk back over continuation bytes so we cut on a leading byte
-          while (cutAt > 0 && (encoded[cutAt] & 0xC0) === 0x80) cutAt--
-          batches.push(decoder.decode(encoded.slice(0, cutAt)))
-        } else {
-          // Char-based truncation for Gemini (JS string length = UTF-16 code units)
-          // Avoid splitting a surrogate pair (emoji, etc.)
-          let cutAt = limit
-          if (cutAt < sentence.length) {
-            // If we land in the middle of a surrogate pair, step back
-            const code = sentence.charCodeAt(cutAt - 1)
-            if (code >= 0xD800 && code <= 0xDBFF) cutAt--
-          }
-          batches.push(sentence.slice(0, cutAt))
-        }
-        currentBatch = ''
-        currentSize = 0
-      } else {
-        // Start a new batch with this sentence
-        currentBatch = sentence
-        currentSize = size
-      }
-    }
-  }
-
-  // Flush remaining content
-  if (currentBatch.trim()) batches.push(currentBatch.trim())
-
-  return batches
-}
+// buildTtsBatches, textSize, and SentenceSegmenter now live in
+// @/lib/tts/sentenceSplitter — imported at the top of this file.
+// To swap in wink-nlp: pass createWinkSegmenter() as the third arg to buildTtsBatches().
 
 function saveSpeechHistory(payload: { modality: Tab; title: string; content?: string; metadata?: Record<string, unknown> }) {
   // History persistence is best-effort and should not block core speech actions.
@@ -544,8 +378,8 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
     try {
       const limit = isChirp3Voice ? CHIRP3_TEXT_LIMIT_BYTES : GEMINI_TEXT_LIMIT
       // NLP sentence splitter: pack sentences into batches that maximise usage
-      // while staying under the API limit.  See buildTtsBatches() for full DSA docs.
-      const batches = buildTtsBatches(trimmedText, limit, isChirp3Voice)
+      // while staying under the API limit.  Full DSA docs in @/lib/tts/sentenceSplitter.ts
+      const batches = buildTtsBatches(trimmedText, { limit, isChirp3: isChirp3Voice }, _intlSegmenter)
       const isSingleBatch = batches.length === 1
 
       if (!isSingleBatch) {
@@ -665,8 +499,8 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
         />
         {(() => {
           const trimmed = text.trim()
-          const size = isChirp3Voice ? new TextEncoder().encode(text).length : text.length
-          const batches = trimmed ? buildTtsBatches(trimmed, maxChars, isChirp3Voice) : []
+          const size = isChirp3Voice ? textSize(text, true) : text.length
+          const batches = trimmed ? buildTtsBatches(trimmed, { limit: maxChars, isChirp3: isChirp3Voice }, _intlSegmenter) : []
           const overLimit = size > maxChars
           return (
             <div className="flex items-baseline justify-between text-xs">

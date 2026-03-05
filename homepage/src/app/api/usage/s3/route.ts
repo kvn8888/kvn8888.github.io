@@ -36,7 +36,8 @@ export async function GET() {
   const client = new S3Client({ region })
 
   try {
-    const { Buckets = [] } = await client.send(new ListBucketsCommand({}))
+    const listResult = await client.send(new ListBucketsCommand({}))
+    const { Buckets = [], Owner } = listResult
 
     // Resolve location for each bucket (parallel, best-effort)
     const bucketsWithRegion = await Promise.allSettled(
@@ -62,6 +63,9 @@ export async function GET() {
       speechBucket,
       bucketCount: buckets.length,
       buckets,
+      // Owner fields confirmed from AWS S3 ListBuckets response schema:
+      // { Owner: { DisplayName: string; ID: string } }
+      ownerDisplayName: Owner?.DisplayName ?? null,
       note: 'Storage byte/object count requires CloudWatch Metrics; visit S3 console for precise usage.',
       dashboardUrl: 'https://s3.console.aws.amazon.com/s3/home',
     })
