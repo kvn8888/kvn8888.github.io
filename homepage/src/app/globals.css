@@ -363,6 +363,16 @@ html {
   user-select: text;
   -webkit-user-select: text;
 }
+/* Selected state: visual ring to show the block is active/focused */
+.hl-card.hl-selected {
+  outline: 2px solid rgba(59, 130, 246, 0.6);
+  outline-offset: 2px;
+  filter: brightness(1.05);
+}
+/* In dark mode, use a brighter ring */
+:is(.dark .hl-card.hl-selected) {
+  outline-color: rgba(96, 165, 250, 0.7);
+}
 .hl-card:hover {
   filter: brightness(1.03);
   box-shadow: 0 2px 12px rgba(0,0,0,0.1) !important;

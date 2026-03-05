@@ -56,12 +56,16 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
   const [blockCount, setBlockCount] = useState(0)
   const { resolvedTheme } = useTheme()
 
-  // Floating X button: tracks which card is hovered and where to show the X
+  // Floating X button: tracks which card is hovered or selected, and where to position
   const [xBtnPos, setXBtnPos] = useState<{
     x: number
     y: number
     card: HTMLSpanElement
   } | null>(null)
+
+  // Selected block: the currently clicked/active highlight card.
+  // Used for visual selection ring, persistent X button, and keyboard delete.
+  const [selectedCard, setSelectedCard] = useState<HTMLSpanElement | null>(null)
 
   // Undo stack: stores previous innerHTML states for Cmd+Z support.
   // Limited to 50 entries to prevent memory bloat.
@@ -81,6 +85,20 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
   // so that clicking a library block inserts at this position.
   const lastRangeRef = useRef<Range | null>(null)
 
+  // ── Position the X button relative to a card ──
+  // Reused for both hover and selection states. Returns the x/y
+  // relative to the wrapper div, positioned at the card's top-right corner.
+  const positionXBtn = useCallback((span: HTMLSpanElement) => {
+    const wr = wrapperRef.current?.getBoundingClientRect()
+    const sr = span.getBoundingClientRect()
+    if (!wr) return
+    setXBtnPos({
+      x: sr.right - wr.left - 4,
+      y: sr.top - wr.top - 4,
+      card: span,
+    })
+  }, [])
+
   // ── Count highlighted blocks in the editor ──
   const recount = useCallback(() => {
     if (!editorRef.current) return
@@ -95,67 +113,94 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
     localStorage.setItem('cl-editor-html', editorRef.current.innerHTML)
   }, [])
 
-  // ── Attach hover + drag events to a highlight span ──
-  // - Hover: calculate bounding rect relative to wrapper, show floating X
-  // - Drag: make the span a draggable block for reordering within the editor
-  //   Setting contentEditable=false on the span prevents text-selection drag
-  //   from intercepting the HTML5 drag-and-drop API.
+  // ── Attach hover, click, drag, and edit events to a highlight span ──
+  //
+  // Interaction model:
+  //   Single click  → select the block (visual ring, X button appears)
+  //   Click away    → deselect
+  //   Drag          → drag the block to reorder or reposition
+  //   Double-click  → enter inline text editing mode
+  //   Blur (edit)   → exit edit mode, back to draggable
+  //
+  // Setting contentEditable=false on spans makes them discrete draggable
+  // objects instead of editable text. Double-click toggles this temporarily.
   const attachCardEvents = useCallback((span: HTMLSpanElement) => {
     // Make the span a discrete draggable element, not editable inline text
     span.draggable = true
     span.contentEditable = 'false'
     span.style.cursor = 'grab'
 
-    // Hover: position the floating X button at the span's top-right corner
+    // Hover: show X button on mouse enter (non-selected cards)
     span.addEventListener('mouseenter', () => {
-      const wr = wrapperRef.current?.getBoundingClientRect()
-      const sr = span.getBoundingClientRect()
-      if (!wr) return
-      setXBtnPos({
-        x: sr.right - wr.left - 4,   // 4px inset from right edge
-        y: sr.top - wr.top - 4,       // 4px inset from top edge
-        card: span,
-      })
+      positionXBtn(span)
     })
     span.addEventListener('mouseleave', (e: MouseEvent) => {
-      // Don't hide if the mouse moved to the X button itself
       const related = e.relatedTarget as HTMLElement | null
       if (related?.closest?.('.hl-floating-x')) return
-      setXBtnPos(null)
+      // Only hide X on mouseleave if this card isn't selected
+      // (selected cards keep the X visible)
+      setXBtnPos((prev) => {
+        if (prev?.card === span) {
+          // Check if this span is currently selected — if so, keep X visible
+          if (span.classList.contains('hl-selected')) return prev
+          return null
+        }
+        return prev
+      })
     })
 
-    // Drag: serialize the block data so the drop handler can distinguish
-    // a reorder (existing card in editor) from a new insert (library card).
-    // We set a 'source:editor' flag so the drop handler knows to MOVE
-    // rather than COPY.
+    // Click: select this block (show visual ring + persistent X button)
+    span.addEventListener('click', (e: MouseEvent) => {
+      e.stopPropagation()
+      // Don't select if we're in edit mode (contentEditable is true)
+      if (span.contentEditable === 'true') return
+
+      // Deselect any previously selected card
+      const prevSelected = editorRef.current?.querySelector('.hl-selected')
+      if (prevSelected) prevSelected.classList.remove('hl-selected')
+
+      // Select this card
+      span.classList.add('hl-selected')
+      setSelectedCard(span)
+      positionXBtn(span)
+    })
+
+    // Drag: serialize block data with 'source: editor' flag for reorder detection
     span.addEventListener('dragstart', (e: DragEvent) => {
       const blockData = {
         id: span.dataset.blockId || '',
         category: span.dataset.category || 'Custom',
         text: span.textContent || '',
-        source: 'editor',  // distinguishes from library cards
+        source: 'editor',
       }
       e.dataTransfer?.setData('application/json', JSON.stringify(blockData))
       if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
-      span.style.opacity = '0.4'  // visual feedback: ghost the original
-      setXBtnPos(null)             // hide X button during drag
+      span.style.opacity = '0.4'
+      setXBtnPos(null)
+      // Deselect during drag
+      span.classList.remove('hl-selected')
+      setSelectedCard(null)
     })
     span.addEventListener('dragend', () => {
-      span.style.opacity = '1'    // restore opacity after drag
+      span.style.opacity = '1'
     })
 
-    // Double-click: enter inline edit mode.
-    // Temporarily switches the span from draggable block → editable text.
-    // On blur (click away), switches back to draggable mode.
+    // Double-click: enter inline edit mode
+    // Switches span from draggable → editable text temporarily
     span.addEventListener('dblclick', (e: MouseEvent) => {
       e.preventDefault()
       e.stopPropagation()
-      span.contentEditable = 'true'   // allow typing inside the span
-      span.draggable = false           // disable drag while editing
-      span.style.cursor = 'text'       // show text cursor
-      span.focus()                     // place cursor in the span
+      // Remove selection state while editing
+      span.classList.remove('hl-selected')
+      setSelectedCard(null)
+      setXBtnPos(null)
 
-      // Select all text inside the span for easy replacement
+      span.contentEditable = 'true'
+      span.draggable = false
+      span.style.cursor = 'text'
+      span.focus()
+
+      // Select all text for easy replacement
       const sel = window.getSelection()
       const range = document.createRange()
       range.selectNodeContents(span)
@@ -163,19 +208,18 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
       sel?.addRange(range)
     })
 
-    // Blur: exit edit mode, return to draggable block behavior
+    // Blur: exit edit mode, restore draggable behavior
     span.addEventListener('blur', () => {
       span.contentEditable = 'false'
       span.draggable = true
       span.style.cursor = 'grab'
-      // Remove the span if all text was deleted during editing
       if (!span.textContent?.trim()) {
         span.parentNode?.removeChild(span)
         recount()
       }
       saveContent()
     })
-  }, [recount, saveContent])
+  }, [recount, saveContent, positionXBtn])
 
   // ── Create a highlighted span element ──
   // Used when inserting library blocks or creating cards from selection.
@@ -430,47 +474,59 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
     }
   }, [createHighlightSpan, recount, saveContent, setIsDragOver, pushUndo])
 
-  // ── Cmd+Z / Ctrl+Z undo handler ──
-  // Pops the most recent state from the undo stack and restores editor HTML.
-  // Re-attaches card events to all highlight spans after restoring.
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
-        const stack = undoStackRef.current
-        if (stack.length === 0 || !editorRef.current) return
-        e.preventDefault()
-        e.stopPropagation()
-        // Pop the last saved state and restore
-        const prevState = stack.pop()!
-        editorRef.current.innerHTML = prevState
-        // Re-attach hover/drag events to any restored highlight cards
-        editorRef.current.querySelectorAll('.hl-card').forEach((card) => {
-          attachCardEvents(card as HTMLSpanElement)
-        })
-        recount()
-        saveContent()
-      }
-    }
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [attachCardEvents, recount, saveContent])
-
   // ── Remove a highlight card (unwrap text, keep content) ──
   const removeCard = useCallback((card: HTMLSpanElement) => {
     const parent = card.parentNode
     if (!parent) return
     pushUndo()
-    // Move the card's text content out of the span
     while (card.firstChild) {
       parent.insertBefore(card.firstChild, card)
     }
     parent.removeChild(card)
-    // Merge adjacent text nodes for cleanliness
     parent.normalize()
     setXBtnPos(null)
     recount()
     saveContent()
   }, [recount, saveContent, pushUndo])
+
+  // Keep a ref synced with selectedCard so the keydown handler
+  // can read the latest value without re-attaching the listener.
+  const selectedCardRef = useRef<HTMLSpanElement | null>(null)
+  useEffect(() => { selectedCardRef.current = selectedCard }, [selectedCard])
+
+  // ── Keyboard handlers: Cmd+Z undo + Delete/Backspace for selected card ──
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Cmd+Z / Ctrl+Z: undo
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+        const stack = undoStackRef.current
+        if (stack.length === 0 || !editorRef.current) return
+        e.preventDefault()
+        e.stopPropagation()
+        const prevState = stack.pop()!
+        editorRef.current.innerHTML = prevState
+        editorRef.current.querySelectorAll('.hl-card').forEach((card) => {
+          attachCardEvents(card as HTMLSpanElement)
+        })
+        setSelectedCard(null)
+        setXBtnPos(null)
+        recount()
+        saveContent()
+        return
+      }
+
+      // Delete or Backspace while a card is selected: remove it
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedCardRef.current) {
+        if (selectedCardRef.current.contentEditable === 'true') return
+        e.preventDefault()
+        removeCard(selectedCardRef.current)
+        setSelectedCard(null)
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [attachCardEvents, recount, saveContent, removeCard])
+
   // On every mouseup/keyup: (1) save the current caret position so
   // insertBlock can use it, (2) show the "Create Card" popup if text is selected.
   const checkSelection = useCallback(() => {
@@ -696,6 +752,18 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
           onMouseUp={checkSelection}
           onKeyUp={checkSelection}
           onInput={onInput}
+          onClick={(e) => {
+            // Deselect any selected card when clicking on empty editor space.
+            // Card clicks call e.stopPropagation(), so this only fires
+            // for clicks on non-card areas.
+            if (!(e.target as HTMLElement).closest?.('.hl-card')) {
+              const prev = editorRef.current?.querySelector('.hl-selected')
+              if (prev) prev.classList.remove('hl-selected')
+              setSelectedCard(null)
+              // Keep X button only if still hovering a card
+              setXBtnPos(null)
+            }
+          }}
           onBlur={() => { setTimeout(() => setPopup(null), 200); saveContent() }}
           className={`min-h-[200px] rounded-xl p-5 text-sm leading-[2.2] text-foreground outline-none transition-all ${
             isDragOver
