@@ -7,6 +7,9 @@ export default function Home() {
           Password Entropy Checker
           <span className="material-symbols-outlined relative top-1 text-black">arrow_outward</span>
         </a>
+        <a href="/tools/notes" className="mt-4 text-black text-xl hover-animate-underline">
+          Tools Notes (Markdown Viewer)
+        </a>
       </div>
     </div>
   );
