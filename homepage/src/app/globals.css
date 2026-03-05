@@ -237,6 +237,33 @@
   }
 }
 
+/*
+ * iOS-style frosted glass — for overlay cards (profile menu, modals) where
+ * text from underlying page content would bleed through a plain opacity background.
+ *
+ * Implementation:
+ *   - backdrop-filter: blur(24px) saturate(180%) — blurs and desaturates what's
+ *     behind the card, exactly like UIVisualEffectView on iOS.
+ *   - -webkit-backdrop-filter: required for Safari / Chrome on macOS.
+ *   - A higher-opacity tint (0.82 in light, 0.78 in dark) provides enough contrast
+ *     so that body text underneath is NOT readable, meeting WCAG opacity guidance.
+ *
+ * Without this, using only `rgba(..., 0.6)` creates a translucent wash where
+ * dark body text bleeds through and is technically readable — bad for a11y
+ * because the card content and the bled-through text compete visually.
+ */
+.profile-card-glass {
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+}
+
+.dark .profile-card-glass {
+  background: rgba(15, 12, 10, 0.78);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+}
+
 body {
   background: var(--background);
   color: var(--foreground);

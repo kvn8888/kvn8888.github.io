@@ -68,9 +68,10 @@ export function ProfileMenu({ userName, userEmail, userImage, signOutAction }: P
         )}
       </button>
 
-      {/* Popover card */}
+      {/* Popover card — iOS-style frosted glass: backdrop-filter blur + saturate
+          instead of a flat opacity overlay, ensuring legibility over any page content */}
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-72 rounded-2xl bg-glass backdrop-blur-2xl border border-glass-border shadow-xl shadow-black/10 z-50 overflow-hidden">
+        <div className="absolute right-0 top-full mt-2 w-72 rounded-2xl profile-card-glass border border-glass-border shadow-xl shadow-black/10 z-50 overflow-hidden">
           {/* User info */}
           <div className="px-5 py-4 flex items-center gap-3 border-b border-foreground/5">
             {userImage ? (

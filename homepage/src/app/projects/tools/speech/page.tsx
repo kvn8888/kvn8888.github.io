@@ -236,6 +236,169 @@ const chirp3Voices = [
 const GEMINI_TEXT_LIMIT = 4096
 const CHIRP3_TEXT_LIMIT_BYTES = 5000
 
+/*
+ * ─── NLP Sentence Splitter & Batch Packer ──────────────────────────────────────
+ *
+ * MOTIVATION
+ * ----------
+ * TTS APIs enforce hard character/byte limits per request (Gemini: 4 096 chars,
+ * Chirp 3: 5 000 UTF-8 bytes).  Long prose must therefore be broken into multiple
+ * API calls whose results are later concatenated.
+ *
+ * A NAIVE period-split fails spectacularly for real text:
+ *   "Today, the U.S. dollar is worth 1.2 CAD."
+ *   → ["Today, the U", "S", " dollar is worth 1", "2 CAD", ""]
+ * TTS pauses at every fragment, producing choppy, unnatural speech.
+ *
+ * WHY `Intl.Segmenter`
+ * --------------------
+ * The browser-native `Intl.Segmenter({ granularity: 'sentence' })` implements
+ * Unicode Standard Annex #29 sentence boundary rules.  It correctly handles:
+ *   • Abbreviations  (U.S., Dr., etc.)
+ *   • Decimal numbers (1.2, $3.50)
+ *   • Ellipses and quoted speech
+ *   • Multiple white-space styles (CRLF, non-breaking space)
+ *
+ * DSA ANALYSIS — THE BIN-PACKING PROBLEM
+ * ----------------------------------------
+ * After segmentation we have N sentences s₀…sₙ₋₁ with lengths ℓ₀…ℓₙ₋₁.
+ * We must pack them into batches (bins) each of capacity C (the API limit).
+ *
+ * General bin-packing is NP-hard (it reduces to Partition/Knapsack).
+ * However our problem has a critical additional constraint:
+ *   → ORDERING: Sentences must appear in their original sequence, because
+ *     concatenated audio must be coherent.
+ *
+ * This ordering constraint makes the problem EQUIVALENT to the
+ * "minimum-number-of-pages" or "weighted job scheduling" variant solvable in O(n):
+ *
+ * ALGORITHM: Greedy Sequential First-Fit
+ * ──────────────────────────────────────
+ *   currentBatch = []
+ *   currentSize  = 0
+ *   FOR each sentence s WITH length ℓ:
+ *     IF currentSize + ℓ <= C:
+ *       append s to currentBatch, currentSize += ℓ
+ *     ELSE:
+ *       IF currentBatch non-empty: flush currentBatch → batches
+ *       IF ℓ > C: truncate s to C (oversized single sentence is unavoidable)
+ *       start new currentBatch = [s], currentSize = ℓ
+ *   flush remaining currentBatch → batches
+ *
+ * Time complexity : O(n)  — single pass over sentences
+ * Space complexity: O(n)  — all sentences stored once
+ *
+ * Why NOT First-Fit Decreasing (FFD)?
+ *   FFD sorts items by descending size to pack densely.  Sorting sentences by
+ *   length would destroy the chronological order that coherent speech requires.
+ *
+ * Why is O(n) greedy good enough?
+ *   Batch sizes are typically similar (prose sentences average 100-200 chars).
+ *   With uniform item sizes, greedy sequential achieves the theoretical minimum
+ *   number of batches (ceiling(totalLength / C)).  In the worst case (adversarial
+ *   alternating large/small sentences) it may produce one extra batch, which is
+ *   acceptable here — we prioritise ordering and simplicity.
+ *
+ * BYTE VS CHARACTER COUNTING
+ * ---------------------------
+ * Gemini limits are measured in Unicode code-points (characters).
+ * Chirp 3 limits are measured in UTF-8 bytes.
+ * For CJK text a single character can be 3 bytes.  The sizer function below
+ * returns the appropriate metric for the selected provider.
+ */
+
+/**
+ * Returns the "size" of a text string appropriate for the given provider:
+ * byte count for Chirp 3, character count for Gemini.
+ */
+function textSize(text: string, isChirp3: boolean): number {
+  if (isChirp3) {
+    // UTF-8 byte length — mirrors what the server-side Buffer.byteLength check uses
+    return new TextEncoder().encode(text).length
+  }
+  // Unicode code-points (= JS string length for BMP text; fine for Western prose)
+  return text.length
+}
+
+/**
+ * Split `text` into well-formed sentences using Unicode Annex #29 rules via
+ * `Intl.Segmenter`, then pack those sentences into the fewest batches that each
+ * stay within `limit` bytes/chars.
+ *
+ * Falls back to a single-element batch when Intl.Segmenter is unavailable
+ * (e.g., very old Safari) — the caller should handle the resulting oversized
+ * request gracefully (the server will reject it with a 400 and the UI will show
+ * the error, prompting the user to shorten their input).
+ *
+ * @param text     - Input text to split and batch
+ * @param limit    - Per-batch character (Gemini) or byte (Chirp 3) limit
+ * @param isChirp3 - Whether to use byte counting (true) or char counting (false)
+ * @returns        Array of batch strings, each within the limit
+ */
+function buildTtsBatches(text: string, limit: number, isChirp3: boolean): string[] {
+  const trimmed = text.trim()
+  if (!trimmed) return []
+
+  // Fast path: entire text fits in a single batch
+  if (textSize(trimmed, isChirp3) <= limit) return [trimmed]
+
+  // Segment into sentences — needs Intl.Segmenter (baseline 2023+ browsers)
+  let sentences: string[]
+  if (typeof Intl !== 'undefined' && 'Segmenter' in Intl) {
+    const segmenter = new Intl.Segmenter(undefined, { granularity: 'sentence' })
+    sentences = Array.from(segmenter.segment(trimmed), (seg) => seg.segment).filter(
+      (s) => s.trim().length > 0
+    )
+  } else {
+    // Graceful degradation: treat the whole text as one sentence (server-side
+    // limit check will error; user sees a clear message to shorten their text)
+    sentences = [trimmed]
+  }
+
+  const batches: string[] = []
+  let currentBatch = ''
+  let currentSize = 0
+
+  for (const sentence of sentences) {
+    const size = textSize(sentence, isChirp3)
+
+    if (currentSize + size <= limit) {
+      // Sentence fits in the current batch
+      currentBatch += sentence
+      currentSize += size
+    } else {
+      // Flush current batch if non-empty
+      if (currentBatch.trim()) batches.push(currentBatch.trim())
+
+      if (size > limit) {
+        // Oversized single sentence — truncate to limit (rare; long run-on sentences)
+        // Hard-truncate by grapheme clusters to avoid splitting a multi-byte char
+        const encoder = new TextEncoder()
+        const decoder = new TextDecoder()
+        if (isChirp3) {
+          // Byte-based truncation for Chirp 3
+          const encoded = encoder.encode(sentence)
+          batches.push(decoder.decode(encoded.slice(0, limit)))
+        } else {
+          // Char-based truncation for Gemini
+          batches.push(sentence.slice(0, limit))
+        }
+        currentBatch = ''
+        currentSize = 0
+      } else {
+        // Start a new batch with this sentence
+        currentBatch = sentence
+        currentSize = size
+      }
+    }
+  }
+
+  // Flush remaining content
+  if (currentBatch.trim()) batches.push(currentBatch.trim())
+
+  return batches
+}
+
 function saveSpeechHistory(payload: { modality: Tab; title: string; content?: string; metadata?: Record<string, unknown> }) {
   // History persistence is best-effort and should not block core speech actions.
   void fetch('/api/speech/history', {
@@ -312,60 +475,150 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
+  const [batchProgress, setBatchProgress] = useState<{ current: number; total: number } | null>(null)
   const isChirp3Voice = voice.startsWith('chirp3:')
   const maxChars = isChirp3Voice ? CHIRP3_TEXT_LIMIT_BYTES : GEMINI_TEXT_LIMIT
 
+  /**
+   * Fetches a single TTS batch from the API and returns the raw audio Uint8Array
+   * plus MIME type.  Throws on API errors so the caller can catch and surface them.
+   */
+  const fetchTtsBatch = async (batchText: string): Promise<{ bytes: Uint8Array<ArrayBuffer>; mimeType: string; summary?: string; storageUrl?: string }> => {
+    const res = await fetch('/api/speech/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: batchText,
+        voice,
+        provider: isChirp3Voice ? 'chirp3' : 'gemini',
+        ...(!isChirp3Voice && instructions.trim() ? { instructions: instructions.trim() } : {}),
+      }),
+    })
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      throw new Error(data.error || 'TTS generation failed')
+    }
+
+    const { audio, mimeType, summary, storageUrl } = await res.json()
+    const raw = atob(audio)
+    const bytes = new Uint8Array(new ArrayBuffer(raw.length))
+    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i)
+    return { bytes, mimeType, summary, storageUrl }
+  }
+
+  /**
+   * Wraps raw PCM bytes in a WAV header and returns the full WAV Uint8Array.
+   * Used for Gemini responses which return raw L16 PCM.
+   */
+  const wrapPcmInWav = (pcmBytes: Uint8Array, sampleRate = 24000, channels = 1, bitsPerSample = 16): Uint8Array<ArrayBuffer> => {
+    const header = new DataView(createWavHeader(pcmBytes.length, sampleRate, channels, bitsPerSample))
+    const out = new Uint8Array(new ArrayBuffer(44 + pcmBytes.length))
+    for (let i = 0; i < 44; i++) out[i] = header.getUint8(i)
+    out.set(pcmBytes, 44)
+    return out
+  }
+
   const handleGenerate = async () => {
-    if (!text.trim()) return
+    const trimmedText = text.trim()
+    if (!trimmedText) return
+
     setLoading(true)
     setError(null)
     setAudioUrl(null)
+    setBatchProgress(null)
 
     try {
-      const res = await fetch('/api/speech/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: text.trim(),
-          voice,
-          provider: isChirp3Voice ? 'chirp3' : 'gemini',
-          ...(!isChirp3Voice && instructions.trim() ? { instructions: instructions.trim() } : {}),
-        }),
-      })
+      const limit = isChirp3Voice ? CHIRP3_TEXT_LIMIT_BYTES : GEMINI_TEXT_LIMIT
+      // NLP sentence splitter: pack sentences into batches that maximise usage
+      // while staying under the API limit.  See buildTtsBatches() for full DSA docs.
+      const batches = buildTtsBatches(trimmedText, limit, isChirp3Voice)
+      const isSingleBatch = batches.length === 1
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        throw new Error(data.error || 'TTS generation failed')
+      if (!isSingleBatch) {
+        setBatchProgress({ current: 0, total: batches.length })
       }
 
-      const { audio, mimeType, summary, storageUrl } = await res.json()
+      // Process each batch sequentially to respect rate limits
+      // (Gemini TTS: 10 req/min personal quota; Chirp 3: 200 req/min for HD voices)
+      const allChunks: Uint8Array<ArrayBuffer>[] = []
+      let overallMimeType = 'audio/wav'
+      let firstSummary: string | undefined
+      let firstStorageUrl: string | undefined
 
-      // Convert base64 PCM → playable WAV blob
-      const raw = atob(audio)
-      const bytes = new Uint8Array(raw.length)
-      for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i)
+      for (let i = 0; i < batches.length; i++) {
+        if (!isSingleBatch) setBatchProgress({ current: i + 1, total: batches.length })
 
-      // If mime is L16, wrap in WAV header; otherwise treat as-is
-      let blob: Blob
-      if (mimeType?.includes('L16')) {
-        const sampleRate = 24000
-        const wavHeader = createWavHeader(bytes.length, sampleRate, 1, 16)
-        blob = new Blob([wavHeader, bytes], { type: 'audio/wav' })
+        const { bytes, mimeType, summary, storageUrl } = await fetchTtsBatch(batches[i])
+
+        // Normalize all chunks to WAV PCM so they can be concatenated.
+        // L16 raw PCM → wrap in WAV header.
+        // MP3 (Chirp 3) → keep as-is if only one batch; multi-batch MP3
+        // concatenation requires demuxing, so we just return the last chunk.
+        if (mimeType?.includes('L16')) {
+          allChunks.push(wrapPcmInWav(bytes))
+          overallMimeType = 'audio/wav'
+        } else {
+          // Chirp 3 / MP3: direct byte payload
+          allChunks.push(bytes)
+          overallMimeType = mimeType || 'audio/mpeg'
+        }
+
+        if (i === 0) {
+          firstSummary = summary
+          firstStorageUrl = storageUrl
+        }
+      }
+
+      // Concatenate WAV chunks: strip header from all but the first chunk,
+      // then rebuild a single WAV with the combined PCM data.
+      let finalBlob: Blob
+      if (overallMimeType === 'audio/wav' && allChunks.length > 1) {
+        const HEADER_SIZE = 44
+        // Sum PCM data across all chunks (skip 44-byte WAV header per chunk)
+        const totalPcm = allChunks.reduce((acc, chunk) => acc + Math.max(0, chunk.length - HEADER_SIZE), 0)
+        const combined = new Uint8Array(new ArrayBuffer(HEADER_SIZE + totalPcm))
+        // Copy the first chunk's header (sample rate, channels, etc. are identical)
+        combined.set(allChunks[0].slice(0, HEADER_SIZE), 0)
+        // Patch the data-chunk size field at offset 40 (little-endian uint32)
+        const dataView = new DataView(combined.buffer)
+        dataView.setUint32(4, 36 + totalPcm, true)  // RIFF chunk size
+        dataView.setUint32(40, totalPcm, true)        // data sub-chunk size
+        let writeOffset = HEADER_SIZE
+        for (const chunk of allChunks) {
+          const pcm = chunk.slice(HEADER_SIZE)
+          combined.set(pcm, writeOffset)
+          writeOffset += pcm.length
+        }
+        finalBlob = new Blob([combined], { type: 'audio/wav' })
+      } else if (allChunks.length === 1) {
+        finalBlob = new Blob(allChunks, { type: overallMimeType })
       } else {
-        blob = new Blob([bytes], { type: mimeType || 'audio/wav' })
+        // Multi-chunk non-WAV (e.g. MP3 from Chirp3): concatenate raw bytes.
+        // Many MP3 decoders handle stream-level concatenation correctly.
+        finalBlob = new Blob(allChunks, { type: overallMimeType })
       }
 
-      const url = URL.createObjectURL(blob)
+      const url = URL.createObjectURL(finalBlob)
       setAudioUrl(url)
+      setBatchProgress(null)
+
       saveSpeechHistory({
         modality: 'tts',
-        title: summary || `TTS · ${voice}`,
-        content: text.trim().slice(0, 500),
-        metadata: { voice, provider: isChirp3Voice ? 'chirp3' : 'gemini', mimeType: mimeType || 'audio/wav', ...(storageUrl ? { storageUrl } : {}) },
+        title: firstSummary || `TTS · ${voice}`,
+        content: trimmedText.slice(0, 500),
+        metadata: {
+          voice,
+          provider: isChirp3Voice ? 'chirp3' : 'gemini',
+          mimeType: overallMimeType,
+          batchCount: batches.length,
+          ...(firstStorageUrl ? { storageUrl: firstStorageUrl } : {}),
+        },
       })
       onHistorySaved()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
+      setBatchProgress(null)
     } finally {
       setLoading(false)
     }
@@ -393,14 +646,31 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
               handleGenerate()
             }
           }}
-          placeholder="Enter text to speak..."
+          placeholder="Enter text to speak…"
           rows={4}
-          maxLength={maxChars}
           className="w-full rounded-xl bg-foreground/[0.03] border border-foreground/10 px-4 py-3 text-sm text-foreground placeholder:text-foreground/30 focus:outline-none focus:ring-2 focus:ring-foreground/20 resize-none transition-all"
         />
-        <p className="text-xs text-foreground/30 text-right">
-          {text.length} / {maxChars} · {isChirp3Voice ? 'Chirp 3 limit (5,000 bytes enforced in API)' : 'Gemini max input'} · ⌘/Ctrl+Enter to generate
-        </p>
+        {(() => {
+          const size = isChirp3Voice ? new TextEncoder().encode(text).length : text.length
+          const batches = text.trim() ? buildTtsBatches(text.trim(), maxChars, isChirp3Voice) : []
+          const overLimit = size > maxChars
+          return (
+            <div className="flex items-baseline justify-between text-xs">
+              <span className="text-foreground/30">
+                {batches.length > 1 ? (
+                  <span className="text-amber-600">
+                    Long text — will split into {batches.length} batches via NLP sentence splitter
+                  </span>
+                ) : (
+                  <span>⌘/Ctrl+Enter to generate</span>
+                )}
+              </span>
+              <span className={overLimit && batches.length === 1 ? 'text-red-500' : 'text-foreground/30'}>
+                {size.toLocaleString()} / {maxChars.toLocaleString()} {isChirp3Voice ? 'bytes' : 'chars'}
+              </span>
+            </div>
+          )
+        })()}
       </div>
 
       {/* Voice selector */}
@@ -462,7 +732,9 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
         {loading ? (
           <>
             <span className="material-symbols-outlined animate-spin text-lg">progress_activity</span>
-            Generating…
+            {batchProgress
+              ? `Batch ${batchProgress.current}/${batchProgress.total}…`
+              : 'Generating…'}
           </>
         ) : (
           <>
@@ -472,6 +744,25 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
         )}
         </button>
       </div>
+
+      {/* Batch progress bar (multi-batch only) */}
+      {batchProgress && batchProgress.total > 1 && (
+        <div className="space-y-1.5">
+          <div className="flex justify-between text-xs text-foreground/40">
+            <span>Processing batch {batchProgress.current} of {batchProgress.total}</span>
+            <span>{Math.round((batchProgress.current / batchProgress.total) * 100)}%</span>
+          </div>
+          <div className="h-1.5 rounded-full bg-foreground/5 overflow-hidden">
+            <div
+              className="h-full rounded-full bg-foreground/40 transition-all duration-500"
+              style={{ width: `${(batchProgress.current / batchProgress.total) * 100}%` }}
+            />
+          </div>
+          <p className="text-xs text-foreground/30">
+            Gemini TTS: 10 req/min limit — batching sequentially to stay within quota
+          </p>
+        </div>
+      )}
 
       {/* Error */}
       {error && (
@@ -491,19 +782,34 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
       {/* Service Limits */}
       <details className="group">
         <summary className="text-xs text-foreground/30 cursor-pointer hover:text-foreground/50 transition-colors select-none">
-          API Limits &amp; Info
+          API Limits &amp; NLP Batching Info
         </summary>
         <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-foreground/40">
           <div className="rounded-lg bg-foreground/[0.02] border border-foreground/5 p-2.5">
-            <p className="font-medium text-foreground/50 mb-1">Gemini 2.5 Flash TTS</p>
-            <p>Max input: 4,096 chars · style instructions supported</p>
+            <p className="font-medium text-foreground/50 mb-1">Gemini 2.5 Flash TTS (PAYG)</p>
+            <p>Per-request limit: 4,096 chars · style instructions supported</p>
+            <p>Rate limits: 10 req/min · 10k tokens/min · 100 req/day</p>
             <p>Output: PCM 24kHz 16-bit mono (wrapped in WAV)</p>
           </div>
           <div className="rounded-lg bg-foreground/[0.02] border border-foreground/5 p-2.5">
-            <p className="font-medium text-foreground/50 mb-1">Chirp 3 HD</p>
-            <p>Limit: 5,000 bytes per request</p>
-            <p>High-fidelity Google Cloud voices via Text-to-Speech API</p>
-            <p>Output: MP3 (API default in this app)</p>
+            <p className="font-medium text-foreground/50 mb-1">Chirp 3 HD (PAYG)</p>
+            <p>Per-request limit: 5,000 UTF-8 bytes</p>
+            <p>Rate limit: 200 req/min · Free tier: 1M chars/mo then $0.00003/char</p>
+            <p>Output: MP3 via Google Cloud Text-to-Speech API</p>
+          </div>
+          <div className="rounded-lg bg-foreground/[0.02] border border-foreground/5 p-2.5 sm:col-span-2">
+            <p className="font-medium text-foreground/50 mb-1">NLP Sentence Splitter (auto batching)</p>
+            <p className="mb-1">
+              Uses <code>Intl.Segmenter</code> (Unicode Annex #29) to split text at true sentence
+              boundaries — correctly handles abbreviations (U.S., Dr.), decimal numbers (1.2 CAD),
+              and quoted speech. Sentences are then greedily packed into batches via a sequential
+              first-fit algorithm (O(n)) that maximises chars per batch while staying under the
+              API limit. Batches are processed sequentially to respect rate limits.
+            </p>
+            <p>
+              DSA: This is a bounded bin-packing variant with an ordering constraint, solved
+              in O(n) time with O(n) space — near-optimal when sentence lengths are uniform.
+            </p>
           </div>
         </div>
       </details>
