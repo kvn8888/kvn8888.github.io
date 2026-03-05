@@ -351,8 +351,11 @@ html {
 
 /* Highlight card styles in the cover letter editor */
 /* Cards are draggable blocks — cursor indicates grab affordance */
+/* user-select: none prevents text selection from intercepting drag */
 .hl-card {
   cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
 }
 .hl-card:hover {
   filter: brightness(1.03);

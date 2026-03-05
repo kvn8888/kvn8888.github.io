@@ -200,8 +200,13 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
 
   // ── Native drag-and-drop event listeners ──
   // We use native DOM event listeners instead of React's onDragOver/onDrop
-  // because contentEditable elements intercept React's synthetic drag events,
-  // preventing custom drop handling from working reliably.
+  // because contentEditable elements intercept React's synthetic drag events.
+  //
+  // Drop positioning uses a BLOCK-BASED approach: we compare the mouse Y
+  // coordinate against each existing highlight card's bounding rect to find
+  // the nearest insertion point. This avoids caretRangeFromPoint, which
+  // doesn't work reliably with contentEditable='false' spans inside
+  // contentEditable='true' containers.
   useEffect(() => {
     const el = editorRef.current
     if (!el) return
@@ -210,7 +215,8 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
     const handleDragOver = (e: DragEvent) => {
       e.preventDefault()
       e.stopPropagation()
-      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+      // Use 'move' when reordering editor blocks, 'copy' for library imports
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
       setIsDragOver(true)
     }
 
@@ -219,84 +225,97 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
       setIsDragOver(false)
     }
 
-    // Handle the actual drop — read block data and insert as highlighted span
-    // Two modes:
+    // Handle the actual drop — two modes:
     //   1. Library → editor (source !== 'editor'): create a NEW span (copy)
     //   2. Editor → editor (source === 'editor'): MOVE the existing span
+    //
+    // Position logic: find the closest block by Y coordinate and insert
+    // before or after it (top half = before, bottom half = after).
     const handleDrop = (e: DragEvent) => {
       e.preventDefault()
       e.stopPropagation()
       setIsDragOver(false)
 
-      // Try to read library block data from the drag payload
       const jsonData = e.dataTransfer?.getData('application/json')
-      if (jsonData) {
-        try {
-          const data = JSON.parse(jsonData)
-          const isReorder = data.source === 'editor'
+      if (!jsonData || !el) return
 
-          // For reorder: find and detach the original span first
-          let existingSpan: HTMLSpanElement | null = null
-          if (isReorder && el) {
-            // Find the span by matching text content and category
-            const allCards = el.querySelectorAll('.hl-card')
-            for (const card of allCards) {
-              if (
-                card.textContent === data.text &&
-                (card as HTMLSpanElement).dataset.category === data.category
-              ) {
-                existingSpan = card as HTMLSpanElement
-                break
-              }
-            }
-            // Remove the original from its current position
-            if (existingSpan?.parentNode) {
-              existingSpan.parentNode.removeChild(existingSpan)
-            }
-          }
+      try {
+        const data = JSON.parse(jsonData)
+        const isReorder = data.source === 'editor'
 
-          // Create the span to insert (reuse existing for reorder, new for library)
-          const span = existingSpan || createHighlightSpan(data.text, data.category)
+        // Collect all existing highlight blocks and their positions
+        const allCards = Array.from(el.querySelectorAll('.hl-card')) as HTMLSpanElement[]
 
-          // Try to insert at the exact drop position using caret detection
-          let range: Range | null = null
-          if (document.caretRangeFromPoint) {
-            range = document.caretRangeFromPoint(e.clientX, e.clientY)
-          }
+        // For reorder: find the original span (will be moved, not copied)
+        let existingSpan: HTMLSpanElement | null = null
+        if (isReorder) {
+          existingSpan = allCards.find(card =>
+            card.textContent === data.text &&
+            card.dataset.category === data.category
+          ) || null
+        }
 
-          if (range && el.contains(range.startContainer)) {
-            // Walk up the DOM to check we're not inside an existing card
-            let node: Node | null = range.startContainer
-            let insideCard = false
-            while (node && node !== el) {
-              if ((node as HTMLElement).classList?.contains('hl-card')) {
-                insideCard = true
-                break
-              }
-              node = node.parentNode
-            }
-            if (!insideCard) {
-              range.insertNode(span)
-              // Add a non-breaking space after for cursor flow
-              const space = document.createTextNode('\u00A0')
-              span.after(space)
-            } else {
-              // Can't insert inside a card — append at end instead
-              el.appendChild(document.createElement('br'))
-              el.appendChild(span)
-            }
+        // Determine drop position: which block are we closest to?
+        // Compare the drop Y coordinate against each card's vertical center.
+        let targetCard: HTMLSpanElement | null = null
+        let insertBefore = true
+
+        for (const card of allCards) {
+          // Skip the card being dragged (don't insert relative to itself)
+          if (card === existingSpan) continue
+          const rect = card.getBoundingClientRect()
+          const midY = rect.top + rect.height / 2
+          if (e.clientY <= midY) {
+            // Mouse is above this card's midpoint → insert before it
+            targetCard = card
+            insertBefore = true
+            break
           } else {
-            // Fallback: append at the end of the editor
-            if (el.innerHTML.trim()) {
-              el.appendChild(document.createElement('br'))
-              el.appendChild(document.createElement('br'))
-            }
-            el.appendChild(span)
+            // Mouse is below this card's midpoint → tentatively insert after
+            targetCard = card
+            insertBefore = false
+            // Keep iterating — a later card might be a better match
           }
-          recount()
-          saveContent()
-        } catch { /* invalid JSON — not a library block, ignore */ }
-      }
+        }
+
+        // Remove the original span from its current position (for reorder)
+        if (existingSpan?.parentNode) {
+          // Also remove adjacent <br> elements to clean up spacing
+          const prev = existingSpan.previousSibling
+          const prev2 = prev?.previousSibling
+          if (prev?.nodeName === 'BR') prev.parentNode?.removeChild(prev)
+          if (prev2?.nodeName === 'BR') prev2.parentNode?.removeChild(prev2)
+          existingSpan.parentNode.removeChild(existingSpan)
+        }
+
+        // Create or reuse the span
+        const span = existingSpan || createHighlightSpan(data.text, data.category)
+
+        // Insert at the determined position
+        if (targetCard && targetCard.parentNode) {
+          // Add a line break before the span for visual spacing
+          const br = document.createElement('br')
+          if (insertBefore) {
+            targetCard.parentNode.insertBefore(br, targetCard)
+            targetCard.parentNode.insertBefore(span, targetCard)
+          } else {
+            // Insert after the target card
+            const nextSib = targetCard.nextSibling
+            targetCard.parentNode.insertBefore(br, nextSib)
+            targetCard.parentNode.insertBefore(span, nextSib)
+          }
+        } else {
+          // No target found — append at the end of the editor
+          if (el.innerHTML.trim()) {
+            el.appendChild(document.createElement('br'))
+            el.appendChild(document.createElement('br'))
+          }
+          el.appendChild(span)
+        }
+
+        recount()
+        saveContent()
+      } catch { /* invalid JSON — not a library block, ignore */ }
     }
 
     el.addEventListener('dragover', handleDragOver)
