@@ -1085,7 +1085,21 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
       // Azure usually returns NBest[0].PronunciationAssessment, but some
       // payloads place assessment/words at top level.
       const nbestTop = data.NBest?.[0]
-      const assessment = nbestTop?.PronunciationAssessment ?? data.PronunciationAssessment
+      const assessment =
+        nbestTop?.PronunciationAssessment ??
+        data.PronunciationAssessment ??
+        (typeof nbestTop?.AccuracyScore === 'number' &&
+        typeof nbestTop?.FluencyScore === 'number' &&
+        typeof nbestTop?.CompletenessScore === 'number' &&
+        typeof nbestTop?.PronScore === 'number'
+          ? {
+              AccuracyScore: nbestTop.AccuracyScore,
+              FluencyScore: nbestTop.FluencyScore,
+              CompletenessScore: nbestTop.CompletenessScore,
+              ProsodyScore: nbestTop.ProsodyScore,
+              PronScore: nbestTop.PronScore,
+            }
+          : undefined)
       const words = nbestTop?.Words || data.Words || []
 
       if (assessment) {
@@ -1098,8 +1112,8 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
           displayText: nbestTop?.Display || data.DisplayText || resolvedReferenceText,
           words: words.map((w: AzureWord) => ({
             word: w.Word,
-            accuracyScore: w.PronunciationAssessment?.AccuracyScore ?? 0,
-            errorType: w.PronunciationAssessment?.ErrorType || 'None',
+            accuracyScore: w.PronunciationAssessment?.AccuracyScore ?? w.AccuracyScore ?? 0,
+            errorType: w.PronunciationAssessment?.ErrorType ?? w.ErrorType ?? 'None',
           })),
         }
         setResult(nextResult)
@@ -1116,7 +1130,7 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
         onHistorySaved()
       } else {
         const recognitionStatus = data.RecognitionStatus
-        const recognizedText = data.DisplayText?.trim()
+        const recognizedText = (nbestTop?.Display || data.DisplayText)?.trim()
         if (recognitionStatus || recognizedText) {
           const diagnostic = [
             'No assessment data returned.',
@@ -1480,6 +1494,8 @@ interface PronResult {
 
 interface AzureWord {
   Word: string
+  AccuracyScore?: number
+  ErrorType?: string
   PronunciationAssessment?: {
     AccuracyScore: number
     ErrorType: string
@@ -1499,6 +1515,11 @@ interface AzurePronunciationResponse {
   Words?: AzureWord[]
   NBest?: Array<{
     Display?: string
+    AccuracyScore?: number
+    FluencyScore?: number
+    CompletenessScore?: number
+    ProsodyScore?: number
+    PronScore?: number
     PronunciationAssessment?: {
       AccuracyScore: number
       FluencyScore: number
