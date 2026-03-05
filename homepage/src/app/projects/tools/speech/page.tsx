@@ -15,10 +15,10 @@ interface HistoryItem {
   createdAt: number
 }
 
-const tabs: { id: Tab; label: string; icon: string }[] = [
-  { id: 'tts', label: 'Text to Speech', icon: 'record_voice_over' },
-  { id: 'stt', label: 'Transcription', icon: 'mic' },
-  { id: 'pronunciation', label: 'Pronunciation', icon: 'spellcheck' },
+const tabs: { id: Tab; label: string; shortLabel: string; icon: string }[] = [
+  { id: 'tts', label: 'Text to Speech', shortLabel: 'TTS', icon: 'record_voice_over' },
+  { id: 'stt', label: 'Transcription', shortLabel: 'STT', icon: 'mic' },
+  { id: 'pronunciation', label: 'Pronunciation', shortLabel: 'Pron', icon: 'spellcheck' },
 ]
 const modalityLabels: Record<Tab, string> = {
   tts: 'Text to Speech',
@@ -88,19 +88,20 @@ export default function SpeechLabPage() {
       {/* Tab bar — DESIGN DIVERGENCE: using pill-style tabs instead of underline tabs.
           Reason: pills match the glassmorphism card aesthetic better than underline tabs
           and provide a larger click target on mobile. */}
-      <div className={`flex justify-center gap-2 ${mounted ? 'blur-reveal-2' : 'opacity-0'}`}>
+      <div className={`flex flex-wrap justify-center gap-2 ${mounted ? 'blur-reveal-2' : 'opacity-0'}`}>
         {tabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all cursor-pointer ${
+            className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-full text-xs sm:text-sm font-medium transition-all cursor-pointer ${
               activeTab === tab.id
                 ? 'bg-foreground text-background'
                 : 'bg-foreground/5 text-foreground/50 hover:bg-foreground/10 hover:text-foreground/70'
             }`}
           >
             <span className="material-symbols-outlined text-lg">{tab.icon}</span>
-            {tab.label}
+            <span className="sm:hidden">{tab.shortLabel}</span>
+            <span className="hidden sm:inline">{tab.label}</span>
           </button>
         ))}
       </div>
@@ -221,6 +222,17 @@ const geminiVoices = [
   { name: 'Sulafat', style: 'Warm' },
 ]
 
+const chirp3Voices = [
+  { name: 'en-US-Chirp3-HD-Aoede', style: 'Natural (US)' },
+  { name: 'en-US-Chirp3-HD-Charon', style: 'Warm (US)' },
+  { name: 'en-US-Chirp3-HD-Fenrir', style: 'Energetic (US)' },
+  { name: 'en-US-Chirp3-HD-Kore', style: 'Firm (US)' },
+  { name: 'en-US-Chirp3-HD-Leda', style: 'Youthful (US)' },
+  { name: 'en-US-Chirp3-HD-Orus', style: 'Clear (US)' },
+  { name: 'en-US-Chirp3-HD-Puck', style: 'Upbeat (US)' },
+  { name: 'en-US-Chirp3-HD-Zephyr', style: 'Bright (US)' },
+]
+
 function saveSpeechHistory(payload: { modality: Tab; title: string; content?: string; metadata?: Record<string, unknown> }) {
   // History persistence is best-effort and should not block core speech actions.
   void fetch('/api/speech/history', {
@@ -297,6 +309,7 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
+  const isChirp3Voice = voice.startsWith('chirp3:')
 
   const handleGenerate = async () => {
     if (!text.trim()) return
@@ -311,7 +324,8 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
         body: JSON.stringify({
           text: text.trim(),
           voice,
-          ...(instructions.trim() ? { instructions: instructions.trim() } : {}),
+          provider: isChirp3Voice ? 'chirp3' : 'gemini',
+          ...(!isChirp3Voice && instructions.trim() ? { instructions: instructions.trim() } : {}),
         }),
       })
 
@@ -343,7 +357,7 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
         modality: 'tts',
         title: summary || `TTS · ${voice}`,
         content: text.trim().slice(0, 500),
-        metadata: { voice, mimeType: mimeType || 'audio/wav', ...(storageUrl ? { storageUrl } : {}) },
+        metadata: { voice, provider: isChirp3Voice ? 'chirp3' : 'gemini', mimeType: mimeType || 'audio/wav', ...(storageUrl ? { storageUrl } : {}) },
       })
       onHistorySaved()
     } catch (err) {
@@ -358,8 +372,8 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
       <div className="flex items-center gap-3 mb-1">
         <span className="material-symbols-outlined text-foreground/40">record_voice_over</span>
         <div>
-          <h3 className="font-medium text-foreground">Gemini 2.5 Flash TTS</h3>
-          <p className="text-xs text-foreground/40">Powered by Google AI — 30 expressive voices with style control</p>
+          <h3 className="font-medium text-foreground">Google TTS Lab</h3>
+          <p className="text-xs text-foreground/40">Gemini 2.5 Flash voices + Chirp 3 HD voices</p>
         </div>
       </div>
 
@@ -391,11 +405,20 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
           onChange={(e) => setVoice(e.target.value)}
           className="w-full rounded-xl bg-foreground/[0.03] border border-foreground/10 px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20 transition-all appearance-none cursor-pointer"
         >
-          {geminiVoices.map((v) => (
-            <option key={v.name} value={v.name}>
-              {v.name} — {v.style}
-            </option>
-          ))}
+          <optgroup label="Gemini 2.5 Flash Voices">
+            {geminiVoices.map((v) => (
+              <option key={v.name} value={v.name}>
+                {v.name} — {v.style}
+              </option>
+            ))}
+          </optgroup>
+          <optgroup label="Chirp 3 HD Voices">
+            {chirp3Voices.map((v) => (
+              <option key={v.name} value={`chirp3:${v.name}`}>
+                {v.name.replace('en-US-Chirp3-HD-', '')} — {v.style}
+              </option>
+            ))}
+          </optgroup>
         </select>
       </div>
 
@@ -407,11 +430,17 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
           Advanced: Style Instructions
         </summary>
         <div className="mt-2">
+          {isChirp3Voice && (
+            <p className="text-xs text-foreground/40 mb-2">
+              Style instructions are currently applied to Gemini voices. Chirp 3 uses standard TTS prosody settings.
+            </p>
+          )}
           <textarea
             value={instructions}
             onChange={(e) => setInstructions(e.target.value)}
             placeholder="e.g. Speak in a warm, conversational tone with a slight British accent..."
             rows={2}
+            disabled={isChirp3Voice}
             className="w-full rounded-xl bg-foreground/[0.03] border border-foreground/10 px-4 py-3 text-sm text-foreground placeholder:text-foreground/30 focus:outline-none focus:ring-2 focus:ring-foreground/20 resize-none transition-all"
           />
         </div>
@@ -458,11 +487,17 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
         <summary className="text-xs text-foreground/30 cursor-pointer hover:text-foreground/50 transition-colors select-none">
           API Limits &amp; Info
         </summary>
-        <div className="mt-2 rounded-lg bg-foreground/[0.02] border border-foreground/5 p-2.5 text-xs text-foreground/40">
-          <p className="font-medium text-foreground/50 mb-1">Gemini 2.5 Flash TTS</p>
-          <p>Max input: 4,096 chars · 30 voices available</p>
-          <p>Rate limit: 10 RPM free tier · 1,000 RPM paid</p>
-          <p>Output: PCM 24kHz 16-bit mono (wrapped in WAV)</p>
+        <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-foreground/40">
+          <div className="rounded-lg bg-foreground/[0.02] border border-foreground/5 p-2.5">
+            <p className="font-medium text-foreground/50 mb-1">Gemini 2.5 Flash TTS</p>
+            <p>Max input: 4,096 chars · style instructions supported</p>
+            <p>Output: PCM 24kHz 16-bit mono (wrapped in WAV)</p>
+          </div>
+          <div className="rounded-lg bg-foreground/[0.02] border border-foreground/5 p-2.5">
+            <p className="font-medium text-foreground/50 mb-1">Chirp 3 HD</p>
+            <p>High-fidelity Google Cloud voices via Text-to-Speech API</p>
+            <p>Output: MP3 (API default in this app)</p>
+          </div>
         </div>
       </details>
     </div>
@@ -536,6 +571,29 @@ const ACCEPTED_VIDEO_EXTENSIONS = ['mp4', 'm4v', 'mov', 'avi', 'mkv', 'webm', 'o
 const MISTRAL_COMPATIBLE_AUDIO_EXTENSIONS = ['wav', 'webm', 'mp3', 'mpeg', 'mpga', 'ogg', 'flac']
 const MISTRAL_COMPATIBLE_AUDIO_TYPES = ['audio/wav', 'audio/webm', 'audio/mp3', 'audio/mpeg', 'audio/ogg', 'audio/flac']
 const MAX_FILE_SIZE_MB = 25
+const STT_DURATION_LIMIT_SECONDS: Record<SttModel, number> = {
+  'voxtral-mini-transcribe-2507': 3 * 60 * 60,
+  'voxtral-mini-latest': 3 * 60 * 60,
+  'gpt-4o-transcribe': 2 * 60 * 60,
+  'gpt-4o-transcribe-diarize': 2 * 60 * 60,
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  const unit = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
+  const value = bytes / (1024 ** unit)
+  return `${value.toFixed(value >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`
+}
+
+function formatDuration(seconds: number): string {
+  const safe = Math.max(0, Math.floor(seconds))
+  const h = Math.floor(safe / 3600)
+  const m = Math.floor((safe % 3600) / 60)
+  const s = safe % 60
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  return `${m}:${String(s).padStart(2, '0')}`
+}
 
 function getFileExtension(fileName: string): string {
   const dotIndex = fileName.lastIndexOf('.')
@@ -656,6 +714,17 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
   const [dragOver, setDragOver] = useState(false)
   const [convertingVideo, setConvertingVideo] = useState(false)
   const [fileName, setFileName] = useState<string | null>(null)
+  const [recordedBytes, setRecordedBytes] = useState(0)
+  const [recordingStartMs, setRecordingStartMs] = useState<number | null>(null)
+  const [recordingElapsedSec, setRecordingElapsedSec] = useState(0)
+
+  useEffect(() => {
+    if (!recording || !recordingStartMs) return
+    const interval = window.setInterval(() => {
+      setRecordingElapsedSec((Date.now() - recordingStartMs) / 1000)
+    }, 250)
+    return () => window.clearInterval(interval)
+  }, [recording, recordingStartMs])
 
   const handleTranscribe = async (audioBlob: Blob, uploadFileName = 'recording.webm') => {
     setLoading(true)
@@ -781,7 +850,10 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
       const chunks: Blob[] = []
 
       recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunks.push(e.data)
+        if (e.data.size > 0) {
+          chunks.push(e.data)
+          setRecordedBytes((prev) => prev + e.data.size)
+        }
       }
 
       recorder.onstop = () => {
@@ -792,7 +864,10 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
         void handleTranscribe(blob, `recording.${extension}`)
       }
 
-      recorder.start()
+      setRecordedBytes(0)
+      setRecordingElapsedSec(0)
+      setRecordingStartMs(Date.now())
+      recorder.start(1000)
       setMediaRecorder(recorder)
       setRecording(true)
     } catch {
@@ -805,6 +880,7 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
       mediaRecorder.stop()
       setRecording(false)
       setMediaRecorder(null)
+      setRecordingStartMs(null)
     }
   }
 
@@ -826,7 +902,7 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
       {/* Model selector */}
       <div className="space-y-1.5">
         <label className="text-sm font-medium text-foreground/70">Model</label>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <button
             onClick={() => setModel('voxtral-mini-transcribe-2507')}
             className={`flex-1 px-4 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer ${
@@ -940,12 +1016,50 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
 
       {/* Recording indicator */}
       {recording && (
-        <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-50 border border-red-200">
-          <span className="relative flex h-2.5 w-2.5">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
-            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
-          </span>
-          <span className="text-sm text-red-700">Recording…</span>
+        <div className="px-4 py-3 rounded-xl bg-red-50 border border-red-200 space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
+            </span>
+            <span className="text-sm text-red-700">Recording… {formatDuration(recordingElapsedSec)}</span>
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="flex justify-between text-xs text-red-700/90">
+              <span>File size</span>
+              <span>
+                {formatBytes(recordedBytes)} / {MAX_FILE_SIZE_MB} MB
+              </span>
+            </div>
+            <div className="h-1.5 rounded-full bg-red-100 overflow-hidden">
+              <div
+                className={`h-full transition-all ${recordedBytes / (MAX_FILE_SIZE_MB * 1024 * 1024) >= 0.8 ? 'bg-red-500' : 'bg-amber-500'}`}
+                style={{ width: `${Math.min((recordedBytes / (MAX_FILE_SIZE_MB * 1024 * 1024)) * 100, 100)}%` }}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="flex justify-between text-xs text-red-700/90">
+              <span>Duration guidance</span>
+              <span>
+                {formatDuration(recordingElapsedSec)} / {formatDuration(STT_DURATION_LIMIT_SECONDS[model])}
+              </span>
+            </div>
+            <div className="h-1.5 rounded-full bg-red-100 overflow-hidden">
+              <div
+                className={`h-full transition-all ${recordingElapsedSec / STT_DURATION_LIMIT_SECONDS[model] >= 0.8 ? 'bg-red-500' : 'bg-emerald-500'}`}
+                style={{ width: `${Math.min((recordingElapsedSec / STT_DURATION_LIMIT_SECONDS[model]) * 100, 100)}%` }}
+              />
+            </div>
+          </div>
+
+          {(recordedBytes / (MAX_FILE_SIZE_MB * 1024 * 1024) >= 0.8 || recordingElapsedSec / STT_DURATION_LIMIT_SECONDS[model] >= 0.8) && (
+            <p className="text-xs text-red-700/90">
+              Approaching STT limits. Stop soon or switch to shorter chunks for better reliability.
+            </p>
+          )}
         </div>
       )}
 
@@ -1045,7 +1159,7 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
 /* ─── Pronunciation Panel ─── */
 function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
   const [referenceText, setReferenceText] = useState('')
-  const [referenceSource, setReferenceSource] = useState<'manual' | 'transcription'>('manual')
+  const [referenceSource, setReferenceSource] = useState<'manual' | 'transcription'>('transcription')
   const [transcriptionModel, setTranscriptionModel] = useState<SttModel>('gpt-4o-transcribe')
   const [language, setLanguage] = useState('en-US')
   const [loading, setLoading] = useState(false)
@@ -1109,7 +1223,11 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
           completenessScore: assessment.CompletenessScore,
           prosodyScore: assessment.ProsodyScore,
           pronScore: assessment.PronScore,
+          recognitionStatus: data.RecognitionStatus || 'Unknown',
           displayText: nbestTop?.Display || data.DisplayText || resolvedReferenceText,
+          lexical: nbestTop?.Lexical || null,
+          confidence: nbestTop?.Confidence,
+          snr: data.SNR,
           words: words.map((w: AzureWord) => ({
             word: w.Word,
             accuracyScore: w.PronunciationAssessment?.AccuracyScore ?? w.AccuracyScore ?? 0,
@@ -1341,6 +1459,17 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
       {/* Results */}
       {result && (
         <div className="space-y-4">
+          <div className="rounded-xl bg-foreground/[0.03] border border-foreground/10 p-3 space-y-2">
+            <p className="text-xs text-foreground/40 uppercase tracking-wider font-medium">Recognition Snapshot</p>
+            <p className="text-sm text-foreground/70">Recognized: <span className="text-foreground font-medium">{result.displayText || '—'}</span></p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs text-foreground/50">
+              <div className="rounded-lg bg-foreground/[0.02] border border-foreground/8 px-2.5 py-1.5">Status: {result.recognitionStatus}</div>
+              <div className="rounded-lg bg-foreground/[0.02] border border-foreground/8 px-2.5 py-1.5">Confidence: {result.confidence != null ? result.confidence.toFixed(3) : 'n/a'}</div>
+              <div className="rounded-lg bg-foreground/[0.02] border border-foreground/8 px-2.5 py-1.5">SNR: {result.snr != null ? result.snr.toFixed(1) : 'n/a'}</div>
+              <div className="rounded-lg bg-foreground/[0.02] border border-foreground/8 px-2.5 py-1.5 truncate" title={result.lexical || undefined}>Lexical: {result.lexical || 'n/a'}</div>
+            </div>
+          </div>
+
           {/* Overall score — semi-circle gauge */}
           <div className="flex justify-center py-2">
             <SemiCircleGauge label="Overall" score={result.pronScore} size={180} />
@@ -1348,11 +1477,27 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
 
           {/* Sub-scores */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <ScoreCard label="Accuracy" score={result.accuracyScore} />
-            <ScoreCard label="Fluency" score={result.fluencyScore} />
-            <ScoreCard label="Completeness" score={result.completenessScore} />
+            <ScoreCard
+              label="Accuracy"
+              score={result.accuracyScore}
+              tooltip="How closely your phonemes matched expected pronunciation."
+            />
+            <ScoreCard
+              label="Fluency"
+              score={result.fluencyScore}
+              tooltip="How naturally your pacing and flow matched expected speech rhythm."
+            />
+            <ScoreCard
+              label="Completeness"
+              score={result.completenessScore}
+              tooltip="How much of the reference text was spoken and recognized correctly."
+            />
             {result.prosodyScore != null && (
-              <ScoreCard label="Prosody" score={result.prosodyScore} />
+              <ScoreCard
+                label="Prosody"
+                score={result.prosodyScore}
+                tooltip="How well your intonation, stress, and speaking naturalness were captured."
+              />
             )}
           </div>
 
@@ -1467,7 +1612,7 @@ function SemiCircleGauge({ label, score, size = 160 }: { label: string; score: n
   )
 }
 
-function ScoreCard({ label, score }: { label: string; score: number }) {
+function ScoreCard({ label, score, tooltip }: { label: string; score: number; tooltip?: string }) {
   const color =
     score >= SCORE_EXCELLENT ? 'text-emerald-600' : score >= SCORE_GOOD ? 'text-amber-600' : 'text-red-600'
   const bgColor =
@@ -1475,7 +1620,18 @@ function ScoreCard({ label, score }: { label: string; score: number }) {
 
   return (
     <div className={`rounded-xl px-4 py-3 border ${bgColor} text-center`}>
-      <p className="text-xs text-foreground/40 mb-1">{label}</p>
+      <div className="inline-flex items-center gap-1 mb-1">
+        <p className="text-xs text-foreground/40">{label}</p>
+        {tooltip && (
+          <span
+            title={tooltip}
+            className="material-symbols-outlined text-[14px] text-foreground/35 cursor-help"
+            aria-label={`${label} info`}
+          >
+            help
+          </span>
+        )}
+      </div>
       <p className={`text-2xl font-medium tabular-nums ${color}`}>{Math.round(score)}</p>
     </div>
   )
@@ -1488,7 +1644,11 @@ interface PronResult {
   fluencyScore: number
   completenessScore: number
   prosodyScore?: number
+  recognitionStatus: string
   displayText: string
+  lexical?: string | null
+  confidence?: number
+  snr?: number
   words: { word: string; accuracyScore: number; errorType: string }[]
 }
 
@@ -1505,6 +1665,7 @@ interface AzureWord {
 interface AzurePronunciationResponse {
   RecognitionStatus?: string
   DisplayText?: string
+  SNR?: number
   PronunciationAssessment?: {
     AccuracyScore: number
     FluencyScore: number
@@ -1515,6 +1676,8 @@ interface AzurePronunciationResponse {
   Words?: AzureWord[]
   NBest?: Array<{
     Display?: string
+    Confidence?: number
+    Lexical?: string
     AccuracyScore?: number
     FluencyScore?: number
     CompletenessScore?: number
