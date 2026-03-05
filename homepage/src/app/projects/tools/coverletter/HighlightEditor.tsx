@@ -411,11 +411,15 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
     }
 
     // Handle the actual drop
+    // CRITICAL: calculate insertion point BEFORE removing the original block.
+    // If we remove first, content shifts up and caretRangeFromPoint returns
+    // a wrong position (the user drops at coords relative to the pre-removal layout).
+    // The Range object tracks DOM mutations, so it stays valid after removal.
     const handleDrop = (e: DragEvent) => {
       e.preventDefault()
       e.stopPropagation()
       setIsDragOver(false)
-      setDropIndicator(null)  // hide indicator
+      setDropIndicator(null)
 
       const jsonData = e.dataTransfer?.getData('application/json')
       if (!jsonData || !el) return
@@ -435,35 +439,22 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
           ) || null
         }
 
-        // Remove original before calculating position
-        if (existingSpan?.parentNode) {
-          const prev = existingSpan.previousSibling
-          const prev2 = prev?.previousSibling
-          if (prev?.nodeName === 'BR') prev.parentNode?.removeChild(prev)
-          if (prev2?.nodeName === 'BR') prev2.parentNode?.removeChild(prev2)
-          existingSpan.parentNode.removeChild(existingSpan)
-        }
+        // ── Step 1: Calculate insertion point WHILE DOM IS STABLE ──
+        let insertionRange: Range | null = null
+        let targetCard: HTMLSpanElement | null = null
+        let insertBefore = true
 
-        const span = existingSpan || createHighlightSpan(data.text, data.category)
-        let inserted = false
-
-        // Strategy 1: caretRangeFromPoint (text areas)
+        // Strategy 1: caretRangeFromPoint for text positions
         if (document.caretRangeFromPoint) {
           const range = document.caretRangeFromPoint(e.clientX, e.clientY)
           if (range && el.contains(range.startContainer) && !isInsideCard(range.startContainer)) {
-            range.insertNode(span)
-            const space = document.createTextNode('\u00A0')
-            span.after(space)
-            inserted = true
+            insertionRange = range
           }
         }
 
-        // Strategy 2: block-based Y positioning
-        if (!inserted) {
+        // Strategy 2: block-based positioning (fallback)
+        if (!insertionRange) {
           const allCards = Array.from(el.querySelectorAll('.hl-card')) as HTMLSpanElement[]
-          let targetCard: HTMLSpanElement | null = null
-          let insertBefore = true
-
           for (const card of allCards) {
             if (card === existingSpan) continue
             const rect = card.getBoundingClientRect()
@@ -477,24 +468,41 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
               insertBefore = false
             }
           }
+        }
 
-          if (targetCard && targetCard.parentNode) {
-            const br = document.createElement('br')
-            if (insertBefore) {
-              targetCard.parentNode.insertBefore(br, targetCard)
-              targetCard.parentNode.insertBefore(span, targetCard)
-            } else {
-              const nextSib = targetCard.nextSibling
-              targetCard.parentNode.insertBefore(br, nextSib)
-              targetCard.parentNode.insertBefore(span, nextSib)
-            }
+        // ── Step 2: Remove original block (for reorder) ──
+        if (existingSpan?.parentNode) {
+          const prev = existingSpan.previousSibling
+          const prev2 = prev?.previousSibling
+          if (prev?.nodeName === 'BR') prev.parentNode?.removeChild(prev)
+          if (prev2?.nodeName === 'BR') prev2.parentNode?.removeChild(prev2)
+          existingSpan.parentNode.removeChild(existingSpan)
+        }
+
+        // ── Step 3: Insert at the previously calculated position ──
+        const span = existingSpan || createHighlightSpan(data.text, data.category)
+
+        if (insertionRange) {
+          // Range is still valid — DOM mutations have been tracked
+          insertionRange.insertNode(span)
+          const space = document.createTextNode('\u00A0')
+          span.after(space)
+        } else if (targetCard && targetCard.parentNode) {
+          const br = document.createElement('br')
+          if (insertBefore) {
+            targetCard.parentNode.insertBefore(br, targetCard)
+            targetCard.parentNode.insertBefore(span, targetCard)
           } else {
-            if (el.innerHTML.trim()) {
-              el.appendChild(document.createElement('br'))
-              el.appendChild(document.createElement('br'))
-            }
-            el.appendChild(span)
+            const nextSib = targetCard.nextSibling
+            targetCard.parentNode.insertBefore(br, nextSib)
+            targetCard.parentNode.insertBefore(span, nextSib)
           }
+        } else {
+          if (el.innerHTML.trim()) {
+            el.appendChild(document.createElement('br'))
+            el.appendChild(document.createElement('br'))
+          }
+          el.appendChild(span)
         }
 
         recount()
