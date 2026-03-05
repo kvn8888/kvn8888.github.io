@@ -372,16 +372,29 @@ function buildTtsBatches(text: string, limit: number, isChirp3: boolean): string
 
       if (size > limit) {
         // Oversized single sentence — truncate to limit (rare; long run-on sentences)
-        // Hard-truncate by grapheme clusters to avoid splitting a multi-byte char
+        // For byte-based truncation we must find a valid UTF-8 character boundary
+        // to avoid producing a replacement character (U+FFFD) in the output.
         const encoder = new TextEncoder()
         const decoder = new TextDecoder()
         if (isChirp3) {
-          // Byte-based truncation for Chirp 3
+          // Byte-based truncation for Chirp 3: walk backwards from `limit` to find
+          // the last byte that starts a valid UTF-8 code point.
+          // UTF-8 continuation bytes have the form 10xxxxxx (0x80-0xBF).
           const encoded = encoder.encode(sentence)
-          batches.push(decoder.decode(encoded.slice(0, limit)))
+          let cutAt = Math.min(limit, encoded.length)
+          // Walk back over continuation bytes so we cut on a leading byte
+          while (cutAt > 0 && (encoded[cutAt] & 0xC0) === 0x80) cutAt--
+          batches.push(decoder.decode(encoded.slice(0, cutAt)))
         } else {
-          // Char-based truncation for Gemini
-          batches.push(sentence.slice(0, limit))
+          // Char-based truncation for Gemini (JS string length = UTF-16 code units)
+          // Avoid splitting a surrogate pair (emoji, etc.)
+          let cutAt = limit
+          if (cutAt < sentence.length) {
+            // If we land in the middle of a surrogate pair, step back
+            const code = sentence.charCodeAt(cutAt - 1)
+            if (code >= 0xD800 && code <= 0xDBFF) cutAt--
+          }
+          batches.push(sentence.slice(0, cutAt))
         }
         currentBatch = ''
         currentSize = 0
@@ -651,8 +664,9 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
           className="w-full rounded-xl bg-foreground/[0.03] border border-foreground/10 px-4 py-3 text-sm text-foreground placeholder:text-foreground/30 focus:outline-none focus:ring-2 focus:ring-foreground/20 resize-none transition-all"
         />
         {(() => {
+          const trimmed = text.trim()
           const size = isChirp3Voice ? new TextEncoder().encode(text).length : text.length
-          const batches = text.trim() ? buildTtsBatches(text.trim(), maxChars, isChirp3Voice) : []
+          const batches = trimmed ? buildTtsBatches(trimmed, maxChars, isChirp3Voice) : []
           const overLimit = size > maxChars
           return (
             <div className="flex items-baseline justify-between text-xs">

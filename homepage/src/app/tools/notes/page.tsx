@@ -71,12 +71,14 @@ function renderInline(s: string): string {
     .replace(/`([^`]+)`/g, '<code class="md-code-inline">$1</code>')
     // Bold + italic combined (***text***)
     .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
-    // Bold (**text** or __text__)
+    // Bold (**text** or __text__) — handle before single-star/underscore italic
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/__(.+?)__/g, '<strong>$1</strong>')
-    // Italic (*text* or _text_) — single char, not touching word boundaries
-    .replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>')
-    .replace(/(?<!_)_(?!_)(.+?)(?<!_)_(?!_)/g, '<em>$1</em>')
+    // Italic (*text* or _text_) — match single delimiter not adjacent to another of the same kind.
+    // Avoid negative lookbehind (unsupported on Safari < 16.4): instead match
+    // [^*] boundary on both sides, allowing start-of-string via alternation.
+    .replace(/(^|[^*])\*([^*\s][^*]*?[^*\s]|\S)\*(?!\*)/g, '$1<em>$2</em>')
+    .replace(/(^|[^_])_([^_\s][^_]*?[^_\s]|\S)_(?!_)/g, '$1<em>$2</em>')
     // Links — only allow http/https URLs to prevent javascript: XSS
     .replace(
       /\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g,
@@ -353,7 +355,7 @@ export default function NotesPage() {
                   {new Date(note.updatedAt).toLocaleDateString()}
                 </p>
                 {note.body && (
-                  <p className="text-xs text-foreground/30 mt-0.5 leading-relaxed overflow-hidden" style={{ display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2, overflow: 'hidden' }}>
+                  <p className="text-xs text-foreground/30 mt-0.5 leading-relaxed" style={{ display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2, overflow: 'hidden' }}>
                     {note.body.slice(0, 80)}
                   </p>
                 )}
