@@ -234,7 +234,7 @@ const chirp3Voices = [
 ]
 
 const GEMINI_TEXT_LIMIT = 4096
-const CHIRP3_TEXT_LIMIT = 5000
+const CHIRP3_TEXT_LIMIT_BYTES = 5000
 
 function saveSpeechHistory(payload: { modality: Tab; title: string; content?: string; metadata?: Record<string, unknown> }) {
   // History persistence is best-effort and should not block core speech actions.
@@ -313,7 +313,7 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
   const [error, setError] = useState<string | null>(null)
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
   const isChirp3Voice = voice.startsWith('chirp3:')
-  const maxChars = isChirp3Voice ? CHIRP3_TEXT_LIMIT : GEMINI_TEXT_LIMIT
+  const maxChars = isChirp3Voice ? CHIRP3_TEXT_LIMIT_BYTES : GEMINI_TEXT_LIMIT
 
   const handleGenerate = async () => {
     if (!text.trim()) return
@@ -399,7 +399,7 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
           className="w-full rounded-xl bg-foreground/[0.03] border border-foreground/10 px-4 py-3 text-sm text-foreground placeholder:text-foreground/30 focus:outline-none focus:ring-2 focus:ring-foreground/20 resize-none transition-all"
         />
         <p className="text-xs text-foreground/30 text-right">
-          {text.length} / {maxChars} · {isChirp3Voice ? 'Chirp 3 max input' : 'Gemini max input'} · ⌘/Ctrl+Enter to generate
+          {text.length} / {maxChars} · {isChirp3Voice ? 'Chirp 3 limit (5,000 bytes enforced in API)' : 'Gemini max input'} · ⌘/Ctrl+Enter to generate
         </p>
       </div>
 
@@ -501,7 +501,7 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
           </div>
           <div className="rounded-lg bg-foreground/[0.02] border border-foreground/5 p-2.5">
             <p className="font-medium text-foreground/50 mb-1">Chirp 3 HD</p>
-            <p>Max input: 5,000 bytes per request</p>
+            <p>Limit: 5,000 bytes per request</p>
             <p>High-fidelity Google Cloud voices via Text-to-Speech API</p>
             <p>Output: MP3 (API default in this app)</p>
           </div>

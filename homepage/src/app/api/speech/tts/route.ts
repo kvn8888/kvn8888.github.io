@@ -192,7 +192,8 @@ export async function POST(req: NextRequest) {
     }
 
     if (isChirp3 && Buffer.byteLength(normalizedText, 'utf8') > CHIRP3_TEXT_LIMIT_BYTES) {
-      return NextResponse.json({ error: `Chirp 3 input exceeds ${CHIRP3_TEXT_LIMIT_BYTES} bytes` }, { status: 400 })
+      const providedBytes = Buffer.byteLength(normalizedText, 'utf8')
+      return NextResponse.json({ error: `Chirp 3 input exceeds ${CHIRP3_TEXT_LIMIT_BYTES} bytes (${providedBytes} provided)` }, { status: 400 })
     }
 
     if (isChirp3) {
