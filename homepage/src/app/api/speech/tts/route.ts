@@ -1,6 +1,13 @@
 import { auth } from '@/auth'
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
+import { SignJWT, importPKCS8 } from 'jose'
 import { NextRequest, NextResponse } from 'next/server'
+
+interface ServiceAccountKey {
+  client_email: string
+  private_key: string
+  project_id: string
+}
 
 /* ── helpers ── */
 
@@ -85,6 +92,81 @@ async function uploadToS3(wavBuffer: Buffer, key: string): Promise<string | null
   }
 }
 
+async function getGcpAccessToken(sa: ServiceAccountKey): Promise<string> {
+  const now = Math.floor(Date.now() / 1000)
+  const key = await importPKCS8(sa.private_key, 'RS256')
+
+  const jwt = await new SignJWT({
+    iss: sa.client_email,
+    sub: sa.client_email,
+    scope: 'https://www.googleapis.com/auth/cloud-platform',
+    aud: 'https://oauth2.googleapis.com/token',
+    iat: now,
+    exp: now + 3600,
+  })
+    .setProtectedHeader({ alg: 'RS256', typ: 'JWT' })
+    .sign(key)
+
+  const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+      assertion: jwt,
+    }),
+  })
+
+  const tokenData = await tokenRes.json()
+  if (!tokenData.access_token) {
+    throw new Error('Failed to get GCP access token for Chirp 3 TTS')
+  }
+  return tokenData.access_token
+}
+
+async function synthesizeChirp3(text: string, voiceName: string): Promise<{ audio: string; mimeType: string }> {
+  const saKeyBase64 = process.env.GCP_SERVICE_ACCOUNT_KEY
+  if (!saKeyBase64) {
+    throw new Error('GCP_SERVICE_ACCOUNT_KEY not configured for Chirp 3 TTS')
+  }
+
+  const sa: ServiceAccountKey = JSON.parse(Buffer.from(saKeyBase64, 'base64').toString('utf-8'))
+  const token = await getGcpAccessToken(sa)
+
+  const ttsRes = await fetch('https://texttospeech.googleapis.com/v1/text:synthesize', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      input: { text },
+      voice: {
+        languageCode: 'en-US',
+        name: voiceName,
+      },
+      audioConfig: {
+        audioEncoding: 'MP3',
+      },
+    }),
+    cache: 'no-store',
+  })
+
+  if (!ttsRes.ok) {
+    const errText = await ttsRes.text()
+    throw new Error(`Chirp 3 TTS API error: ${ttsRes.status} ${errText}`)
+  }
+
+  const ttsData = await ttsRes.json()
+  if (!ttsData.audioContent) {
+    throw new Error('No audio returned from Chirp 3 TTS API')
+  }
+
+  return {
+    audio: String(ttsData.audioContent),
+    mimeType: 'audio/mpeg',
+  }
+}
+
 /* ── route ── */
 
 export async function POST(req: NextRequest) {
@@ -93,15 +175,31 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const apiKey = process.env.GEMINI_API_KEY
-  if (!apiKey) {
-    return NextResponse.json({ error: 'GEMINI_API_KEY not configured' }, { status: 500 })
-  }
-
   try {
-    const { text, voice = 'Gacrux', instructions } = await req.json()
+    const apiKey = process.env.GEMINI_API_KEY
+    const { text, voice = 'Gacrux', instructions, provider } = await req.json()
     if (!text || typeof text !== 'string') {
       return NextResponse.json({ error: 'Text is required' }, { status: 400 })
+    }
+
+    const isChirp3 = provider === 'chirp3' || String(voice).startsWith('chirp3:')
+
+    if (isChirp3) {
+      const chirpVoiceName = String(voice).replace(/^chirp3:/, '')
+      const chirp = await synthesizeChirp3(text, chirpVoiceName)
+
+      // Optional summarization if Gemini key exists; non-fatal if unavailable.
+      const summary = apiKey ? await summarizeText(apiKey, text) : null
+
+      return NextResponse.json({
+        audio: chirp.audio,
+        mimeType: chirp.mimeType,
+        ...(summary ? { summary } : {}),
+      })
+    }
+
+    if (!apiKey) {
+      return NextResponse.json({ error: 'GEMINI_API_KEY not configured' }, { status: 500 })
     }
 
     // Force audio-only behavior; Gemini TTS can return 400 if prompt is ambiguous
@@ -159,7 +257,11 @@ export async function POST(req: NextRequest) {
       ...(storageUrl ? { storageUrl } : {}),
     })
   } catch (error) {
-    console.error('TTS error:', error)
+    console.error('TTS error:', {
+      error,
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    })
     return NextResponse.json({ error: 'TTS generation failed' }, { status: 500 })
   }
 }
