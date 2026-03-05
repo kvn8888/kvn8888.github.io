@@ -63,6 +63,24 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
     card: HTMLSpanElement
   } | null>(null)
 
+  // Undo stack: stores previous innerHTML states for Cmd+Z support.
+  // Limited to 50 entries to prevent memory bloat.
+  const undoStackRef = useRef<string[]>([])
+  const MAX_UNDO = 50
+
+  // Saves the current editor state to the undo stack before a mutation.
+  // Call this BEFORE any DOM change so the user can revert.
+  const pushUndo = useCallback(() => {
+    if (!editorRef.current) return
+    const stack = undoStackRef.current
+    stack.push(editorRef.current.innerHTML)
+    if (stack.length > MAX_UNDO) stack.shift() // drop oldest if over limit
+  }, [])
+
+  // Last known caret position: saved on mouseup/keyup in the editor
+  // so that clicking a library block inserts at this position.
+  const lastRangeRef = useRef<Range | null>(null)
+
   // ── Count highlighted blocks in the editor ──
   const recount = useCallback(() => {
     if (!editorRef.current) return
@@ -197,10 +215,38 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
   // ── Insert a block into the editor ──
   // Called by the parent (via ref) when a library block is clicked,
   // and also called by the drop handler when a block is dropped.
+  // Inserts at the last known caret position if available, otherwise at end.
   const insertBlock = useCallback((block: Block) => {
     if (!editorRef.current) return
+    pushUndo()
     const span = createHighlightSpan(block.text, block.category)
-    // Add line breaks for spacing between blocks
+
+    // Try to insert at the last known caret position in the editor
+    const savedRange = lastRangeRef.current
+    if (savedRange && editorRef.current.contains(savedRange.startContainer)) {
+      // Check we're not inside an existing card
+      let node: Node | null = savedRange.startContainer
+      let insideCard = false
+      while (node && node !== editorRef.current) {
+        if ((node as HTMLElement).classList?.contains('hl-card')) {
+          insideCard = true
+          break
+        }
+        node = node.parentNode
+      }
+      if (!insideCard) {
+        savedRange.insertNode(span)
+        const space = document.createTextNode('\u00A0')
+        span.after(space)
+        // Clear the saved range so next insert goes to end unless user clicks again
+        lastRangeRef.current = null
+        recount()
+        saveContent()
+        return
+      }
+    }
+
+    // Fallback: append at end
     if (editorRef.current.innerHTML.trim()) {
       editorRef.current.appendChild(document.createElement('br'))
       editorRef.current.appendChild(document.createElement('br'))
@@ -208,7 +254,7 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
     editorRef.current.appendChild(span)
     recount()
     saveContent()
-  }, [createHighlightSpan, recount, saveContent])
+  }, [createHighlightSpan, recount, saveContent, pushUndo])
 
   // ── Expose insertBlock to the parent component ──
   useImperativeHandle(ref, () => ({ insertBlock }), [insertBlock])
@@ -283,6 +329,7 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
       try {
         const data = JSON.parse(jsonData)
         const isReorder = data.source === 'editor'
+        pushUndo() // Save state before mutation for Cmd+Z
 
         // For reorder: find the original span (will be moved, not copied)
         let existingSpan: HTMLSpanElement | null = null
@@ -381,12 +428,38 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
       el.removeEventListener('dragleave', handleDragLeave)
       el.removeEventListener('drop', handleDrop)
     }
-  }, [createHighlightSpan, recount, saveContent, setIsDragOver])
+  }, [createHighlightSpan, recount, saveContent, setIsDragOver, pushUndo])
+
+  // ── Cmd+Z / Ctrl+Z undo handler ──
+  // Pops the most recent state from the undo stack and restores editor HTML.
+  // Re-attaches card events to all highlight spans after restoring.
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+        const stack = undoStackRef.current
+        if (stack.length === 0 || !editorRef.current) return
+        e.preventDefault()
+        e.stopPropagation()
+        // Pop the last saved state and restore
+        const prevState = stack.pop()!
+        editorRef.current.innerHTML = prevState
+        // Re-attach hover/drag events to any restored highlight cards
+        editorRef.current.querySelectorAll('.hl-card').forEach((card) => {
+          attachCardEvents(card as HTMLSpanElement)
+        })
+        recount()
+        saveContent()
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [attachCardEvents, recount, saveContent])
 
   // ── Remove a highlight card (unwrap text, keep content) ──
   const removeCard = useCallback((card: HTMLSpanElement) => {
     const parent = card.parentNode
     if (!parent) return
+    pushUndo()
     // Move the card's text content out of the span
     while (card.firstChild) {
       parent.insertBefore(card.firstChild, card)
@@ -397,16 +470,31 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
     setXBtnPos(null)
     recount()
     saveContent()
-  }, [recount, saveContent])
-
-  // ── Selection detection: show "Create Card" popup above selected text ──
+  }, [recount, saveContent, pushUndo])
+  // On every mouseup/keyup: (1) save the current caret position so
+  // insertBlock can use it, (2) show the "Create Card" popup if text is selected.
   const checkSelection = useCallback(() => {
     setTimeout(() => {
       const sel = window.getSelection()
-      if (!sel || sel.isCollapsed || !sel.toString().trim() || !editorRef.current) {
+      if (!sel || !editorRef.current) {
         setPopup(null)
         return
       }
+
+      // Always save the current caret/selection range for cursor-position insertion
+      if (sel.rangeCount > 0) {
+        const range = sel.getRangeAt(0)
+        if (editorRef.current.contains(range.startContainer)) {
+          lastRangeRef.current = range.cloneRange()
+        }
+      }
+
+      // If no text is selected (just a caret), hide the popup
+      if (sel.isCollapsed || !sel.toString().trim()) {
+        setPopup(null)
+        return
+      }
+
       const range = sel.getRangeAt(0)
       // Don't allow creating a card inside an existing card
       let node: Node | null = range.commonAncestorContainer
@@ -437,6 +525,7 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
     const range = sel.getRangeAt(0)
     const selectedText = range.toString().trim()
     if (!selectedText) return
+    pushUndo()
 
     // Use the selected category's color, or fall back to palette cycling
     const cat = CATEGORIES[popupCategory]
@@ -484,7 +573,7 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
 
     recount()
     saveContent()
-  }, [resolvedTheme, popupCategory, recount, saveContent, attachCardEvents, onCreateCard])
+  }, [resolvedTheme, popupCategory, recount, saveContent, attachCardEvents, onCreateCard, pushUndo])
 
   // ── Auto-remove empty cards on any input event ──
   const onInput = useCallback(() => {
