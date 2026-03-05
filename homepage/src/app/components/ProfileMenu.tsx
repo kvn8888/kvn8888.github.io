@@ -51,7 +51,7 @@ export function ProfileMenu({ userName, userEmail, userImage, signOutAction }: P
       {/* Avatar trigger */}
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 cursor-pointer rounded-full hover:opacity-80 transition-opacity"
+        className="flex items-center gap-2 cursor-pointer rounded-full px-1.5 py-1.5 transition-all duration-200 hover:bg-foreground/[0.06] hover:backdrop-blur-sm hover:shadow-sm hover:shadow-black/5"
       >
         {userImage ? (
           <Image
@@ -70,7 +70,7 @@ export function ProfileMenu({ userName, userEmail, userImage, signOutAction }: P
 
       {/* Popover card */}
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-72 rounded-2xl bg-glass backdrop-blur-xl border border-glass-border shadow-xl z-50 overflow-hidden">
+        <div className="absolute right-0 top-full mt-2 w-72 rounded-2xl bg-glass/95 backdrop-blur-xl border border-glass-border shadow-xl z-50 overflow-hidden">
           {/* User info */}
           <div className="px-5 py-4 flex items-center gap-3 border-b border-foreground/5">
             {userImage ? (
