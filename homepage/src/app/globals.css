@@ -357,6 +357,12 @@ html {
   user-select: none;
   -webkit-user-select: none;
 }
+/* When in edit mode (double-clicked), re-enable text selection */
+.hl-card[contenteditable="true"] {
+  cursor: text;
+  user-select: text;
+  -webkit-user-select: text;
+}
 .hl-card:hover {
   filter: brightness(1.03);
   box-shadow: 0 2px 12px rgba(0,0,0,0.1) !important;
