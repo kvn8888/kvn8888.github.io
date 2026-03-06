@@ -1,5 +1,6 @@
 import { auth } from '@/auth'
 import { NextRequest, NextResponse } from 'next/server'
+import { getSecret } from '@/lib/secrets'
 
 export async function POST(req: NextRequest) {
   const session = await auth()
@@ -18,10 +19,10 @@ export async function POST(req: NextRequest) {
     }
 
     const isAzureOpenAiModel = model.startsWith('gpt-4o') || model.startsWith('gpt-realtime')
-    const mistralApiKey = process.env.MISTRAL_API_KEY
-    const azureOpenAiApiKey = process.env.AZURE_OPENAI_API_KEY
-    const azureOpenAiEndpoint = process.env.AZURE_OPENAI_ENDPOINT?.replace(/\/+$/, '')
-    const azureOpenAiApiVersion = process.env.AZURE_OPENAI_API_VERSION || '2025-03-01-preview'
+    const mistralApiKey = await getSecret('MISTRAL_API_KEY')
+    const azureOpenAiApiKey = await getSecret('AZURE_OPENAI_API_KEY')
+    const azureOpenAiEndpoint = (await getSecret('AZURE_OPENAI_ENDPOINT'))?.replace(/\/+$/, '')
+    const azureOpenAiApiVersion = (await getSecret('AZURE_OPENAI_API_VERSION')) || '2025-03-01-preview'
 
     if (!isAzureOpenAiModel && !mistralApiKey) {
       console.error('STT request missing Mistral API key', {

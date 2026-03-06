@@ -1,5 +1,6 @@
 import { auth } from "@/auth"
 import { NextResponse } from "next/server"
+import { getSecret } from "@/lib/secrets"
 
 export async function GET() {
   const session = await auth()
@@ -7,8 +8,8 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const apiToken = process.env.TURSO_API_TOKEN
-  const orgSlug = process.env.TURSO_ORG_SLUG
+  const apiToken = await getSecret("TURSO_API_TOKEN")
+  const orgSlug = await getSecret("TURSO_ORG_SLUG")
   if (!apiToken || !orgSlug) {
     console.error('Turso usage route missing config', {
       hasApiToken: Boolean(apiToken),

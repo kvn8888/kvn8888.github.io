@@ -1,5 +1,6 @@
 import { auth } from "@/auth"
 import { NextResponse } from "next/server"
+import { getSecret } from "@/lib/secrets"
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -96,12 +97,12 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const tenantId = process.env.AZURE_TENANT_ID
-  const clientId = process.env.AZURE_CLIENT_ID
-  const clientSecret = process.env.AZURE_CLIENT_SECRET
-  const subscriptionId = process.env.AZURE_SUBSCRIPTION_ID
-  const billingAccountId = process.env.AZURE_BILLING_ACCOUNT_ID
-  const billingProfileId = process.env.AZURE_BILLING_PROFILE_ID
+  const tenantId = await getSecret("AZURE_TENANT_ID")
+  const clientId = await getSecret("AZURE_CLIENT_ID")
+  const clientSecret = await getSecret("AZURE_CLIENT_SECRET")
+  const subscriptionId = await getSecret("AZURE_SUBSCRIPTION_ID")
+  const billingAccountId = await getSecret("AZURE_BILLING_ACCOUNT_ID")
+  const billingProfileId = await getSecret("AZURE_BILLING_PROFILE_ID")
 
   if (!tenantId || !clientId || !clientSecret) {
     return NextResponse.json({ error: "Azure credentials not configured" }, { status: 500 })

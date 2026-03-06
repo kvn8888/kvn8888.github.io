@@ -1,5 +1,6 @@
 import { auth } from '@/auth'
 import { NextRequest, NextResponse } from 'next/server'
+import { getSecret } from '@/lib/secrets'
 
 type PronunciationResponse = {
   RecognitionStatus?: string
@@ -44,8 +45,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const speechKey = process.env.AZURE_SPEECH_KEY
-  const speechRegion = process.env.AZURE_SPEECH_REGION
+  const speechKey = await getSecret('AZURE_SPEECH_KEY')
+  const speechRegion = await getSecret('AZURE_SPEECH_REGION')
   if (!speechKey || !speechRegion) {
     return NextResponse.json(
       { error: 'AZURE_SPEECH_KEY or AZURE_SPEECH_REGION not configured' },
