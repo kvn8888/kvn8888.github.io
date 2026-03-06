@@ -102,8 +102,8 @@ Common optional groups:
 
 | Path | Destination | Notes |
 |------|-------------|-------|
-| `/polymarket` | `https://polymarket-ev-bot-docker.onrender.com` | Vercel rewrite in `next.config.ts` |
-| `/polymarket/:path*` | `https://polymarket-ev-bot-docker.onrender.com/:path*` | Render-hosted SPA |
+| `/polymarket` | `https://polymarket-ev-bot-docker.onrender.com/polymarket` | Vercel rewrite in `next.config.ts`; preserve the upstream base path |
+| `/polymarket/:path*` | `https://polymarket-ev-bot-docker.onrender.com/polymarket/:path*` | Render-hosted SPA mounted under `/polymarket` |
 
 The Polymarket Render app has its own Google OAuth client — callback URIs registered for it separately in Google Cloud Console.
 

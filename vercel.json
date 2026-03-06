@@ -2,11 +2,11 @@
   "rewrites": [
     {
       "source": "/polymarket",
-      "destination": "https://polymarket-ev-bot-docker.onrender.com"
+      "destination": "https://polymarket-ev-bot-docker.onrender.com/polymarket"
     },
     {
       "source": "/polymarket/:path*",
-      "destination": "https://polymarket-ev-bot-docker.onrender.com/:path*"
+      "destination": "https://polymarket-ev-bot-docker.onrender.com/polymarket/:path*"
     }
   ]
 }

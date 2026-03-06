@@ -158,6 +158,17 @@ Optional (storage / databases):
 - `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
 - `RESUME_S3_BUCKET`, `RESUME_S3_KEY`, `RESUME_S3_PUBLIC_URL`, `SPEECH_S3_BUCKET`
 
+## Proxying External Apps
+
+When proxying an external app under a subpath like `/polymarket`, preserve the same base path in the destination if the upstream app is mounted there too.
+
+Example:
+
+- source `/polymarket` -> destination `https://upstream.example.com/polymarket`
+- source `/polymarket/:path*` -> destination `https://upstream.example.com/polymarket/:path*`
+
+If you strip the prefix and proxy `/polymarket` to upstream `/`, apps that redirect or serve assets from `/polymarket/...` can get stuck in a trailing-slash or self-redirect loop.
+
 ## Tech Stack
 
 - Next.js 16 (App Router, TypeScript, Turbopack dev)
