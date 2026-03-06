@@ -40,12 +40,19 @@ Built with **Next.js 16** (App Router), **Tailwind v4**, **Framer Motion**, depl
 
 - `/projects` — Project hub with card-based navigation
 - `/projects/usage` — API usage monitor dashboard (Tavily, Vercel, Render)
+- `/projects/tools/coverletter` — Cover letter workbench with a Jobs Turso-backed reusable block and tag library
 - `/tools` — Internal tools hub (notes, project dashboard, runtime secrets, sign-in manager)
 - `/tools/sign-in-manager` — Admin UI for login approvals and page-level grant management
 
 ## API Routes
 
 - `/api/auth/[...nextauth]` — Auth.js handlers
+- `/api/coverletter/library` — Loads the full reusable cover-letter block/tag library from Jobs Turso
+- `/api/coverletter/blocks` — Creates and lists reusable cover-letter blocks
+- `/api/coverletter/blocks/[id]` — Updates and deletes reusable cover-letter blocks
+- `/api/coverletter/tags` — Creates and lists reusable cover-letter tags
+- `/api/coverletter/tags/[id]` — Updates and deletes reusable cover-letter tags
+- `/api/coverletter/match` — Gemini-powered block matcher for a pasted job posting
 - `/api/secrets` — Runtime secret override management (encrypted, Turso-backed)
 - `/api/usage/github` — GitHub personal billing usage (Codespaces + Copilot premium requests)
 - `/api/usage/history` — Turso-backed daily usage snapshots for burn-rate projections
@@ -63,6 +70,15 @@ Built with **Next.js 16** (App Router), **Tailwind v4**, **Framer Motion**, depl
 - `/api/secrets` can also mirror saved keys into Vercel preview/production envs when Vercel sync credentials are configured; the UI shows `env set` when the project env is already present
 - `JOBS_TURSO_DATABASE_URL` and `JOBS_TURSO_AUTH_TOKEN` are now runtime-manageable through `getSecret()` in `src/lib/jobsDb.ts`
 - Use `getSecret()` in server routes for any secret that may be rotated via the UI
+
+## Cover Letter Workbench
+
+- The reusable cover-letter library is stored in the Jobs Turso database, not in client-side `localStorage`
+- Schema and CRUD helpers live in `homepage/src/lib/coverLetterDb.ts`
+- Tables: `cover_letter_blocks`, `cover_letter_tags`, `cover_letter_block_tags`
+- The original 12 hard-coded library entries now seed server-side on schema initialization via stable `legacy-*` keys
+- `homepage/scripts/seed-coverletter-library.mjs` is the bootstrap and verification script for seeding the live Jobs Turso library, smoke-testing block/tag CRUD, and confirming Gemini matching with DB-backed blocks
+- `homepage/tmp/coverletter-library-report.json` is the local verification artifact written by that script
 
 ## Usage Snapshots
 

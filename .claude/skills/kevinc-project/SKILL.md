@@ -26,9 +26,11 @@ homepage/                    # Next.js app root (run all commands here)
 │       │   ├── usage/        # API usage monitoring dashboard
 │       │   └── tools/        # Tools & utilities sub-hub
 │       │       ├── page.tsx  # Tools hub with card navigation
+│       │       ├── coverletter/ # Cover letter workbench with reusable DB-backed blocks/tags
 │       │       └── speech/   # Speech Lab (TTS, STT, Pronunciation)
 │       └── api/
 │           ├── auth/[...nextauth]/  # Auth.js handler (2 lines)
+│           ├── coverletter/  # Library CRUD + Gemini block matching
 │           ├── secrets/      # Runtime secret override API for /tools/secrets
 │           ├── usage/        # Server-side API proxies (tavily, vercel, render, etc.)
 │           │   ├── history/  # Snapshot-backed daily usage history for burn-rate projections
@@ -74,6 +76,18 @@ API keys can be overridden at runtime via `/tools/secrets` without a redeploy.
 - Use `getSecret("KEY_NAME")` in API routes instead of reading `process.env.KEY_NAME` directly when the value may be rotated via the UI
 
 ## API Routes
+
+### Cover Letter Workbench (`/api/coverletter/*`)
+
+Protected CRUD and matching routes for the reusable cover-letter library.
+
+- `src/lib/coverLetterDb.ts` owns the Jobs Turso schema and CRUD helpers
+- Tables: `cover_letter_blocks`, `cover_letter_tags`, `cover_letter_block_tags`
+- The original 12 client-side seed blocks were moved server-side and are inserted with stable `legacy-*` keys during schema initialization
+- `src/app/api/coverletter/library/route.ts` returns `{ blocks, tags }` for the UI
+- `src/app/api/coverletter/blocks` and `src/app/api/coverletter/tags` provide create/list, while `[id]` routes provide update/delete
+- `src/app/api/coverletter/match/route.ts` sends the current block library to Gemini and filters returned ids against known block ids before responding
+- `scripts/seed-coverletter-library.mjs` is the durable bootstrap/verification script for seeding the live Jobs Turso DB, smoke-testing CRUD, and checking Gemini matching
 
 ### Usage Proxies (`/api/usage/*`)
 

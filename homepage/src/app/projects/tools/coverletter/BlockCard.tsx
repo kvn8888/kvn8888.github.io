@@ -20,6 +20,7 @@ interface BlockCardProps {
   matchReason?: string               // If present, AI matched this block
   onSelect: (id: string) => void     // Called when user clicks to select
   onInsert?: (block: Block) => void  // Called when library block is clicked (inserts into editor)
+  onManage?: (block: Block) => void  // Called when the library edit button is clicked
   onEdit?: (id: string, newText: string) => void  // Called on edit commit
   onRemove?: (id: string) => void    // Called when remove button is clicked
 }
@@ -33,6 +34,7 @@ export default function BlockCard({
   matchReason,
   onSelect,
   onInsert,
+  onManage,
   onEdit,
   onRemove,
 }: BlockCardProps) {
@@ -52,6 +54,10 @@ export default function BlockCard({
       textareaRef.current.style.height = textareaRef.current.scrollHeight + 'px'
     }
   }, [isEditing])
+
+  useEffect(() => {
+    setEditText(block.text)
+  }, [block.text])
 
   // Click handler: in library → insert into editor. In editor → select/edit.
   const handleClick = (e: React.MouseEvent) => {
@@ -109,7 +115,7 @@ export default function BlockCard({
         ${matchReason ? 'opacity-100' : ''}
       `}
     >
-      {/* Category indicator row: dot + label + optional match badge + remove button */}
+      {/* Category indicator row: dot + label + optional match badge + actions */}
       <div className="flex items-center gap-2 mb-2">
         {/* Colored dot representing the category */}
         <span
@@ -125,26 +131,54 @@ export default function BlockCard({
         </span>
 
         {/* AI match badge: shown when AI matched this block to the job posting */}
-        {matchReason && (
-          <span
-            className="ml-auto text-[10px] font-bold text-white rounded-full px-2 py-0.5 font-mono"
-            style={{ backgroundColor: cat.dot }}
-            title={matchReason}
-          >
-            MATCH
-          </span>
-        )}
+        <div className="ml-auto flex items-center gap-1">
+          {matchReason && (
+            <span
+              className="text-[10px] font-bold text-white rounded-full px-2 py-0.5 font-mono"
+              style={{ backgroundColor: cat.dot }}
+              title={matchReason}
+            >
+              MATCH
+            </span>
+          )}
 
-        {/* Remove button: only visible in editor mode, appears on hover */}
-        {isInEditor && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onRemove?.(block.id) }}
-            className={`${matchReason ? 'ml-1' : 'ml-auto'} text-foreground/30 hover:text-foreground/70 transition-colors opacity-0 group-hover:opacity-100`}
-            title="Remove from editor"
-          >
-            <span className="material-symbols-outlined text-base">close</span>
-          </button>
-        )}
+          {!isInEditor && onManage && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onManage(block)
+              }}
+              className="text-foreground/30 hover:text-foreground/70 transition-colors opacity-0 group-hover:opacity-100"
+              title="Edit block"
+            >
+              <span className="material-symbols-outlined text-base">edit</span>
+            </button>
+          )}
+
+          {!isInEditor && onRemove && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onRemove(block.id)
+              }}
+              className="text-foreground/30 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+              title="Delete block"
+            >
+              <span className="material-symbols-outlined text-base">delete</span>
+            </button>
+          )}
+
+          {/* Remove button: only visible in editor mode, appears on hover */}
+          {isInEditor && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onRemove?.(block.id) }}
+              className="text-foreground/30 hover:text-foreground/70 transition-colors opacity-0 group-hover:opacity-100"
+              title="Remove from editor"
+            >
+              <span className="material-symbols-outlined text-base">close</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Block text: either an editable textarea or a read-only paragraph */}
@@ -166,6 +200,19 @@ export default function BlockCard({
         <p className="text-sm leading-relaxed text-foreground/80 m-0">
           {block.text}
         </p>
+      )}
+
+      {block.tags.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {block.tags.map((tag) => (
+            <span
+              key={tag.id}
+              className="px-2 py-0.5 rounded-full border border-glass-border text-[10px] font-medium text-foreground/55"
+            >
+              #{tag.name}
+            </span>
+          ))}
+        </div>
       )}
 
       {/* Match reason tooltip: shown below text in library view */}

@@ -23,6 +23,7 @@
 # misc
 .DS_Store
 *.pem
+/tmp/coverletter-library-report.json
 
 # debug
 npm-debug.log*

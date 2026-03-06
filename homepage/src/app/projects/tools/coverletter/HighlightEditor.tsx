@@ -36,7 +36,7 @@ export interface HighlightEditorHandle {
 interface HighlightEditorProps {
   onBlockCountChange: (count: number) => void  // Reports block count changes
   onCopy: () => void                           // Called after copy-to-clipboard
-  onCreateCard?: (block: Block) => void        // Called when user creates a card from selection (saves to library)
+  onCreateCard?: (block: Pick<Block, 'category' | 'text'>) => void | Promise<void> // Saves a selection as a reusable library block
   isDragOver: boolean                          // Visual state for drop zone
   setIsDragOver: (v: boolean) => void          // Updates drag state in parent
 }
@@ -621,61 +621,63 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
 
   // ── Create a card from the current text selection ──
   // Uses the category chosen in the popup dropdown (popupCategory state).
-  // Also saves the new block to the library via onCreateCard callback.
+  // Also asks the parent to persist the new block in the library database.
   const createCardFromSelection = useCallback(() => {
-    const sel = window.getSelection()
-    if (!sel || sel.isCollapsed) return
-    const range = sel.getRangeAt(0)
-    const selectedText = range.toString().trim()
-    if (!selectedText) return
-    pushUndo()
+    const run = async () => {
+      const sel = window.getSelection()
+      if (!sel || sel.isCollapsed) return
+      const range = sel.getRangeAt(0)
+      const selectedText = range.toString().trim()
+      if (!selectedText) return
+      pushUndo()
 
-    // Use the selected category's color, or fall back to palette cycling
-    const cat = CATEGORIES[popupCategory]
-    const color = cat
-      ? { bg: cat.bg, darkBg: cat.darkBg, border: cat.dot }
-      : nextPaletteColor()
+      // Use the selected category's color, or fall back to palette cycling
+      const cat = CATEGORIES[popupCategory]
+      const color = cat
+        ? { bg: cat.bg, darkBg: cat.darkBg, border: cat.dot }
+        : nextPaletteColor()
 
-    const span = document.createElement('span')
-    span.className = 'hl-card'
-    span.dataset.category = popupCategory
-    const bgColor = resolvedTheme === 'dark' ? color.darkBg : color.bg
-    span.style.cssText = [
-      `background: ${bgColor}`,
-      'box-decoration-break: clone',
-      '-webkit-box-decoration-break: clone',
-      'padding: 3px 8px',
-      'border-radius: 6px',
-      'line-height: 2.2',
-      'transition: filter 0.2s, box-shadow 0.2s',
-      `box-shadow: 0 1px 4px ${color.border}33`,
-      'display: inline',
-    ].join(';')
+      const span = document.createElement('span')
+      span.className = 'hl-card'
+      span.dataset.category = popupCategory
+      const bgColor = resolvedTheme === 'dark' ? color.darkBg : color.bg
+      span.style.cssText = [
+        `background: ${bgColor}`,
+        'box-decoration-break: clone',
+        '-webkit-box-decoration-break: clone',
+        'padding: 3px 8px',
+        'border-radius: 6px',
+        'line-height: 2.2',
+        'transition: filter 0.2s, box-shadow 0.2s',
+        `box-shadow: 0 1px 4px ${color.border}33`,
+        'display: inline',
+      ].join(';')
 
-    // Extract the selected content and wrap it in the highlight span
-    try {
-      const frag = range.extractContents()
-      span.appendChild(frag)
-    } catch {
-      const text = range.toString()
-      range.deleteContents()
-      span.textContent = text
+      // Extract the selected content and wrap it in the highlight span
+      try {
+        const frag = range.extractContents()
+        span.appendChild(frag)
+      } catch {
+        const text = range.toString()
+        range.deleteContents()
+        span.textContent = text
+      }
+      attachCardEvents(span)
+
+      range.insertNode(span)
+      sel.removeAllRanges()
+      setPopup(null)
+
+      await onCreateCard?.({
+        category: popupCategory,
+        text: selectedText,
+      })
+
+      recount()
+      saveContent()
     }
-    attachCardEvents(span)
 
-    range.insertNode(span)
-    sel.removeAllRanges()
-    setPopup(null)
-
-    // Save the new block to the library so it persists and is reusable
-    onCreateCard?.({
-      id: Date.now().toString(),
-      category: popupCategory,
-      text: selectedText,
-    })
-
-    recount()
-    saveContent()
+    void run()
   }, [resolvedTheme, popupCategory, recount, saveContent, attachCardEvents, onCreateCard, pushUndo])
 
   // ── Auto-remove empty cards on any input event ──

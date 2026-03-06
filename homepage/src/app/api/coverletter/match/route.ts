@@ -15,8 +15,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'jobPosting (string) and blocks (array) are required' }, { status: 400 })
     }
 
+    const knownIds = new Set(
+      blocks
+        .map((block: { id?: string }) => String(block.id ?? ''))
+        .filter(Boolean)
+    )
+
     const blockList = blocks
-      .map((b: { id: string; category: string; text: string }) => `[${b.id}] (${b.category}) ${b.text}`)
+      .map((b: { id: string; category: string; text: string; tags?: { name: string }[] }) => {
+        const tagSuffix = b.tags?.length
+          ? ` | tags: ${b.tags.map((tag) => tag.name).join(', ')}`
+          : ''
+        return `[${b.id}] (${b.category}${tagSuffix}) ${b.text}`
+      })
       .join('\n')
 
     const res = await fetch(
@@ -79,7 +90,16 @@ ${blockList}`,
     }
 
     const parsed = JSON.parse(textResponse)
-    return NextResponse.json(parsed)
+    const matches = Array.isArray(parsed?.matches)
+      ? parsed.matches.filter(
+          (match: { id?: string; reason?: string }) =>
+            typeof match?.id === 'string' &&
+            typeof match?.reason === 'string' &&
+            knownIds.has(match.id)
+        )
+      : []
+
+    return NextResponse.json({ matches })
   } catch (err) {
     console.error('POST /api/coverletter/match error:', err)
     return NextResponse.json({ error: 'Failed to match blocks', details: String(err) }, { status: 500 })
