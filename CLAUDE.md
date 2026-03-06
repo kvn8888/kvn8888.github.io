@@ -52,6 +52,7 @@ Built with **Next.js 16** (App Router), **Tailwind v4**, **Framer Motion**, depl
 
 - `/tools/secrets` lets authenticated users override API keys at runtime without a redeploy
 - `src/lib/secrets.ts` checks Turso-backed encrypted overrides first, then falls back to `process.env`
+- `/api/secrets` can also mirror saved keys into Vercel preview/production envs when Vercel sync credentials are configured; a redeploy is still required for deployed code to pick them up
 - Use `getSecret()` in server routes for any secret that may be rotated via the UI
 
 ## Environment Variables
@@ -66,6 +67,10 @@ AUTH_TRUST_HOST=true — Required for Vercel
 ALLOWED_EMAILS       — Comma-separated email whitelist for sign-in
 TAVILY_API_KEY       — For usage monitoring
 VERCEL_API_TOKEN     — For Vercel billing API (optional)
+VERCEL_PROJECT_ID    — Vercel project ID for env sync (optional, preferred)
+VERCEL_PROJECT_NAME  — Vercel project name/slug for env sync (optional fallback)
+VERCEL_TEAM_ID       — Vercel team ID for env sync (optional)
+VERCEL_TEAM_SLUG     — Vercel team slug for env sync (optional)
 RENDER_API_KEY       — For Render services API (optional)
 GITHUB_PAT           — Fine-grained GitHub token for personal billing endpoints
 GITHUB_USERNAME      — GitHub username for personal billing endpoints

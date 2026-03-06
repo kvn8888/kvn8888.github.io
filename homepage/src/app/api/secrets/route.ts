@@ -1,6 +1,7 @@
 import { auth } from '@/auth'
 import { NextRequest, NextResponse } from 'next/server'
 import {
+  getSecret,
   listSecretOverrides,
   setSecretOverride,
   deleteSecretOverride,
@@ -9,6 +10,85 @@ import {
 // Allowlist of keys that can be managed via this API.
 // Only uppercase env-var-style names are accepted (1-64 chars).
 const ALLOWED_KEY_PATTERN = /^[A-Z][A-Z0-9_]{0,63}$/
+
+interface VercelSyncResult {
+  status: 'ok' | 'skipped' | 'failed'
+  message: string
+}
+
+async function syncSecretToVercel(key: string, value: string): Promise<VercelSyncResult> {
+  const token = await getSecret('VERCEL_API_TOKEN')
+  if (!token) {
+    return {
+      status: 'skipped',
+      message: 'VERCEL_API_TOKEN not configured for Vercel sync',
+    }
+  }
+
+  const idOrName =
+    (await getSecret('VERCEL_PROJECT_ID')) ??
+    (await getSecret('VERCEL_PROJECT_NAME'))
+
+  if (!idOrName) {
+    return {
+      status: 'skipped',
+      message: 'VERCEL_PROJECT_ID or VERCEL_PROJECT_NAME not configured',
+    }
+  }
+
+  const teamId = await getSecret('VERCEL_TEAM_ID')
+  const teamSlug = await getSecret('VERCEL_TEAM_SLUG')
+  const params = new URLSearchParams({ upsert: 'true' })
+
+  if (teamId) params.set('teamId', teamId)
+  else if (teamSlug) params.set('slug', teamSlug)
+
+  try {
+    const response = await fetch(
+      `https://api.vercel.com/v10/projects/${encodeURIComponent(idOrName)}/env?${params.toString()}`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          key,
+          value,
+          type: 'sensitive',
+          target: ['production', 'preview'],
+          comment: 'Synced from /tools/secrets',
+        }),
+        cache: 'no-store',
+      }
+    )
+
+    if (response.ok) {
+      return {
+        status: 'ok',
+        message: 'Synced to Vercel preview/production envs',
+      }
+    }
+
+    let message = `Vercel sync failed with ${response.status}`
+    try {
+      const data = await response.json()
+      const failureMessage = data?.failed?.[0]?.error?.message
+      const errorMessage = data?.error?.message
+      if (typeof failureMessage === 'string' && failureMessage) message = failureMessage
+      else if (typeof errorMessage === 'string' && errorMessage) message = errorMessage
+    } catch {
+      // Keep the HTTP status fallback message.
+    }
+
+    return { status: 'failed', message }
+  } catch {
+    return {
+      status: 'failed',
+      message: 'Could not reach the Vercel API',
+    }
+  }
+}
 
 export async function GET() {
   const session = await auth()
@@ -47,7 +127,8 @@ export async function POST(req: NextRequest) {
 
   try {
     await setSecretOverride(key, value, session.user.email)
-    return NextResponse.json({ success: true })
+    const vercelSync = await syncSecretToVercel(key, value)
+    return NextResponse.json({ success: true, vercelSync })
   } catch {
     return NextResponse.json({ error: 'Failed to save secret' }, { status: 500 })
   }

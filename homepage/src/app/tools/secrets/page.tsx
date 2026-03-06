@@ -57,7 +57,11 @@ const SECRET_GROUPS: SecretGroup[] = [
       { key: 'TAVILY_API_KEY', description: 'Tavily search & usage' },
       { key: 'OPENROUTER_API_KEY', description: 'OpenRouter AI credits' },
       { key: 'RENDER_API_KEY', description: 'Render services usage' },
-      { key: 'VERCEL_API_TOKEN', description: 'Vercel billing API' },
+      { key: 'VERCEL_API_TOKEN', description: 'Vercel billing API + env sync token' },
+      { key: 'VERCEL_PROJECT_ID', description: 'Vercel project ID for env sync (preferred)' },
+      { key: 'VERCEL_PROJECT_NAME', description: 'Vercel project name/slug for env sync (fallback)' },
+      { key: 'VERCEL_TEAM_ID', description: 'Vercel team ID for env sync (optional)' },
+      { key: 'VERCEL_TEAM_SLUG', description: 'Vercel team slug for env sync (optional)' },
       { key: 'ODDS_API_KEY', description: 'The Odds API usage' },
       { key: 'VENICE_API_KEY', description: 'Venice AI usage' },
       { key: 'TURSO_API_TOKEN', description: 'Turso DB usage API' },
@@ -110,10 +114,23 @@ export default function SecretsPage() {
         body: JSON.stringify({ key, value: inputValue.trim() }),
       })
       if (res.ok) {
+        const data = await res.json()
         setPendingKey(null)
         setInputValue('')
         await fetchOverrides()
-        showToast(`${key} saved`, 'success')
+        const vercelSync = data.vercelSync as
+          | { status?: 'ok' | 'skipped' | 'failed'; message?: string }
+          | undefined
+
+        if (vercelSync?.status === 'ok') {
+          showToast(`${key} saved and synced to Vercel`, 'success')
+        } else if (vercelSync?.status === 'failed') {
+          showToast(`${key} saved locally. ${vercelSync.message ?? 'Vercel sync failed.'}`, 'error')
+        } else if (vercelSync?.status === 'skipped') {
+          showToast(`${key} saved locally. ${vercelSync.message ?? 'Vercel sync skipped.'}`, 'success')
+        } else {
+          showToast(`${key} saved`, 'success')
+        }
       } else {
         const err = await res.json()
         showToast(err.error ?? 'Failed to save', 'error')
@@ -170,7 +187,8 @@ export default function SecretsPage() {
         <div className="text-sm text-amber-800 dark:text-amber-300">
           <span className="font-medium">Write-only:</span> Values cannot be read back once saved.
           Overrides take effect immediately on the next API call. Clear an override to fall back to
-          the Vercel env var.
+          the Vercel env var. If `VERCEL_API_TOKEN` plus a Vercel project ID or name are configured,
+          Save also upserts the key into Vercel preview/production envs for the next redeploy.
         </div>
       </div>
 

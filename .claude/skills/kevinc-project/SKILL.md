@@ -62,6 +62,7 @@ API keys can be overridden at runtime via `/tools/secrets` without a redeploy.
 - `src/lib/secrets.ts` exposes `getSecret()` which checks Turso overrides first, then `process.env`
 - Overrides are encrypted at rest using a key derived from `AUTH_SECRET`
 - `/api/secrets` manages the overrides for authenticated users
+- After a successful save, `/api/secrets` can also upsert the same key into Vercel project envs when `VERCEL_API_TOKEN` and `VERCEL_PROJECT_ID` (or `VERCEL_PROJECT_NAME`) are configured
 - Use `getSecret("KEY_NAME")` in API routes instead of reading `process.env.KEY_NAME` directly when the value may be rotated via the UI
 
 ## API Routes
@@ -125,6 +126,7 @@ Required: `AUTH_SECRET`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, `AUTH_TRUST_HOS
 
 Optional (usage dashboard):
 - `TAVILY_API_KEY`, `VERCEL_API_TOKEN`, `RENDER_API_KEY`
+- `VERCEL_PROJECT_ID`, `VERCEL_PROJECT_NAME`, `VERCEL_TEAM_ID`, `VERCEL_TEAM_SLUG`
 - `GITHUB_PAT`, `GITHUB_USERNAME`
 - `OPENROUTER_API_KEY`, `ODDS_API_KEY`, `VENICE_API_KEY`
 - `TURSO_API_TOKEN`, `TURSO_ORG_SLUG`
