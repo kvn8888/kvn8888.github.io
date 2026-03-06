@@ -172,6 +172,13 @@ const payload = {
 
 That script ended up being more valuable than the one-off verification I originally intended, because now the cover-letter library has a repeatable bootstrap and smoke-test path instead of a memory of which commands happened to work on one afternoon.
 
+One last code-review pass caught two persistence problems before I called the work finished. I had cached schema initialization behind a process-wide boolean, which is unsafe when the Jobs Turso target can rotate at runtime through the secrets system, and I was updating block-tag joins with a delete-then-reinsert sequence outside a transaction.
+
+The final implementation does two simpler, safer things instead:
+
+- It always runs the idempotent schema-and-seed bootstrap for the cover-letter tables.
+- It wraps multi-statement block and tag writes in libsql write transactions.
+
 The final live report showed exactly what I wanted:
 
 - The three `cover_letter_*` tables existed in Jobs Turso.

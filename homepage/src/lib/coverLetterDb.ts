@@ -1,4 +1,4 @@
-import { type Client } from '@libsql/client'
+import { type Client, type Transaction } from '@libsql/client'
 import { getJobsDb } from './jobsDb'
 
 // These are the original hard-coded blocks from the first cover letter tool.
@@ -66,8 +66,6 @@ const LEGACY_SEED_BLOCKS = [
   },
 ] as const
 
-let schemaInitialized = false
-
 export interface CoverLetterTagRecord {
   id: string
   name: string
@@ -91,6 +89,8 @@ interface CoverLetterBlockInput {
   tagIds?: readonly string[]
 }
 
+type SqlExecutor = Pick<Client, 'execute'>
+
 function normalizeTagName(name: string) {
   return name.replace(/\s+/g, ' ').trim()
 }
@@ -112,7 +112,24 @@ function normalizeTagIds(tagIds: readonly string[] = []) {
   )
 }
 
-async function syncBlockTags(db: Client, blockId: number, tagIds: readonly string[] = []) {
+async function runWriteTransaction<T>(db: Client, work: (tx: Transaction) => Promise<T>) {
+  const tx = await db.transaction('write')
+
+  try {
+    const result = await work(tx)
+    await tx.commit()
+    return result
+  } catch (error) {
+    if (!tx.closed) {
+      await tx.rollback().catch(() => undefined)
+    }
+    throw error
+  } finally {
+    tx.close()
+  }
+}
+
+async function syncBlockTags(db: SqlExecutor, blockId: number, tagIds: readonly string[] = []) {
   await db.execute({
     sql: 'DELETE FROM cover_letter_block_tags WHERE block_id = ?',
     args: [blockId],
@@ -148,8 +165,6 @@ async function seedLegacyBlocks(db: Client) {
 }
 
 export async function ensureCoverLetterSchema(db: Client) {
-  if (schemaInitialized) return
-
   await db.executeMultiple(`
     CREATE TABLE IF NOT EXISTS cover_letter_blocks (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -183,7 +198,6 @@ export async function ensureCoverLetterSchema(db: Client) {
   `)
 
   await seedLegacyBlocks(db)
-  schemaInitialized = true
 }
 
 export async function getCoverLetterDb() {
@@ -252,16 +266,20 @@ export async function createCoverLetterBlock(input: CoverLetterBlockInput) {
   const text = input.text.trim()
   if (!category || !text) throw new Error('category and text are required')
 
-  const result = await db.execute({
-    sql: `INSERT INTO cover_letter_blocks (category, text, updated_at)
-          VALUES (?, ?, datetime('now'))`,
-    args: [category, text],
+  const blockId = await runWriteTransaction(db, async (tx) => {
+    const result = await tx.execute({
+      sql: `INSERT INTO cover_letter_blocks (category, text, updated_at)
+            VALUES (?, ?, datetime('now'))`,
+      args: [category, text],
+    })
+
+    const createdBlockId = Number(result.lastInsertRowid)
+    await syncBlockTags(tx, createdBlockId, input.tagIds)
+    return createdBlockId
   })
 
-  await syncBlockTags(db, Number(result.lastInsertRowid), input.tagIds)
-
   const { blocks } = await listCoverLetterLibrary()
-  const block = blocks.find((entry) => entry.id === String(result.lastInsertRowid))
+  const block = blocks.find((entry) => entry.id === String(blockId))
   if (!block) throw new Error('created block could not be loaded')
   return block
 }
@@ -274,14 +292,16 @@ export async function updateCoverLetterBlock(id: number, input: CoverLetterBlock
   const text = input.text.trim()
   if (!category || !text) throw new Error('category and text are required')
 
-  await db.execute({
-    sql: `UPDATE cover_letter_blocks
-          SET category = ?, text = ?, updated_at = datetime('now')
-          WHERE id = ?`,
-    args: [category, text, id],
-  })
+  await runWriteTransaction(db, async (tx) => {
+    await tx.execute({
+      sql: `UPDATE cover_letter_blocks
+            SET category = ?, text = ?, updated_at = datetime('now')
+            WHERE id = ?`,
+      args: [category, text, id],
+    })
 
-  await syncBlockTags(db, id, input.tagIds)
+    await syncBlockTags(tx, id, input.tagIds)
+  })
 
   const { blocks } = await listCoverLetterLibrary()
   const block = blocks.find((entry) => entry.id === String(id))
@@ -293,13 +313,15 @@ export async function deleteCoverLetterBlock(id: number) {
   const db = await getCoverLetterDb()
   await ensureCoverLetterSchema(db)
 
-  await db.execute({
-    sql: 'DELETE FROM cover_letter_block_tags WHERE block_id = ?',
-    args: [id],
-  })
-  await db.execute({
-    sql: 'DELETE FROM cover_letter_blocks WHERE id = ?',
-    args: [id],
+  await runWriteTransaction(db, async (tx) => {
+    await tx.execute({
+      sql: 'DELETE FROM cover_letter_block_tags WHERE block_id = ?',
+      args: [id],
+    })
+    await tx.execute({
+      sql: 'DELETE FROM cover_letter_blocks WHERE id = ?',
+      args: [id],
+    })
   })
 }
 
@@ -364,12 +386,14 @@ export async function deleteCoverLetterTag(id: number) {
   const db = await getCoverLetterDb()
   await ensureCoverLetterSchema(db)
 
-  await db.execute({
-    sql: 'DELETE FROM cover_letter_block_tags WHERE tag_id = ?',
-    args: [id],
-  })
-  await db.execute({
-    sql: 'DELETE FROM cover_letter_tags WHERE id = ?',
-    args: [id],
+  await runWriteTransaction(db, async (tx) => {
+    await tx.execute({
+      sql: 'DELETE FROM cover_letter_block_tags WHERE tag_id = ?',
+      args: [id],
+    })
+    await tx.execute({
+      sql: 'DELETE FROM cover_letter_tags WHERE id = ?',
+      args: [id],
+    })
   })
 }
