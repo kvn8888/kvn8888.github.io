@@ -2,6 +2,7 @@ import { auth } from '@/auth'
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
 import { SignJWT, importPKCS8 } from 'jose'
 import { NextRequest, NextResponse } from 'next/server'
+import { getSecret } from '@/lib/secrets'
 
 interface ServiceAccountKey {
   client_email: string
@@ -126,7 +127,7 @@ async function getGcpAccessToken(sa: ServiceAccountKey): Promise<string> {
 }
 
 async function synthesizeChirp3(text: string, voiceName: string): Promise<{ audio: string; mimeType: string }> {
-  const saKeyBase64 = process.env.GCP_SERVICE_ACCOUNT_KEY
+  const saKeyBase64 = await getSecret('GCP_SERVICE_ACCOUNT_KEY')
   if (!saKeyBase64) {
     throw new Error('GCP_SERVICE_ACCOUNT_KEY not configured for Chirp 3 TTS')
   }
@@ -178,7 +179,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const apiKey = process.env.GEMINI_API_KEY
+    const apiKey = await getSecret('GEMINI_API_KEY')
     const { text, voice = 'Gacrux', instructions, provider } = await req.json()
     if (!text || typeof text !== 'string') {
       return NextResponse.json({ error: 'Text is required' }, { status: 400 })

@@ -1,5 +1,6 @@
 import { auth } from "@/auth"
 import { NextResponse } from "next/server"
+import { getSecret } from "@/lib/secrets"
 
 interface RenderService {
   id: string
@@ -22,7 +23,7 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const apiKey = process.env.RENDER_API_KEY
+  const apiKey = await getSecret("RENDER_API_KEY")
   if (!apiKey) {
     return NextResponse.json({ error: "RENDER_API_KEY not configured" }, { status: 500 })
   }

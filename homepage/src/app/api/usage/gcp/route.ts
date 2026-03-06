@@ -1,6 +1,7 @@
 import { auth } from "@/auth"
 import { NextResponse } from "next/server"
 import { SignJWT, importPKCS8 } from "jose"
+import { getSecret } from "@/lib/secrets"
 
 interface ServiceAccountKey {
   client_email: string
@@ -71,7 +72,7 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const saKeyBase64 = process.env.GCP_SERVICE_ACCOUNT_KEY
+  const saKeyBase64 = await getSecret("GCP_SERVICE_ACCOUNT_KEY")
   if (!saKeyBase64) {
     return NextResponse.json({ error: "GCP_SERVICE_ACCOUNT_KEY not configured" }, { status: 500 })
   }

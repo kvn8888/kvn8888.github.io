@@ -20,6 +20,12 @@ const toolLinks = [
     href: "/tools/notes",
     icon: "description",
   },
+  {
+    title: "Runtime Secrets",
+    description: "Override API keys without redeploying",
+    href: "/tools/secrets",
+    icon: "key",
+  },
 ]
 
 export default async function ToolsPage() {

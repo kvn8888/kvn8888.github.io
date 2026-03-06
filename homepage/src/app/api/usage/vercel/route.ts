@@ -1,5 +1,6 @@
 import { auth } from "@/auth"
 import { NextResponse } from "next/server"
+import { getSecret } from "@/lib/secrets"
 
 export async function GET() {
   const session = await auth()
@@ -7,7 +8,7 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const token = process.env.VERCEL_API_TOKEN
+  const token = await getSecret("VERCEL_API_TOKEN")
   if (!token) {
     return NextResponse.json({ error: "VERCEL_API_TOKEN not configured" }, { status: 500 })
   }

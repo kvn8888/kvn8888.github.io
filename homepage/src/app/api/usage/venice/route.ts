@@ -1,5 +1,6 @@
 import { auth } from '@/auth'
 import { NextResponse } from 'next/server'
+import { getSecret } from '@/lib/secrets'
 
 export async function GET() {
   const session = await auth()
@@ -7,7 +8,7 @@ export async function GET() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const apiKey = process.env.VENICE_API_KEY
+  const apiKey = await getSecret('VENICE_API_KEY')
   if (!apiKey) {
     return NextResponse.json({ error: 'VENICE_API_KEY not configured' }, { status: 500 })
   }
