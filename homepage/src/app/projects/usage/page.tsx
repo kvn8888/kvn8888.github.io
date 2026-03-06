@@ -47,7 +47,7 @@ interface RenderService {
 
 interface RenderUsage {
   services: RenderService[]
-  limits: Record<string, { limit: number; unit: string }>
+  limits: Record<string, { limit: number | null; unit: string; note?: string }>
   dashboardUrl: string
 }
 
@@ -663,13 +663,18 @@ export default function UsagePage() {
                 {Object.entries(render.limits).map(([key, val]) => (
                   <div
                     key={key}
-                    className="flex items-baseline justify-between text-sm"
+                    className="flex items-start justify-between gap-4 text-sm"
                   >
-                    <span className="text-foreground/50">
-                      {key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
-                    </span>
-                    <span className="tabular-nums font-medium text-foreground/70">
-                      {val.limit.toLocaleString()} {val.unit}
+                    <div className="min-w-0">
+                      <span className="text-foreground/50">
+                        {key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
+                      </span>
+                      {val.note && (
+                        <p className="text-xs text-foreground/30 mt-0.5">{val.note}</p>
+                      )}
+                    </div>
+                    <span className="tabular-nums font-medium text-foreground/70 shrink-0">
+                      {val.limit === null ? 'Dashboard only' : `${val.limit.toLocaleString()} ${val.unit}`}
                     </span>
                   </div>
                 ))}
