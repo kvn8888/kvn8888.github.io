@@ -114,19 +114,38 @@ That is the right kind of boring. It means the runtime secrets layer actually be
 
 ---
 
-## Step 5: Not Every Env Var Belongs in `/tools/secrets`
+## Step 5: A Single UI Can Still Have Two Kinds of Secrets
 
-One subtle design decision mattered here: I did **not** try to expose every env var in the app.
+The first version of this work stopped short of exposing the bootstrap-only variables in `/tools/secrets`.
 
-Some values are bootstrap-only and should stay env-only:
+That was defensible from a purity standpoint, but it still left a practical gap: people were falling back to the Vercel dashboard for exactly the envs that are most annoying to type by hand, including the dedicated jobs Turso connection pair.
 
-- `AUTH_SECRET`
-- Google OAuth bootstrap vars
-- Turso connection vars that the secrets system itself depends on
+The better split turned out to be **not** “show it in the UI or hide it entirely.”
+It was “show everything in the UI, but be honest about how each key behaves.”
 
-Trying to make those user-editable through the same system that depends on them is how you create a self-hosted footgun.
+That produced two classes of entries:
 
-So the page now explicitly says that bootstrap auth and Turso connection values remain env-only. The goal is not "everything is mutable." The goal is "everything shown here is safe and meaningful to override at request time."
+- **Runtime override** — stored in Turso, available immediately through `getSecret()`, and also mirrored into Vercel envs when configured
+- **Env sync only** — saved into Vercel envs from the same UI, but only picked up after redeploy because the code reads them during bootstrap
+
+That keeps dangerous bootstrap values such as `AUTH_SECRET`, `AUTH_GOOGLE_*`, and the primary `TURSO_*` connection pair out of the live runtime override path without forcing the user back into the Vercel dashboard.
+
+The page now explains that split directly, and it also shows an `env set` badge when a key is already present in the Vercel project envs.
+
+That ended up being the right tradeoff: one inventory, one UI, but two execution models.
+
+## Step 6: The Jobs DB Pair Needed a Better Answer
+
+The jobs database credentials were the awkward middle ground.
+
+They are not safe to treat like the primary `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN`, because those bootstrap the secrets system itself.
+But they also do not need to stay deploy-only.
+
+The fix was to move `JOBS_TURSO_DATABASE_URL` and `JOBS_TURSO_AUTH_TOKEN` onto `getSecret()` in `src/lib/jobsDb.ts`.
+
+That means the dedicated jobs database can now be rotated from `/tools/secrets` at runtime, while the primary Turso connection pair remains env-sync-only.
+
+That split is much better than forcing all Turso-related values into the same bucket.
 
 ---
 
@@ -152,7 +171,7 @@ It usually means one of two things:
 The fix was not "add missing keys." The fix was to make the app answer the same question the same way in three places:
 
 - what keys exist
-- which ones are safe to override at runtime
+- which ones are safe to override at runtime versus sync only on redeploy
 - which code paths actually honor those overrides
 
 When env configuration starts feeling annoying, it is usually because the codebase is telling the truth in fragments instead of all at once.

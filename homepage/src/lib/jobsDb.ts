@@ -1,12 +1,21 @@
 import { createClient, type Client } from '@libsql/client'
+import { getSecret } from './secrets'
 
 let schemaInitialized = false
 
-export function getJobsDb(): Client {
-  const url = process.env.JOBS_TURSO_DATABASE_URL || process.env.TURSO_DATABASE_URL
-  const authToken = process.env.JOBS_TURSO_AUTH_TOKEN || process.env.TURSO_AUTH_TOKEN
+export async function getJobsDb(): Promise<Client> {
+  const url =
+    (await getSecret('JOBS_TURSO_DATABASE_URL')) ||
+    process.env.JOBS_TURSO_DATABASE_URL ||
+    process.env.TURSO_DATABASE_URL
+  const authToken =
+    (await getSecret('JOBS_TURSO_AUTH_TOKEN')) ||
+    process.env.JOBS_TURSO_AUTH_TOKEN ||
+    process.env.TURSO_AUTH_TOKEN
   if (!url || !authToken) {
     console.error('Jobs DB Turso config missing', {
+      hasOverrideBackedJobsDatabaseUrl: Boolean(await getSecret('JOBS_TURSO_DATABASE_URL')),
+      hasOverrideBackedJobsAuthToken: Boolean(await getSecret('JOBS_TURSO_AUTH_TOKEN')),
       hasJobsDatabaseUrl: Boolean(process.env.JOBS_TURSO_DATABASE_URL),
       hasJobsAuthToken: Boolean(process.env.JOBS_TURSO_AUTH_TOKEN),
       hasDefaultDatabaseUrl: Boolean(process.env.TURSO_DATABASE_URL),

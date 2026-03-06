@@ -56,10 +56,12 @@ Built with **Next.js 16** (App Router), **Tailwind v4**, **Framer Motion**, depl
 
 ## Runtime Secrets
 
-- `/tools/secrets` lets authenticated users override API keys at runtime without a redeploy
+- `/tools/secrets` now covers the full `homepage/.env.example` inventory in one registry-driven UI
+- Runtime-capable entries can override values immediately; bootstrap-only entries are marked as Vercel env sync only and apply on redeploy
 - `src/lib/secrets.ts` checks Turso-backed encrypted overrides first, then falls back to `process.env`
 - `src/lib/managedSecrets.ts` is the source of truth for the keys and related config exposed by `/tools/secrets`
-- `/api/secrets` can also mirror saved keys into Vercel preview/production envs when Vercel sync credentials are configured; a redeploy is still required for deployed code to pick them up
+- `/api/secrets` can also mirror saved keys into Vercel preview/production envs when Vercel sync credentials are configured; the UI shows `env set` when the project env is already present
+- `JOBS_TURSO_DATABASE_URL` and `JOBS_TURSO_AUTH_TOKEN` are now runtime-manageable through `getSecret()` in `src/lib/jobsDb.ts`
 - Use `getSecret()` in server routes for any secret that may be rotated via the UI
 
 ## Usage Snapshots

@@ -1,7 +1,10 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { MANAGED_SECRET_GROUPS } from '@/lib/managedSecrets'
+import {
+  MANAGED_SECRET_GROUPS,
+  type ManagedSecretStrategy,
+} from '@/lib/managedSecrets'
 
 interface SecretOverrideMeta {
   key: string
@@ -9,8 +12,15 @@ interface SecretOverrideMeta {
   updatedAt: string
 }
 
+interface SecretStatus {
+  envSet: boolean
+  envStatusSource: 'vercel' | 'runtime'
+  strategy: ManagedSecretStrategy
+}
+
 export default function SecretsPage() {
   const [overrides, setOverrides] = useState<SecretOverrideMeta[]>([])
+  const [statuses, setStatuses] = useState<Record<string, SecretStatus>>({})
   const [loading, setLoading] = useState(true)
   const [pendingKey, setPendingKey] = useState<string | null>(null)
   const [inputValue, setInputValue] = useState('')
@@ -29,6 +39,7 @@ export default function SecretsPage() {
       if (res.ok) {
         const data = await res.json()
         setOverrides(data.overrides ?? [])
+        setStatuses(data.statuses ?? {})
       }
     } catch {
       // ignore
@@ -60,8 +71,11 @@ export default function SecretsPage() {
         const vercelSync = data.vercelSync as
           | { status?: 'ok' | 'skipped' | 'failed'; message?: string }
           | undefined
+        const strategy = data.strategy as ManagedSecretStrategy | undefined
 
-        if (vercelSync?.status === 'ok') {
+        if (strategy === 'env-sync-only' && vercelSync?.status === 'ok') {
+          showToast(`${key} saved to Vercel envs. Redeploy required to use it.`, 'success')
+        } else if (vercelSync?.status === 'ok') {
           showToast(`${key} saved and synced to Vercel`, 'success')
         } else if (vercelSync?.status === 'failed') {
           showToast(`${key} saved locally. ${vercelSync.message ?? 'Vercel sync failed.'}`, 'error')
@@ -113,8 +127,8 @@ export default function SecretsPage() {
           Runtime Secrets
         </h1>
         <p className="text-foreground/60 mt-2 blur-reveal-1">
-          Override service credentials and related runtime config without a redeploy.
-          Values are encrypted at rest and layered on top of the existing environment.
+          Manage service credentials and deploy-time environment config from one place.
+          Runtime-capable entries can override immediately; env-only entries sync to Vercel for the next redeploy.
         </p>
       </div>
 
@@ -125,10 +139,9 @@ export default function SecretsPage() {
         </span>
         <div className="text-sm text-amber-800 dark:text-amber-300">
           <span className="font-medium">Write-only:</span> Values cannot be read back once saved.
-          Overrides take effect immediately on the next API call. Clear an override to fall back to
-          the underlying env var. If `VERCEL_API_TOKEN` plus a Vercel project ID or name are configured,
-          Save also upserts the key into Vercel preview/production envs for the next redeploy.
-          Bootstrap-only auth and Turso connection vars intentionally stay env-only.
+          `Env set` means the key already exists in the Vercel project when that lookup is available,
+          otherwise it falls back to the current deployment env. Runtime entries can override immediately;
+          env-only entries are synced to Vercel and picked up on redeploy. Clear only removes the runtime override.
         </div>
       </div>
 
@@ -158,7 +171,10 @@ export default function SecretsPage() {
               <div className="divide-y divide-glass-border">
                 {group.keys.map((item) => {
                   const meta = overrideMap.get(item.key)
+                  const status = statuses[item.key]
                   const isEditing = pendingKey === item.key
+                  const strategy = status?.strategy ?? item.strategy ?? 'runtime-override'
+                  const inputType = item.inputType ?? 'password'
 
                   return (
                     <div key={item.key} className="px-6 py-4">
@@ -168,14 +184,29 @@ export default function SecretsPage() {
                             <code className="text-sm font-mono font-medium text-foreground">
                               {item.key}
                             </code>
+                            {status?.envSet && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800">
+                                <span className="material-symbols-outlined text-xs">cloud_done</span>
+                                env set
+                              </span>
+                            )}
                             {meta && (
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800">
                                 <span className="material-symbols-outlined text-xs">check_circle</span>
                                 overridden
                               </span>
                             )}
+                            {strategy === 'env-sync-only' && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800">
+                                <span className="material-symbols-outlined text-xs">sync_alt</span>
+                                env only
+                              </span>
+                            )}
                           </div>
                           <p className="text-xs text-foreground/50 mt-0.5">{item.description}</p>
+                          {item.note && (
+                            <p className="text-xs text-foreground/35 mt-0.5">{item.note}</p>
+                          )}
                           {meta && (
                             <p className="text-xs text-foreground/30 mt-0.5">
                               Set{' '}
@@ -199,11 +230,17 @@ export default function SecretsPage() {
                               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-foreground text-background text-sm font-medium hover:opacity-90 transition-opacity cursor-pointer"
                             >
                               <span className="material-symbols-outlined text-base">
-                                {meta ? 'edit' : 'add'}
+                                {meta || status?.envSet ? 'edit' : 'add'}
                               </span>
-                              {meta ? 'Update' : 'Set'}
+                              {strategy === 'env-sync-only'
+                                ? status?.envSet
+                                  ? 'Update env'
+                                  : 'Set env'
+                                : meta
+                                  ? 'Update'
+                                  : 'Set'}
                             </button>
-                            {meta && (
+                            {strategy === 'runtime-override' && meta && (
                               <button
                                 onClick={() => handleClear(item.key)}
                                 disabled={clearing === item.key}
@@ -230,14 +267,18 @@ export default function SecretsPage() {
                       {isEditing && (
                         <div className="mt-3 flex gap-2">
                           <input
-                            type="password"
+                            type={inputType === 'password' ? 'password' : inputType}
                             value={inputValue}
                             onChange={(e) => setInputValue(e.target.value)}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') handleSave(item.key)
                               if (e.key === 'Escape') cancelEdit()
                             }}
-                            placeholder={`Paste ${item.key} value…`}
+                            placeholder={
+                              strategy === 'env-sync-only'
+                                ? `Set ${item.key} in Vercel…`
+                                : `Paste ${item.key} value…`
+                            }
                             autoFocus
                             className="flex-1 px-4 py-2.5 rounded-xl bg-glass border border-glass-border text-foreground placeholder:text-foreground/30 focus:outline-none focus:border-glass-border-hover font-mono text-sm transition-colors"
                           />
@@ -246,7 +287,7 @@ export default function SecretsPage() {
                             disabled={saving || !inputValue.trim()}
                             className="px-4 py-2.5 rounded-xl bg-emerald-600 text-white font-medium text-sm hover:bg-emerald-700 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                           >
-                            {saving ? 'Saving…' : 'Save'}
+                            {saving ? 'Saving…' : strategy === 'env-sync-only' ? 'Save env' : 'Save'}
                           </button>
                           <button
                             onClick={cancelEdit}

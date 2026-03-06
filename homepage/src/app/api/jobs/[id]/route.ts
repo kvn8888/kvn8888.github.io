@@ -33,7 +33,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const setClauses = Object.keys(updates).map((f) => `${f} = ?`).join(', ')
     const values: (string | number | boolean | null)[] = [...Object.values(updates) as (string | number | boolean | null)[], numericId]
 
-    const db = getJobsDb()
+    const db = await getJobsDb()
     await ensureJobsSchema(db)
     await db.execute({
       sql: `UPDATE job_applications SET ${setClauses} WHERE id = ?`,

@@ -16,7 +16,7 @@ export async function GET() {
   const userEmail = session.user?.email?.toLowerCase() || 'unknown'
 
   try {
-    const db = getJobsDb()
+    const db = await getJobsDb()
     await ensureJobsSchema(db)
     const now = new Date()
     const today = now.toISOString().slice(0, 10)

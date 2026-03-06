@@ -1,9 +1,15 @@
 // Single source of truth for the runtime secrets UI.
 // Keep this list aligned with homepage/.env.example and with routes that use getSecret().
 
+export type ManagedSecretStrategy = 'runtime-override' | 'env-sync-only'
+export type ManagedSecretInputType = 'password' | 'text' | 'number'
+
 export interface ManagedSecretField {
   key: string
   description: string
+  strategy?: ManagedSecretStrategy
+  inputType?: ManagedSecretInputType
+  note?: string
 }
 
 export interface ManagedSecretGroup {
@@ -13,6 +19,44 @@ export interface ManagedSecretGroup {
 }
 
 export const MANAGED_SECRET_GROUPS: ManagedSecretGroup[] = [
+  {
+    label: 'Core Auth',
+    icon: 'shield_lock',
+    keys: [
+      {
+        key: 'AUTH_SECRET',
+        description: 'Auth.js session encryption secret',
+        strategy: 'env-sync-only',
+        note: 'Bootstrap-only. Used to encrypt sessions and the runtime secret store. Requires a redeploy.',
+      },
+      {
+        key: 'AUTH_GOOGLE_ID',
+        description: 'Google OAuth client ID',
+        strategy: 'env-sync-only',
+        note: 'Bootstrap-only. Auth.js reads this during startup and picks it up on redeploy.',
+      },
+      {
+        key: 'AUTH_GOOGLE_SECRET',
+        description: 'Google OAuth client secret',
+        strategy: 'env-sync-only',
+        note: 'Bootstrap-only. Auth.js reads this during startup and picks it up on redeploy.',
+      },
+      {
+        key: 'AUTH_TRUST_HOST',
+        description: 'Auth.js trusted-host flag for Vercel',
+        strategy: 'env-sync-only',
+        inputType: 'text',
+        note: 'Configuration value. Set to true on Vercel and picked up on redeploy.',
+      },
+      {
+        key: 'ALLOWED_EMAILS',
+        description: 'Comma-separated owner email whitelist',
+        strategy: 'env-sync-only',
+        inputType: 'text',
+        note: 'Configuration value. Owner accounts bypass page-level grants. Picked up on redeploy.',
+      },
+    ],
+  },
   {
     label: 'Google / Gemini',
     icon: 'acute',
@@ -48,6 +92,45 @@ export const MANAGED_SECRET_GROUPS: ManagedSecretGroup[] = [
       { key: 'AZURE_SUBSCRIPTION_ID', description: 'Azure subscription ID for cost management' },
       { key: 'AZURE_BILLING_ACCOUNT_ID', description: 'Azure billing account ID' },
       { key: 'AZURE_BILLING_PROFILE_ID', description: 'Azure billing profile ID' },
+      {
+        key: 'AZURE_USAGE_CACHE_TTL_MS',
+        description: 'Azure usage cache TTL in milliseconds',
+        strategy: 'env-sync-only',
+        inputType: 'number',
+        note: 'Configuration value. The current route reads it at startup, so changes apply on redeploy.',
+      },
+    ],
+  },
+  {
+    label: 'Turso',
+    icon: 'deployed_code',
+    keys: [
+      {
+        key: 'TURSO_DATABASE_URL',
+        description: 'Primary Turso database URL for auth approvals, notes, speech history, secrets, and snapshots',
+        strategy: 'env-sync-only',
+        inputType: 'text',
+        note: 'Bootstrap-only. The secrets system depends on this database connection and picks it up on redeploy.',
+      },
+      {
+        key: 'TURSO_AUTH_TOKEN',
+        description: 'Primary Turso auth token for the main application database',
+        strategy: 'env-sync-only',
+        note: 'Bootstrap-only. The secrets system depends on this token and picks it up on redeploy.',
+      },
+      {
+        key: 'JOBS_TURSO_DATABASE_URL',
+        description: 'Optional dedicated Turso database URL for job applications',
+        inputType: 'text',
+        note: 'Runtime-manageable. Falls back to TURSO_DATABASE_URL when unset.',
+      },
+      {
+        key: 'JOBS_TURSO_AUTH_TOKEN',
+        description: 'Optional dedicated Turso auth token for the jobs database',
+        note: 'Runtime-manageable. Falls back to TURSO_AUTH_TOKEN when unset.',
+      },
+      { key: 'TURSO_API_TOKEN', description: 'Turso usage API token' },
+      { key: 'TURSO_ORG_SLUG', description: 'Turso organization slug' },
     ],
   },
   {
@@ -88,8 +171,6 @@ export const MANAGED_SECRET_GROUPS: ManagedSecretGroup[] = [
       { key: 'VERCEL_TEAM_SLUG', description: 'Vercel team slug for env sync (optional)' },
       { key: 'ODDS_API_KEY', description: 'The Odds API usage' },
       { key: 'VENICE_API_KEY', description: 'Venice AI usage' },
-      { key: 'TURSO_API_TOKEN', description: 'Turso usage API token' },
-      { key: 'TURSO_ORG_SLUG', description: 'Turso organization slug' },
     ],
   },
   {
@@ -100,3 +181,13 @@ export const MANAGED_SECRET_GROUPS: ManagedSecretGroup[] = [
     ],
   },
 ]
+
+export const MANAGED_SECRET_FIELDS = MANAGED_SECRET_GROUPS.flatMap((group) => group.keys)
+
+export const MANAGED_SECRET_FIELDS_BY_KEY = new Map(
+  MANAGED_SECRET_FIELDS.map((field) => [field.key, field] as const)
+)
+
+export function getManagedSecretField(key: string) {
+  return MANAGED_SECRET_FIELDS_BY_KEY.get(key)
+}

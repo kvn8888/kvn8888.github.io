@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
   const offset = parseInt(searchParams.get('offset') || '0', 10)
 
   try {
-    const db = getJobsDb()
+    const db = await getJobsDb()
     await ensureJobsSchema(db)
 
     const whereClause = q ? `WHERE company LIKE '%' || ? || '%'` : ''
@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
 
     const jobDate = date || new Date().toISOString().slice(0, 10)
 
-    const db = getJobsDb()
+    const db = await getJobsDb()
     await ensureJobsSchema(db)
     const result = await db.execute({
       sql: `INSERT INTO job_applications (company, role, description, date, source, type, cover_letter, resume_type)

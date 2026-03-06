@@ -65,9 +65,12 @@ API keys can be overridden at runtime via `/tools/secrets` without a redeploy.
 **Key patterns:**
 - `src/lib/secrets.ts` exposes `getSecret()` which checks Turso overrides first, then `process.env`
 - `src/lib/managedSecrets.ts` is the single source of truth for the keys and related config shown in `/tools/secrets`
+- The registry now covers the full `homepage/.env.example` inventory; each entry is either `runtime-override` or `env-sync-only`
+- The `/tools/secrets` UI surfaces an `env set` badge when the key is already present in the Vercel project envs, falling back to the current deployment env when that lookup is unavailable
 - Overrides are encrypted at rest using a key derived from `AUTH_SECRET`
 - `/api/secrets` manages the overrides for authenticated users
 - After a successful save, `/api/secrets` can also upsert the same key into Vercel project envs when `VERCEL_API_TOKEN` and `VERCEL_PROJECT_ID` (or `VERCEL_PROJECT_NAME`) are configured
+- `JOBS_TURSO_DATABASE_URL` and `JOBS_TURSO_AUTH_TOKEN` are fetched through `getSecret()` in `src/lib/jobsDb.ts`, so they can now be rotated through the secrets UI without a redeploy
 - Use `getSecret("KEY_NAME")` in API routes instead of reading `process.env.KEY_NAME` directly when the value may be rotated via the UI
 
 ## API Routes
