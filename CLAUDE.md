@@ -69,9 +69,18 @@ RENDER_API_KEY       — For Render services API (optional)
 - Geist Sans + Geist Mono fonts
 - Color scheme: dark text on light background, foreground/background CSS variables
 
+## Proxied Routes
+
+| Path | Destination | Notes |
+|------|-------------|-------|
+| `/polymarket` | `https://polymarket-ev-bot-1.onrender.com` | Vercel rewrite in `next.config.ts` |
+| `/polymarket/:path*` | `https://polymarket-ev-bot-1.onrender.com/:path*` | Render-hosted SPA |
+
+The Polymarket Render app has its own Google OAuth client — callback URIs registered for it separately in Google Cloud Console.
+
 ## Google OAuth Setup
 
-Callback URIs registered for:
+Callback URIs registered for **kevinc.dev Next.js app**:
 
 - `http://localhost:3000/api/auth/callback/google`
 - `https://kevinc.dev/api/auth/callback/google`

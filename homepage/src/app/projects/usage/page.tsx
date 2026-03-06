@@ -173,6 +173,24 @@ interface ResendUsage {
   dashboardUrl: string
 }
 
+// GitHubUsage holds both Codespaces compute/storage stats and Copilot premium request usage.
+// Both are fetched from the GitHub billing API using a fine-grained PAT.
+interface GitHubUsage {
+  // codespaces is null when no Codespaces activity was found this billing cycle
+  codespaces: {
+    totalMinutes: number            // total compute minutes consumed across all SKUs
+    storageGB: number               // storage used for prebuilds and idle codespaces
+    skuBreakdown: Record<string, number> // minutes grouped by machine type (e.g. "Codespaces Linux 2 core")
+    includedMinutes: number         // Student plan included allocation (10,800 min)
+    includedStorageGB: number       // Student plan included storage (20 GB)
+  } | null
+  // copilot is null when the premium_request/usage endpoint is unavailable
+  copilot: {
+    items: { model: string; sku: string; quantity: number; cost: number }[]
+  } | null
+  dashboardUrl: string
+}
+
 function UsageMeter({
   label,
   used,
@@ -324,6 +342,9 @@ export default function UsagePage() {
   const [s3Status, setS3Status] = useState<'loading' | 'ok' | 'error'>('loading')
   const [resend, setResend] = useState<ResendUsage | null>(null)
   const [resendStatus, setResendStatus] = useState<'loading' | 'ok' | 'error'>('loading')
+  // GitHub state — covers both Codespaces billing and Copilot premium requests
+  const [github, setGithub] = useState<GitHubUsage | null>(null)
+  const [githubStatus, setGithubStatus] = useState<'loading' | 'ok' | 'error'>('loading')
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
 
   const fetchData = useCallback(async () => {
@@ -340,6 +361,7 @@ export default function UsagePage() {
     setReplicateStatus('loading')
     setS3Status('loading')
     setResendStatus('loading')
+    setGithubStatus('loading')
 
     const fetchService = async <T,>(
       url: string,
@@ -373,6 +395,8 @@ export default function UsagePage() {
       fetchService('/api/usage/replicate', setReplicate, setReplicateStatus),
       fetchService('/api/usage/s3', setS3Usage, setS3Status),
       fetchService('/api/usage/resend', setResend, setResendStatus),
+      // Fetches Codespaces billing and Copilot premium request usage in one round-trip
+      fetchService('/api/usage/github', setGithub, setGithubStatus),
     ])
 
     setLastRefresh(new Date())
@@ -655,6 +679,170 @@ export default function UsagePage() {
         ) : renderStatus === 'error' ? (
           <p className="text-sm text-foreground/40">
             Could not fetch Render data. Check RENDER_API_KEY in env.
+          </p>
+        ) : null}
+      </ServiceCard>
+
+      {/* GitHub — Codespaces billing + Copilot premium requests
+           Requires GITHUB_PAT (fine-grained, "Plan" read permission) and GITHUB_USERNAME in env. */}
+      <ServiceCard
+        title="GitHub"
+        icon="code"
+        plan="Student"
+        status={githubStatus}
+        dashboardUrl="https://github.com/settings/billing/summary"
+      >
+        {github ? (
+          <>
+            {/* ── Codespaces section ────────────────────────────────────────────
+                 Shows how many compute minutes and storage GB have been consumed,
+                 plus a burn-rate projection for the rest of the month. */}
+            <div className="space-y-3">
+              <p className="text-xs text-foreground/40 uppercase tracking-wider font-medium">
+                Codespaces
+              </p>
+
+              {github.codespaces ? (
+                <>
+                  {/* Core hours progress bar (limit = 10,800 min = 180 core hours) */}
+                  <UsageMeter
+                    label="Core Hours"
+                    used={github.codespaces.totalMinutes}
+                    limit={github.codespaces.includedMinutes}
+                    unit="min"
+                  />
+
+                  {/* Storage progress bar (limit = 20 GB for Student plan) */}
+                  <UsageMeter
+                    label="Storage"
+                    used={github.codespaces.storageGB}
+                    limit={github.codespaces.includedStorageGB}
+                    unit="GB"
+                  />
+
+                  {/* Machine-type breakdown — shows which Codespaces SKU was used */}
+                  {Object.keys(github.codespaces.skuBreakdown).length > 0 && (
+                    <div className="space-y-1 pt-1">
+                      {Object.entries(github.codespaces.skuBreakdown).map(([sku, mins]) => (
+                        <div key={sku} className="flex items-baseline justify-between text-xs">
+                          <span className="text-foreground/40 truncate max-w-[150px]">{sku}</span>
+                          <span className="tabular-nums text-foreground/40">{mins.toLocaleString()} min</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Burn rate projection — same formula used across all service cards */}
+                  {(() => {
+                    const { totalMinutes, includedMinutes } = github.codespaces!
+                    const now = new Date()
+                    const dayOfMonth = now.getDate()
+                    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
+                    const daysRemaining = daysInMonth - dayOfMonth
+                    if (dayOfMonth === 0 || includedMinutes === 0) return null
+                    const dailyRate = totalMinutes / dayOfMonth
+                    const projected = totalMinutes + dailyRate * daysRemaining
+                    const remaining = includedMinutes - totalMinutes
+                    const willBurnOut = projected > includedMinutes
+                    // Calculate the calendar day within this month when minutes would run out
+                    const burnOutDay =
+                      dailyRate > 0 ? Math.ceil(remaining / dailyRate) + dayOfMonth : null
+                    const burnOutDate =
+                      burnOutDay && burnOutDay <= daysInMonth
+                        ? new Date(now.getFullYear(), now.getMonth(), burnOutDay)
+                        : null
+
+                    return (
+                      <div className="pt-2 border-t border-foreground/5 space-y-2">
+                        <div className="flex items-baseline justify-between text-sm">
+                          <span className="text-foreground/50">Remaining</span>
+                          <span className="tabular-nums font-semibold text-foreground">
+                            {remaining.toLocaleString()} min
+                          </span>
+                        </div>
+                        <div className="flex items-baseline justify-between text-sm">
+                          <span className="text-foreground/50">Daily Burn Rate</span>
+                          <span className="tabular-nums text-foreground/60">
+                            ~{Math.round(dailyRate).toLocaleString()} min/day
+                          </span>
+                        </div>
+                        <div className="flex items-baseline justify-between text-sm">
+                          <span className="text-foreground/50">Projected This Month</span>
+                          <span
+                            className={`tabular-nums font-medium ${
+                              willBurnOut ? 'text-red-600' : 'text-foreground/60'
+                            }`}
+                          >
+                            {Math.round(projected).toLocaleString()} / {includedMinutes.toLocaleString()}
+                          </span>
+                        </div>
+                        {willBurnOut && (
+                          <div className="mt-2 px-3 py-2 rounded-xl bg-red-50 border border-red-200 flex items-center gap-2">
+                            <span className="material-symbols-outlined text-red-500 text-lg">warning</span>
+                            <span className="text-sm text-red-700">
+                              At current pace, Codespaces minutes will run out
+                              {burnOutDate
+                                ? ` on ${burnOutDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+                                : ' before month end'}. {daysRemaining} days remaining.
+                            </span>
+                          </div>
+                        )}
+                        {!willBurnOut && daysRemaining > 0 && (
+                          <div className="mt-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-2">
+                            <span className="material-symbols-outlined text-emerald-500 text-lg">check_circle</span>
+                            <span className="text-sm text-emerald-700">
+                              On track — projected to use{' '}
+                              {((projected / includedMinutes) * 100).toFixed(0)}% by month end.
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })()}
+                </>
+              ) : (
+                <p className="text-sm text-foreground/40">No Codespaces usage this month.</p>
+              )}
+            </div>
+
+            {/* ── Copilot Premium Requests section ────────────────────────────
+                 Premium requests are calls to higher-cost models (e.g. Claude 3.5, o1).
+                 With Copilot Pro (Student plan), these are included at no extra charge
+                 up to the monthly allowance. */}
+            <div className="pt-3 border-t border-foreground/5 space-y-2">
+              <p className="text-xs text-foreground/40 uppercase tracking-wider font-medium">
+                Copilot Premium Requests
+              </p>
+
+              {github.copilot && github.copilot.items.length > 0 ? (
+                <div className="space-y-1">
+                  {/* One row per model showing request count and net cost (usually $0 on Student plan) */}
+                  {github.copilot.items.map((item, i) => (
+                    <div key={i} className="flex items-baseline justify-between text-sm">
+                      <span className="text-foreground/50 truncate max-w-[160px]">{item.model}</span>
+                      <div className="flex items-baseline gap-3 text-right shrink-0">
+                        <span className="tabular-nums text-foreground/60">
+                          {item.quantity.toLocaleString()} req
+                        </span>
+                        {item.cost > 0 && (
+                          <span className="tabular-nums text-foreground/40 text-xs">
+                            ${item.cost.toFixed(4)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-foreground/40">No premium usage this month.</p>
+              )}
+
+              <p className="text-xs text-foreground/30 italic">Free with Copilot Pro (Student).</p>
+            </div>
+          </>
+        ) : githubStatus === 'error' ? (
+          <p className="text-sm text-foreground/40">
+            Could not fetch GitHub data. Check GITHUB_PAT and GITHUB_USERNAME in env.
           </p>
         ) : null}
       </ServiceCard>
