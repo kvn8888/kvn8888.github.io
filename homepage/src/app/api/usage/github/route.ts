@@ -16,6 +16,9 @@ interface BillingLineItem {
   product?: string
   sku?: string
   quantity?: number
+  grossQuantity?: number
+  discountQuantity?: number
+  netQuantity?: number
   unitType?: string
   pricePerUnit?: number
   grossAmount?: number
@@ -31,9 +34,30 @@ interface PremiumRequestItem {
   model?: string
   sku?: string
   quantity?: number
+  grossQuantity?: number
+  discountQuantity?: number
+  netQuantity?: number
   totalAmount?: number
   grossAmount?: number
   netAmount?: number
+}
+
+function normalizeUnitType(unitType?: string): string {
+  return (unitType ?? "").toLowerCase().replace(/[\s_-]+/g, "")
+}
+
+function getUsageQuantity(item: {
+  quantity?: number
+  grossQuantity?: number
+  netQuantity?: number
+}): number {
+  return item.quantity ?? item.grossQuantity ?? item.netQuantity ?? 0
+}
+
+function isCodespacesLineItem(item: BillingLineItem): boolean {
+  const product = (item.product ?? "").toLowerCase()
+  const sku = (item.sku ?? "").toLowerCase()
+  return product.includes("codespaces") || sku.includes("codespaces") || sku.includes("codespace")
 }
 
 export async function GET() {
@@ -98,17 +122,37 @@ export async function GET() {
       // so the card can show a breakdown of which machine type was used.
       const minutesBySku: Record<string, number> = {}
       let storageGB = 0
+      let storageGbHours = 0
+      const now = new Date()
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+      const hoursElapsedThisMonth = Math.max(
+        (now.getTime() - monthStart.getTime()) / (1000 * 60 * 60),
+        1,
+      )
 
       for (const item of lineItems) {
-        if (item.product !== "Codespaces") continue
+        if (!isCodespacesLineItem(item)) continue
 
-        if (item.unitType === "minutes") {
-          const sku = item.sku ?? "Unknown"
-          minutesBySku[sku] = (minutesBySku[sku] ?? 0) + (item.quantity ?? 0)
-        } else if (item.unitType === "GB" || item.unitType === "GB-month") {
-          // Codespaces storage is reported in GB (or GB-month on some plans)
-          storageGB += item.quantity ?? 0
+        const quantity = getUsageQuantity(item)
+        const unitType = normalizeUnitType(item.unitType)
+        const sku = item.sku ?? item.product ?? "Codespaces"
+
+        if (unitType.includes("minute")) {
+          minutesBySku[sku] = (minutesBySku[sku] ?? 0) + quantity
+        } else if (unitType.includes("hour")) {
+          // GitHub may report compute in hours/core-hours rather than minutes.
+          minutesBySku[sku] = (minutesBySku[sku] ?? 0) + quantity * 60
+        } else if (unitType === "gb" || unitType.includes("gbmonth")) {
+          // GB and GB-month are already close to the included 20 GB storage allowance.
+          storageGB += quantity
+        } else if (unitType.includes("gbhour")) {
+          // If storage is billed in GB-hours, convert to the average GB held this month.
+          storageGbHours += quantity
         }
+      }
+
+      if (storageGbHours > 0) {
+        storageGB += storageGbHours / hoursElapsedThisMonth
       }
 
       const totalMinutes = Object.values(minutesBySku).reduce(
@@ -116,12 +160,14 @@ export async function GET() {
         0,
       )
 
-      codespaces = {
-        totalMinutes,
-        storageGB,
-        skuBreakdown: minutesBySku,
-        includedMinutes: INCLUDED_MINUTES,
-        includedStorageGB: INCLUDED_STORAGE_GB,
+      if (totalMinutes > 0 || storageGB > 0) {
+        codespaces = {
+          totalMinutes,
+          storageGB: Math.round(storageGB * 100) / 100,
+          skuBreakdown: minutesBySku,
+          includedMinutes: INCLUDED_MINUTES,
+          includedStorageGB: INCLUDED_STORAGE_GB,
+        }
       }
     } catch {
       // Parsing failed — leave codespaces as null so the card shows graceful fallback
@@ -146,13 +192,15 @@ export async function GET() {
         : (data.usageItems ?? data.items ?? [])
 
       copilot = {
-        items: rawItems.map((item) => ({
-          model: item.model ?? item.sku ?? "Unknown",
-          sku: item.sku ?? "",
-          quantity: item.quantity ?? 0,
-          // Prefer netAmount (what the user actually pays), fall back to gross
-          cost: item.netAmount ?? item.totalAmount ?? item.grossAmount ?? 0,
-        })),
+        items: rawItems
+          .map((item) => ({
+            model: item.model ?? item.sku ?? "Unknown",
+            sku: item.sku ?? "",
+            quantity: item.grossQuantity ?? item.quantity ?? item.netQuantity ?? 0,
+            // Prefer netAmount (what the user actually pays), fall back to gross.
+            cost: item.netAmount ?? item.totalAmount ?? item.grossAmount ?? 0,
+          }))
+          .filter((item) => item.quantity > 0 || item.cost > 0),
       }
     } catch {
       // Parsing failed — leave copilot as null
