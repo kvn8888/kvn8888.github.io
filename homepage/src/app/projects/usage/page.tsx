@@ -124,6 +124,55 @@ interface VeniceUsage {
   dashboardUrl: string
 }
 
+interface MistralUsage {
+  configured: boolean
+  // source: 'monthly_usage' — returned when key has billing:read
+  source?: 'monthly_usage' | 'models_list' | 'key_invalid' | 'error'
+  // Monthly usage data (when source === 'monthly_usage')
+  models?: { model: string; requests: number; prompt_tokens: number; completion_tokens: number; total_tokens: number }[]
+  period?: { start: string; end: string } | null
+  totalTokens?: number
+  totalRequests?: number
+  // Models list fallback (when source === 'models_list')
+  keyValid?: boolean
+  availableModels?: string[]
+  note?: string
+  error?: string
+  dashboardUrl: string
+}
+
+interface ReplicateUsage {
+  configured: boolean
+  username?: string
+  name?: string
+  type?: 'user' | 'organization' | string
+  githubUrl?: string | null
+  note?: string
+  error?: string
+  dashboardUrl: string
+}
+
+interface S3Usage {
+  configured: boolean
+  region?: string
+  speechBucket?: string | null
+  bucketCount?: number
+  buckets?: { name: string; region: string; createdAt: string | null }[]
+  ownerDisplayName?: string | null
+  note?: string
+  error?: string
+  dashboardUrl: string
+}
+
+interface ResendUsage {
+  configured: boolean
+  domains?: { id: string; name: string; status: string; region: string; createdAt?: string }[]
+  apiKeyCount?: number
+  warning?: string
+  error?: string
+  dashboardUrl: string
+}
+
 function UsageMeter({
   label,
   used,
@@ -163,6 +212,16 @@ function UsageMeter({
       )}
     </div>
   )
+}
+
+/**
+ * Maps a Resend domain status string to a Tailwind dot color class.
+ * Resend status values: not_started | pending | verified | failure | temporary_failure
+ */
+function resendDomainStatusColor(status: string): string {
+  if (status === 'verified') return 'bg-emerald-400'
+  if (status === 'pending') return 'bg-amber-400'
+  return 'bg-red-400' // failure | temporary_failure | not_started
 }
 
 function ServiceCard({
@@ -257,6 +316,14 @@ export default function UsagePage() {
   const [veniceStatus, setVeniceStatus] = useState<
     'loading' | 'ok' | 'error'
   >('loading')
+  const [mistral, setMistral] = useState<MistralUsage | null>(null)
+  const [mistralStatus, setMistralStatus] = useState<'loading' | 'ok' | 'error'>('loading')
+  const [replicate, setReplicate] = useState<ReplicateUsage | null>(null)
+  const [replicateStatus, setReplicateStatus] = useState<'loading' | 'ok' | 'error'>('loading')
+  const [s3Usage, setS3Usage] = useState<S3Usage | null>(null)
+  const [s3Status, setS3Status] = useState<'loading' | 'ok' | 'error'>('loading')
+  const [resend, setResend] = useState<ResendUsage | null>(null)
+  const [resendStatus, setResendStatus] = useState<'loading' | 'ok' | 'error'>('loading')
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
 
   const fetchData = useCallback(async () => {
@@ -269,6 +336,10 @@ export default function UsagePage() {
     setTursoStatus('loading')
     setOddsStatus('loading')
     setVeniceStatus('loading')
+    setMistralStatus('loading')
+    setReplicateStatus('loading')
+    setS3Status('loading')
+    setResendStatus('loading')
 
     const fetchService = async <T,>(
       url: string,
@@ -298,6 +369,10 @@ export default function UsagePage() {
       fetchService('/api/usage/turso', setTurso, setTursoStatus),
       fetchService('/api/usage/odds', setOdds, setOddsStatus),
       fetchService('/api/usage/venice', setVenice, setVeniceStatus),
+      fetchService('/api/usage/mistral', setMistral, setMistralStatus),
+      fetchService('/api/usage/replicate', setReplicate, setReplicateStatus),
+      fetchService('/api/usage/s3', setS3Usage, setS3Status),
+      fetchService('/api/usage/resend', setResend, setResendStatus),
     ])
 
     setLastRefresh(new Date())
@@ -1164,6 +1239,205 @@ export default function UsagePage() {
           <p className="text-sm text-foreground/40">
             Could not fetch Venice AI data. Check VENICE_API_KEY in env.
           </p>
+        ) : null}
+      </ServiceCard>
+
+      {/* Mistral */}
+      <ServiceCard
+        title="Mistral AI"
+        icon="psychology"
+        plan={mistral?.source === 'monthly_usage' ? 'Usage API' : (mistral?.keyValid ? 'Key Valid' : undefined)}
+        status={mistralStatus}
+        dashboardUrl={mistral?.dashboardUrl || 'https://console.mistral.ai/'}
+      >
+        {mistral ? (
+          <>
+            {mistral.error ? (
+              <p className="text-sm text-foreground/40">{mistral.error}</p>
+            ) : mistral.source === 'monthly_usage' && mistral.models ? (
+              <div className="space-y-2">
+                <div className="flex items-baseline justify-between text-sm">
+                  <span className="text-foreground/50">Total Tokens (month)</span>
+                  <span className="tabular-nums font-semibold text-foreground">
+                    {(mistral.totalTokens ?? 0).toLocaleString()}
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between text-sm">
+                  <span className="text-foreground/50">Total Requests</span>
+                  <span className="tabular-nums text-foreground/60">{(mistral.totalRequests ?? 0).toLocaleString()}</span>
+                </div>
+                {mistral.period && (
+                  <div className="flex items-baseline justify-between text-sm">
+                    <span className="text-foreground/50">Period</span>
+                    <span className="text-foreground/40 text-xs">
+                      {new Date(mistral.period.start).toLocaleDateString()} – {new Date(mistral.period.end).toLocaleDateString()}
+                    </span>
+                  </div>
+                )}
+                {mistral.models.length > 0 && (
+                  <div className="pt-2 border-t border-foreground/5 space-y-1">
+                    <p className="text-xs text-foreground/40 uppercase tracking-wider font-medium">By Model</p>
+                    {mistral.models.slice(0, 4).map((m) => (
+                      <div key={m.model} className="flex items-center justify-between text-xs">
+                        <span className="text-foreground/50 truncate max-w-[140px]">{m.model}</span>
+                        <span className="tabular-nums text-foreground/40">{m.total_tokens.toLocaleString()} tok</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : mistral.source === 'models_list' ? (
+              <div className="space-y-2">
+                <div className="flex items-baseline justify-between text-sm">
+                  <span className="text-foreground/50">API Key</span>
+                  <span className="text-emerald-600 font-medium">Valid</span>
+                </div>
+                {mistral.availableModels && (
+                  <div className="flex items-baseline justify-between text-sm">
+                    <span className="text-foreground/50">Models Available</span>
+                    <span className="tabular-nums text-foreground/60">{mistral.availableModels.length}</span>
+                  </div>
+                )}
+                {mistral.note && <p className="text-xs text-foreground/30 italic">{mistral.note}</p>}
+              </div>
+            ) : (
+              <p className="text-sm text-foreground/40">Mistral API key configured. Visit dashboard for detailed usage.</p>
+            )}
+          </>
+        ) : mistralStatus === 'error' ? (
+          <p className="text-sm text-foreground/40">Could not fetch Mistral data. Check MISTRAL_API_KEY in env.</p>
+        ) : null}
+      </ServiceCard>
+
+      {/* Replicate */}
+      <ServiceCard
+        title="Replicate"
+        icon="model_training"
+        status={replicateStatus}
+        dashboardUrl={replicate?.dashboardUrl || 'https://replicate.com/account/billing'}
+      >
+        {replicate ? (
+          <>
+            {replicate.error ? (
+              <p className="text-sm text-foreground/40">{replicate.error}</p>
+            ) : (
+              <div className="space-y-2">
+                {replicate.username && (
+                  <div className="flex items-baseline justify-between text-sm">
+                    <span className="text-foreground/50">Username</span>
+                    <span className="font-medium text-foreground/70">@{replicate.username}</span>
+                  </div>
+                )}
+                {replicate.type && (
+                  <div className="flex items-baseline justify-between text-sm">
+                    <span className="text-foreground/50">Account Type</span>
+                    <span className="text-foreground/60 capitalize">{replicate.type}</span>
+                  </div>
+                )}
+                <p className="text-xs text-foreground/30 italic">
+                  Per-run spend available on the billing dashboard.
+                </p>
+              </div>
+            )}
+          </>
+        ) : replicateStatus === 'error' ? (
+          <p className="text-sm text-foreground/40">Could not fetch Replicate data. Check REPLICATE_API_TOKEN in env.</p>
+        ) : null}
+      </ServiceCard>
+
+      {/* AWS S3 */}
+      <ServiceCard
+        title="AWS S3"
+        icon="storage"
+        status={s3Status}
+        dashboardUrl={s3Usage?.dashboardUrl || 'https://s3.console.aws.amazon.com/s3/home'}
+      >
+        {s3Usage ? (
+          <>
+            {s3Usage.error ? (
+              <p className="text-sm text-foreground/40">{s3Usage.error}</p>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex items-baseline justify-between text-sm">
+                  <span className="text-foreground/50">Buckets</span>
+                  <span className="tabular-nums font-semibold text-foreground">{s3Usage.bucketCount ?? 0}</span>
+                </div>
+                {s3Usage.speechBucket && (
+                  <div className="flex items-baseline justify-between text-sm">
+                    <span className="text-foreground/50">TTS Audio Bucket</span>
+                    <span className="font-medium text-foreground/70 text-xs truncate max-w-[140px]">{s3Usage.speechBucket}</span>
+                  </div>
+                )}
+                {s3Usage.ownerDisplayName && (
+                  <div className="flex items-baseline justify-between text-sm">
+                    <span className="text-foreground/50">Account</span>
+                    <span className="text-foreground/60">{s3Usage.ownerDisplayName}</span>
+                  </div>
+                )}
+                {s3Usage.region && (
+                  <div className="flex items-baseline justify-between text-sm">
+                    <span className="text-foreground/50">Default Region</span>
+                    <span className="text-foreground/60">{s3Usage.region}</span>
+                  </div>
+                )}
+                {s3Usage.note && (
+                  <p className="text-xs text-foreground/30 italic">{s3Usage.note}</p>
+                )}
+              </div>
+            )}
+          </>
+        ) : s3Status === 'error' ? (
+          <p className="text-sm text-foreground/40">Could not fetch S3 data. Check AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in env.</p>
+        ) : null}
+      </ServiceCard>
+
+      {/* Resend */}
+      <ServiceCard
+        title="Resend"
+        icon="email"
+        status={resendStatus}
+        dashboardUrl={resend?.dashboardUrl || 'https://resend.com/overview'}
+      >
+        {resend ? (
+          <>
+            {resend.error ? (
+              <p className="text-sm text-foreground/40">{resend.error}</p>
+            ) : (
+              <div className="space-y-2">
+                {resend.domains && resend.domains.length > 0 && (
+                  <>
+                    <p className="text-xs text-foreground/40 uppercase tracking-wider font-medium">
+                      Domains ({resend.domains.length})
+                    </p>
+                    {resend.domains.slice(0, 5).map((d) => (
+                      <div key={d.id} className="flex items-center justify-between text-sm">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-2 h-2 rounded-full ${resendDomainStatusColor(d.status)}`} />
+                          <span className="text-foreground/70 truncate max-w-[120px]">{d.name}</span>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-xs text-foreground/40">{d.region}</span>
+                          {d.createdAt && (
+                            <p className="text-xs text-foreground/25">
+                              {new Date(d.createdAt).toLocaleDateString()}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                )}
+                {resend.domains?.length === 0 && (
+                  <p className="text-sm text-foreground/40">No verified domains yet.</p>
+                )}
+                {resend.warning && (
+                  <p className="text-xs text-amber-600 italic">{resend.warning}</p>
+                )}
+              </div>
+            )}
+          </>
+        ) : resendStatus === 'error' ? (
+          <p className="text-sm text-foreground/40">Could not fetch Resend data. Check RESEND_API_KEY in env.</p>
         ) : null}
       </ServiceCard>
       </div>
