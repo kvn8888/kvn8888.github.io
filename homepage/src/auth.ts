@@ -42,7 +42,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
     authorized({ auth, request: { nextUrl } }) {
       const isLoggedIn = !!auth?.user
-      const isProtected = nextUrl.pathname.startsWith("/projects")
+      const isProtected =
+        nextUrl.pathname.startsWith("/projects") ||
+        nextUrl.pathname.startsWith("/tools")
 
       if (isProtected) {
         return isLoggedIn

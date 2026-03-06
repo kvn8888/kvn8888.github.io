@@ -52,6 +52,8 @@ const SECRET_GROUPS: SecretGroup[] = [
     label: 'Usage Monitoring',
     icon: 'monitoring',
     keys: [
+      { key: 'GITHUB_PAT', description: 'GitHub billing API (Codespaces + Copilot usage)' },
+      { key: 'GITHUB_USERNAME', description: 'GitHub username for personal billing endpoints' },
       { key: 'TAVILY_API_KEY', description: 'Tavily search & usage' },
       { key: 'OPENROUTER_API_KEY', description: 'OpenRouter AI credits' },
       { key: 'RENDER_API_KEY', description: 'Render services usage' },
