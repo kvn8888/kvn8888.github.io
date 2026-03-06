@@ -15,8 +15,10 @@ const nextConfig: NextConfig = {
   },
   async rewrites() {
     return [
-      // Proxy /polymarket and all sub-paths to the Render app.
-      // The upstream app is mounted under /polymarket as well, so preserve that prefix.
+      {
+        source: "/api/:path*",
+        destination: "https://polymarket-ev-bot-docker.onrender.com/api/:path*",
+      },
       {
         source: "/polymarket",
         destination: "https://polymarket-ev-bot-docker.onrender.com/polymarket",
@@ -26,7 +28,7 @@ const nextConfig: NextConfig = {
         destination: "https://polymarket-ev-bot-docker.onrender.com/polymarket/:path*",
       },
     ];
-  },
+  }
 };
 
 export default nextConfig;
