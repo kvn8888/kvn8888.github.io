@@ -1,6 +1,8 @@
 import NextAuth from "next-auth"
 import Google from "next-auth/providers/google"
-import { isEmailApproved, createLoginAttempt } from "@/lib/db"
+import { NextResponse } from "next/server"
+import { canAccessPath, getDefaultAuthorizedRedirect } from "@/lib/accessGrants"
+import { createLoginAttempt, getEmailAccessGrantKeys, isEmailApproved } from "@/lib/db"
 
 const ALLOWED_EMAILS = (process.env.ALLOWED_EMAILS || "").split(",").map((e) => e.trim().toLowerCase())
 
@@ -40,16 +42,61 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       await createLoginAttempt(email, 'google')
       return false
     },
-    authorized({ auth, request: { nextUrl } }) {
-      const isLoggedIn = !!auth?.user
-      const isProtected =
-        nextUrl.pathname.startsWith("/projects") ||
-        nextUrl.pathname.startsWith("/tools")
+    async authorized({ auth, request }) {
+      const { nextUrl } = request
+      const pathname = nextUrl.pathname
+      const isProtectedPage =
+        pathname.startsWith("/projects") || pathname.startsWith("/tools")
+      const isProtectedApi =
+        pathname.startsWith("/api/logins") ||
+        pathname.startsWith("/api/secrets") ||
+        pathname.startsWith("/api/usage") ||
+        pathname.startsWith("/api/jobs") ||
+        pathname.startsWith("/api/coverletter") ||
+        pathname.startsWith("/api/speech") ||
+        pathname.startsWith("/api/notes") ||
+        pathname.startsWith("/api/tools")
+      const isProtected = isProtectedPage || isProtectedApi
 
-      if (isProtected) {
-        return isLoggedIn
+      if (!isProtected) {
+        return true
       }
-      return true
+
+      if (!auth?.user?.email) {
+        if (isProtectedApi) {
+          return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+        }
+
+        return false
+      }
+
+      const email = auth.user.email.toLowerCase()
+
+      if (ALLOWED_EMAILS.includes(email)) {
+        return true
+      }
+
+      const approved = await isEmailApproved(email)
+      if (!approved) {
+        if (isProtectedApi) {
+          return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+        }
+
+        return NextResponse.redirect(new URL("/", nextUrl))
+      }
+
+      const grantKeys = await getEmailAccessGrantKeys(email)
+      if (canAccessPath(grantKeys, pathname)) {
+        return true
+      }
+
+      if (isProtectedApi) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+      }
+
+      return NextResponse.redirect(
+        new URL(getDefaultAuthorizedRedirect(grantKeys, pathname), nextUrl)
+      )
     },
   },
 })

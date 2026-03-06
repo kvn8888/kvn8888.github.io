@@ -1,4 +1,6 @@
 import { auth } from "@/auth"
+import { canAccessPath } from "@/lib/accessGrants"
+import { getEmailAccessGrantKeys } from "@/lib/db"
 
 const projectLinks = [
   {
@@ -35,6 +37,10 @@ const projectLinks = [
 
 export default async function ProjectPage() {
   const session = await auth()
+  const grantKeys = session?.user?.email
+    ? await getEmailAccessGrantKeys(session.user.email)
+    : []
+  const visibleProjectLinks = projectLinks.filter((link) => canAccessPath(grantKeys, link.href))
 
   return (
     <div>
@@ -48,7 +54,7 @@ export default async function ProjectPage() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {projectLinks.map((link, i) => (
+        {visibleProjectLinks.map((link, i) => (
           <a
             key={link.href}
             href={link.href}

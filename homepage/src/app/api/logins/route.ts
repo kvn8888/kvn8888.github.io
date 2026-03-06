@@ -1,6 +1,20 @@
 import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
+import { isAccessGrantKey, normalizeAccessGrantKeys } from '@/lib/accessGrants'
 import { getLoginAttempts, addWhitelistEmail } from '@/lib/db'
+
+function parseGrantKeys(value: unknown) {
+  if (value === undefined) return undefined
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
+    return null
+  }
+
+  if (!value.every((item) => isAccessGrantKey(item))) {
+    return null
+  }
+
+  return normalizeAccessGrantKeys(value)
+}
 
 export async function GET() {
   const session = await auth()
@@ -19,7 +33,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const { email } = await request.json()
+    const { email, grantKeys } = await request.json()
 
     if (!email || typeof email !== 'string') {
       return NextResponse.json({ error: 'Email is required' }, { status: 400 })
@@ -30,7 +44,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Invalid email format' }, { status: 400 })
     }
 
-    const success = await addWhitelistEmail(email)
+    const parsedGrantKeys = parseGrantKeys(grantKeys)
+    if (parsedGrantKeys === null) {
+      return NextResponse.json(
+        { error: 'grantKeys must be a valid list of access grant keys' },
+        { status: 400 }
+      )
+    }
+
+    const success = await addWhitelistEmail(email, parsedGrantKeys)
     if (!success) {
       return NextResponse.json(
         { error: 'Database not configured' },

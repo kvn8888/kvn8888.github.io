@@ -29,6 +29,10 @@ Built with **Next.js 16** (App Router), **Tailwind v4**, **Framer Motion**, depl
 - **Auth.js v5** with Google OAuth provider
 - `/projects/*` and `/tools/*` are protected via Next.js proxy (`src/proxy.ts`) + `auth.ts` `authorized` callback
 - Email whitelist via `ALLOWED_EMAILS` env var (comma-separated)
+- Non-owner invited accounts can be limited to selected protected pages via Turso-backed `login_access_grants`
+- `ALLOWED_EMAILS` owner accounts bypass page-level grants and retain full access
+- The Sign-In Manager can approve full access or a multi-select set of page grants per invited email
+- Matching protected API families (for example `/api/usage/*`, `/api/secrets`, `/api/logins`) are gated by the same grants in `src/proxy.ts`
 - Config in `src/auth.ts`, API route at `src/app/api/auth/[...nextauth]/route.ts`
 - Custom sign-in page at `src/app/auth/signin/page.tsx`
 
@@ -37,6 +41,7 @@ Built with **Next.js 16** (App Router), **Tailwind v4**, **Framer Motion**, depl
 - `/projects` — Project hub with card-based navigation
 - `/projects/usage` — API usage monitor dashboard (Tavily, Vercel, Render)
 - `/tools` — Internal tools hub (notes, project dashboard, runtime secrets, sign-in manager)
+- `/tools/sign-in-manager` — Admin UI for login approvals and page-level grant management
 
 ## API Routes
 
@@ -53,6 +58,7 @@ Built with **Next.js 16** (App Router), **Tailwind v4**, **Framer Motion**, depl
 
 - `/tools/secrets` lets authenticated users override API keys at runtime without a redeploy
 - `src/lib/secrets.ts` checks Turso-backed encrypted overrides first, then falls back to `process.env`
+- `src/lib/managedSecrets.ts` is the source of truth for the keys and related config exposed by `/tools/secrets`
 - `/api/secrets` can also mirror saved keys into Vercel preview/production envs when Vercel sync credentials are configured; a redeploy is still required for deployed code to pick them up
 - Use `getSecret()` in server routes for any secret that may be rotated via the UI
 
@@ -66,24 +72,20 @@ Built with **Next.js 16** (App Router), **Tailwind v4**, **Framer Motion**, depl
 
 Set in `.env.local` (local) and Vercel dashboard (production):
 
-```.env
-AUTH_SECRET          — Random string for JWT encryption
-AUTH_GOOGLE_ID       — Google OAuth Client ID
-AUTH_GOOGLE_SECRET   — Google OAuth Client Secret
-AUTH_TRUST_HOST=true — Required for Vercel
-ALLOWED_EMAILS       — Comma-separated email whitelist for sign-in
-TAVILY_API_KEY       — For usage monitoring
-VERCEL_API_TOKEN     — For Vercel billing API (optional)
-VERCEL_PROJECT_ID    — Vercel project ID for env sync (optional, preferred)
-VERCEL_PROJECT_NAME  — Vercel project name/slug for env sync (optional fallback)
-VERCEL_TEAM_ID       — Vercel team ID for env sync (optional)
-VERCEL_TEAM_SLUG     — Vercel team slug for env sync (optional)
-RENDER_API_KEY       — For Render services API (optional)
-GITHUB_PAT           — Fine-grained GitHub token for personal billing endpoints
-GITHUB_USERNAME      — GitHub username for personal billing endpoints
-GCP_BILLING_EXPORT_PROJECT_ID — BigQuery export project ID (optional)
-GCP_BILLING_EXPORT_DATASET    — BigQuery export dataset name (optional)
-```
+Canonical template: `homepage/.env.example`
+
+Required auth vars:
+- `AUTH_SECRET`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, `AUTH_TRUST_HOST`, `ALLOWED_EMAILS`
+
+Common optional groups:
+- Email verification: `AUTH_EMAIL_FROM`, `RESEND_API_KEY`
+- Google / Gemini / GCP: `GEMINI_API_KEY`, `GCP_SERVICE_ACCOUNT_KEY`, `GCP_BILLING_EXPORT_PROJECT_ID`, `GCP_BILLING_EXPORT_DATASET`
+- Azure speech / billing: `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`, `AZURE_OPENAI_*`, `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_SUBSCRIPTION_ID`, `AZURE_BILLING_ACCOUNT_ID`, `AZURE_BILLING_PROFILE_ID`
+- Usage monitoring: `TAVILY_API_KEY`, `GITHUB_PAT`, `GITHUB_USERNAME`, `OPENROUTER_API_KEY`, `ODDS_API_KEY`, `RENDER_API_KEY`, `REPLICATE_API_TOKEN`, `VENICE_API_KEY`
+- Vercel sync: `VERCEL_API_TOKEN`, `VERCEL_PROJECT_ID`, `VERCEL_PROJECT_NAME`, `VERCEL_TEAM_ID`, `VERCEL_TEAM_SLUG`
+- Turso: `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `JOBS_TURSO_DATABASE_URL`, `JOBS_TURSO_AUTH_TOKEN`, `TURSO_API_TOKEN`, `TURSO_ORG_SLUG`
+- Job tracker automation: `SHEETS_WEBHOOK_URL`
+- AWS / S3: `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `RESUME_S3_BUCKET`, `RESUME_S3_KEY`, `RESUME_S3_PUBLIC_URL`, `SPEECH_S3_BUCKET`
 
 ## Design Language
 
@@ -118,3 +120,4 @@ Callback URIs registered for **kevinc.dev Next.js app**:
 - `docs/` directory is gitignored (local retrospectives only)
 - `next.config.ts` allows Google profile images from `lh3.googleusercontent.com`
 - The `homepage/out/` directory is for static exports (only used on `main` branch)
+- Fine-grained invited-user access is defined in `homepage/src/lib/accessGrants.ts`

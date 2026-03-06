@@ -1,4 +1,6 @@
 import { auth } from "@/auth"
+import { canAccessPath } from "@/lib/accessGrants"
+import { getEmailAccessGrantKeys } from "@/lib/db"
 import { redirect } from "next/navigation"
 
 const toolLinks = [
@@ -34,6 +36,11 @@ export default async function ToolsPage() {
     redirect("/auth/signin?callbackUrl=%2Ftools")
   }
 
+  const grantKeys = session.user.email
+    ? await getEmailAccessGrantKeys(session.user.email)
+    : []
+  const visibleToolLinks = toolLinks.filter((link) => canAccessPath(grantKeys, link.href))
+
   return (
     <div>
       <div className="mb-8">
@@ -46,7 +53,7 @@ export default async function ToolsPage() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {toolLinks.map((link, i) => (
+        {visibleToolLinks.map((link, i) => (
           <a
             key={link.href}
             href={link.href}

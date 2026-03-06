@@ -1,3 +1,4 @@
+import { canAccessPath, normalizeAccessGrantKeys, type AccessGrantKey } from './accessGrants'
 import { getTursoClient } from './turso'
 
 let schemaInitialized = false
@@ -18,8 +19,93 @@ export async function initSchema() {
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS login_access_grants (
+      email TEXT NOT NULL,
+      grant_key TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (email, grant_key)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_login_access_grants_email
+      ON login_access_grants (email);
   `)
   schemaInitialized = true
+}
+
+async function listAccessGrantKeysForEmails(emails: readonly string[]) {
+  const db = getTursoClient()
+  const normalizedEmails = Array.from(new Set(emails.map((email) => email.toLowerCase())))
+
+  if (!db || normalizedEmails.length === 0) {
+    return new Map<string, AccessGrantKey[]>()
+  }
+
+  await initSchema()
+
+  const placeholders = normalizedEmails.map(() => '?').join(', ')
+  const result = await db.execute({
+    sql: `SELECT email, grant_key
+          FROM login_access_grants
+          WHERE email IN (${placeholders})
+          ORDER BY email ASC, grant_key ASC`,
+    args: normalizedEmails,
+  })
+
+  const grantsByEmail = new Map<string, AccessGrantKey[]>()
+
+  for (const row of result.rows) {
+    const email = String(row.email).toLowerCase()
+    const grantKey = String(row.grant_key)
+    const existing = grantsByEmail.get(email) ?? []
+
+    grantsByEmail.set(email, normalizeAccessGrantKeys([...existing, grantKey]))
+  }
+
+  return grantsByEmail
+}
+
+async function clearEmailAccessGrantKeys(email: string) {
+  const db = getTursoClient()
+  if (!db) return false
+  await initSchema()
+
+  await db.execute({
+    sql: `DELETE FROM login_access_grants WHERE email = ?`,
+    args: [email.toLowerCase()],
+  })
+
+  return true
+}
+
+export async function setEmailAccessGrantKeys(
+  email: string,
+  grantKeys: readonly AccessGrantKey[]
+) {
+  const db = getTursoClient()
+  if (!db) return false
+  await initSchema()
+
+  const normalizedEmail = email.toLowerCase()
+  const normalizedGrantKeys = normalizeAccessGrantKeys(grantKeys)
+
+  await clearEmailAccessGrantKeys(normalizedEmail)
+
+  for (const grantKey of normalizedGrantKeys) {
+    await db.execute({
+      sql: `INSERT INTO login_access_grants (email, grant_key)
+            VALUES (?, ?)`,
+      args: [normalizedEmail, grantKey],
+    })
+  }
+
+  return true
+}
+
+export async function getEmailAccessGrantKeys(email: string): Promise<AccessGrantKey[]> {
+  const grantsByEmail = await listAccessGrantKeysForEmails([email])
+  return grantsByEmail.get(email.toLowerCase()) ?? []
 }
 
 export async function createLoginAttempt(
@@ -83,10 +169,25 @@ export async function getLoginAttempts() {
      FROM login_attempts
      ORDER BY created_at DESC`
   )
-  return result.rows
+
+  const emails = result.rows.map((row) => String(row.email).toLowerCase())
+  const grantsByEmail = await listAccessGrantKeysForEmails(emails)
+
+  return result.rows.map((row) => {
+    const email = String(row.email).toLowerCase()
+
+    return {
+      ...row,
+      grants: grantsByEmail.get(email) ?? [],
+    }
+  })
 }
 
-export async function updateAttemptStatus(id: number, status: 'approved' | 'rejected') {
+export async function updateAttemptStatus(
+  id: number,
+  status: 'approved' | 'rejected',
+  grantKeys?: readonly AccessGrantKey[]
+) {
   const db = getTursoClient()
   if (!db) return false
   await initSchema()
@@ -108,6 +209,11 @@ export async function updateAttemptStatus(id: number, status: 'approved' | 'reje
             WHERE email = ?`,
       args: [email],
     })
+
+    if (grantKeys) {
+      await setEmailAccessGrantKeys(email, grantKeys)
+    }
+
     return true
   }
 
@@ -118,6 +224,7 @@ export async function updateAttemptStatus(id: number, status: 'approved' | 'reje
             WHERE email = ? AND status = 'approved'`,
       args: [email],
     })
+    await clearEmailAccessGrantKeys(email)
     return true
   }
 
@@ -142,7 +249,10 @@ export async function isEmailApproved(email: string): Promise<boolean> {
   return result.rows.length > 0
 }
 
-export async function addWhitelistEmail(email: string) {
+export async function addWhitelistEmail(
+  email: string,
+  grantKeys?: readonly AccessGrantKey[]
+) {
   const db = getTursoClient()
   if (!db) return false
   await initSchema()
@@ -155,6 +265,9 @@ export async function addWhitelistEmail(email: string) {
   })
 
   if (existing.rows.length > 0 && existing.rows[0].status === 'approved') {
+    if (grantKeys) {
+      await setEmailAccessGrantKeys(email, grantKeys)
+    }
     return true // Already approved
   }
 
@@ -173,7 +286,20 @@ export async function addWhitelistEmail(email: string) {
       args: [email.toLowerCase()],
     })
   }
+
+  if (grantKeys) {
+    await setEmailAccessGrantKeys(email, grantKeys)
+  }
+
   return true
+}
+
+export async function canEmailAccessPath(email: string, pathname: string) {
+  const approved = await isEmailApproved(email)
+  if (!approved) return false
+
+  const grantKeys = await getEmailAccessGrantKeys(email)
+  return canAccessPath(grantKeys, pathname)
 }
 
 export function generateVerificationCode(): string {

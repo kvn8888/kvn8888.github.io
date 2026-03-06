@@ -49,11 +49,14 @@ Auth.js v5 (`next-auth@beta`) with Google OAuth, JWT sessions (no database).
 **Key patterns:**
 - `src/auth.ts` exports `{ handlers, auth, signIn, signOut }`
 - Email whitelist in `signIn` callback reads `ALLOWED_EMAILS` env var
-- `authorized` callback runs via `src/proxy.ts` on `/projects/*` and `/tools/*`
+- `authorized` callback runs via `src/proxy.ts` on `/projects/*`, `/tools/*`, and selected protected API families
+- Invited users can be restricted to selected protected pages and APIs via `src/lib/accessGrants.ts` + Turso `login_access_grants`
+- `ALLOWED_EMAILS` owner accounts bypass the page-level grant system and keep full access
 - Unauthenticated users redirect to `/auth/signin`
 - `AUTH_TRUST_HOST=true` required for multi-domain Vercel deployment
 
 **Adding a new protected route:** Put it under `src/app/projects/` or `src/app/tools/` and ensure `src/proxy.ts` plus `auth.ts`'s `authorized` callback both match the new path family.
+If the route should be grantable to invited users, also add it to `src/lib/accessGrants.ts` and include any related protected API prefixes there.
 
 ## Runtime Secrets
 
@@ -61,6 +64,7 @@ API keys can be overridden at runtime via `/tools/secrets` without a redeploy.
 
 **Key patterns:**
 - `src/lib/secrets.ts` exposes `getSecret()` which checks Turso overrides first, then `process.env`
+- `src/lib/managedSecrets.ts` is the single source of truth for the keys and related config shown in `/tools/secrets`
 - Overrides are encrypted at rest using a key derived from `AUTH_SECRET`
 - `/api/secrets` manages the overrides for authenticated users
 - After a successful save, `/api/secrets` can also upsert the same key into Vercel project envs when `VERCEL_API_TOKEN` and `VERCEL_PROJECT_ID` (or `VERCEL_PROJECT_NAME`) are configured
@@ -122,24 +126,34 @@ All follow POST pattern with auth check + request body/formData:
 
 ## Environment Variables
 
-See [references/env-and-deploy.md](references/env-and-deploy.md) for full list and deployment details.
+Use `homepage/.env.example` as the canonical current template.
 
 Required: `AUTH_SECRET`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, `AUTH_TRUST_HOST`, `ALLOWED_EMAILS`
 
 Optional (usage dashboard):
-- `TAVILY_API_KEY`, `VERCEL_API_TOKEN`, `RENDER_API_KEY`
+- `TAVILY_API_KEY`, `VERCEL_API_TOKEN`, `RENDER_API_KEY`, `REPLICATE_API_TOKEN`
 - `VERCEL_PROJECT_ID`, `VERCEL_PROJECT_NAME`, `VERCEL_TEAM_ID`, `VERCEL_TEAM_SLUG`
 - `GITHUB_PAT`, `GITHUB_USERNAME`
 - `GCP_BILLING_EXPORT_PROJECT_ID`, `GCP_BILLING_EXPORT_DATASET`
 - `OPENROUTER_API_KEY`, `ODDS_API_KEY`, `VENICE_API_KEY`
 - `TURSO_API_TOKEN`, `TURSO_ORG_SLUG`
-- `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`
-- `GCP_KEY_JSON`
+- `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_SUBSCRIPTION_ID`
+- `AZURE_BILLING_ACCOUNT_ID`, `AZURE_BILLING_PROFILE_ID`
+- `RESEND_API_KEY`, `AUTH_EMAIL_FROM`
+- `SHEETS_WEBHOOK_URL`
+- `GCP_SERVICE_ACCOUNT_KEY`
 
 Optional (speech tools):
 - `GEMINI_API_KEY` — Google AI API key for TTS
 - `MISTRAL_API_KEY` — Mistral API key for Voxtral STT
 - `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION` — Azure Speech Service for pronunciation
+- `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY` — Azure OpenAI STT
+
+Optional (storage / databases):
+- `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`
+- `JOBS_TURSO_DATABASE_URL`, `JOBS_TURSO_AUTH_TOKEN`
+- `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
+- `RESUME_S3_BUCKET`, `RESUME_S3_KEY`, `RESUME_S3_PUBLIC_URL`, `SPEECH_S3_BUCKET`
 
 ## Tech Stack
 
