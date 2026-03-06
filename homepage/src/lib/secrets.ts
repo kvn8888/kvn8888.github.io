@@ -20,7 +20,8 @@ async function initSecretsSchema() {
 }
 
 function getEncryptionKey(): Buffer {
-  const secret = process.env.AUTH_SECRET || 'fallback-dev-key'
+  const secret = process.env.AUTH_SECRET
+  if (!secret) throw new Error('AUTH_SECRET must be set to use runtime secrets encryption')
   return createHash('sha256').update(secret + ':secrets').digest()
 }
 

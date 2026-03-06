@@ -7,8 +7,8 @@ import {
 } from '@/lib/secrets'
 
 // Allowlist of keys that can be managed via this API.
-// Only uppercase env-var-style names are accepted.
-const ALLOWED_KEY_PATTERN = /^[A-Z][A-Z0-9_]{1,63}$/
+// Only uppercase env-var-style names are accepted (1-64 chars).
+const ALLOWED_KEY_PATTERN = /^[A-Z][A-Z0-9_]{0,63}$/
 
 export async function GET() {
   const session = await auth()
