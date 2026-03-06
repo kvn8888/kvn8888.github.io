@@ -3,7 +3,7 @@
 ## Overview
 
 Personal portfolio/resume site for Kevin C at **kevinc.dev** (also kevin-chen.dev, k3vnc.dev).
-Built with **Next.js 15** (App Router), **Tailwind v4**, **Framer Motion**, deployed on **Vercel**.
+Built with **Next.js 16** (App Router), **Tailwind v4**, **Framer Motion**, deployed on **Vercel**.
 
 ## Repository Structure
 
@@ -18,16 +18,16 @@ Built with **Next.js 15** (App Router), **Tailwind v4**, **Framer Motion**, depl
 
 ## Tech Stack
 
-- Next.js 15 (App Router, TypeScript)
+- Next.js 16 (App Router, TypeScript)
 - Tailwind CSS v4 (with `@tailwindcss/postcss`)
 - Framer Motion for animations
 - Auth.js v5 (`next-auth@beta`) for Google OAuth
 - No database — JWT sessions stored in encrypted cookies
 
-## Authentication (`/projects/*`)
+## Authentication (`/projects/*`, `/tools/*`)
 
 - **Auth.js v5** with Google OAuth provider
-- All `/projects/*` routes are protected via Next.js middleware (`src/middleware.ts`)
+- `/projects/*` and `/tools/*` are protected via Next.js proxy (`src/proxy.ts`) + `auth.ts` `authorized` callback
 - Email whitelist via `ALLOWED_EMAILS` env var (comma-separated)
 - Config in `src/auth.ts`, API route at `src/app/api/auth/[...nextauth]/route.ts`
 - Custom sign-in page at `src/app/auth/signin/page.tsx`
@@ -36,14 +36,23 @@ Built with **Next.js 15** (App Router), **Tailwind v4**, **Framer Motion**, depl
 
 - `/projects` — Project hub with card-based navigation
 - `/projects/usage` — API usage monitor dashboard (Tavily, Vercel, Render)
+- `/tools` — Internal tools hub (notes, project dashboard, runtime secrets, sign-in manager)
 
 ## API Routes
 
 - `/api/auth/[...nextauth]` — Auth.js handlers
+- `/api/secrets` — Runtime secret override management (encrypted, Turso-backed)
+- `/api/usage/github` — GitHub personal billing usage (Codespaces + Copilot premium requests)
 - `/api/usage/tavily` — Proxies Tavily usage API (live credits/limits)
 - `/api/usage/vercel` — Proxies Vercel billing API (or shows known Hobby limits)
-- `/api/usage/render` — Proxies Render management API (services list + free tier limits)
+- `/api/usage/render` — Proxies Render management API (services list + bandwidth metrics)
 - All `/api/usage/*` routes require auth session
+
+## Runtime Secrets
+
+- `/tools/secrets` lets authenticated users override API keys at runtime without a redeploy
+- `src/lib/secrets.ts` checks Turso-backed encrypted overrides first, then falls back to `process.env`
+- Use `getSecret()` in server routes for any secret that may be rotated via the UI
 
 ## Environment Variables
 
@@ -58,6 +67,8 @@ ALLOWED_EMAILS       — Comma-separated email whitelist for sign-in
 TAVILY_API_KEY       — For usage monitoring
 VERCEL_API_TOKEN     — For Vercel billing API (optional)
 RENDER_API_KEY       — For Render services API (optional)
+GITHUB_PAT           — Fine-grained GitHub token for personal billing endpoints
+GITHUB_USERNAME      — GitHub username for personal billing endpoints
 ```
 
 ## Design Language
@@ -73,8 +84,8 @@ RENDER_API_KEY       — For Render services API (optional)
 
 | Path | Destination | Notes |
 |------|-------------|-------|
-| `/polymarket` | `https://polymarket-ev-bot-1.onrender.com` | Vercel rewrite in `next.config.ts` |
-| `/polymarket/:path*` | `https://polymarket-ev-bot-1.onrender.com/:path*` | Render-hosted SPA |
+| `/polymarket` | `https://polymarket-ev-bot-docker.onrender.com` | Vercel rewrite in `next.config.ts` |
+| `/polymarket/:path*` | `https://polymarket-ev-bot-docker.onrender.com/:path*` | Render-hosted SPA |
 
 The Polymarket Render app has its own Google OAuth client — callback URIs registered for it separately in Google Cloud Console.
 

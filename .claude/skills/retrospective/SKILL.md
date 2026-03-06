@@ -15,13 +15,15 @@ Generate a technical journey document that captures the decisions, tradeoffs, an
 
 3. **Draft the retrospective** — Follow the structure in [structure.md](references/structure.md). Write in first person. Be honest about what went wrong and why.
 
-4. **Review for educational value** — Before presenting, check each section against these criteria:
+4. **Revise after later fixes** — Treat the retrospective as a living document during the session. If a later fix changes the root cause, implementation details, or tradeoffs, update the retrospective so it matches the final truth instead of leaving stale explanations in place.
+
+5. **Review for educational value** — Before presenting, check each section against these criteria:
    - Would a junior developer understand *why* this decision was made, not just *what* was done?
    - Are there implicit assumptions that need to be made explicit?
    - Is the debugging narrative complete? (symptom → investigation → root cause → fix)
    - Does the writing assume knowledge that should be explained briefly?
 
-5. **Output** — Write to `docs/` in the project (or as specified). Use markdown.
+6. **Output** — Write to `docs/` in the project (or as specified). Use markdown.
 
 ## Writing Guidelines
 
@@ -31,6 +33,7 @@ Generate a technical journey document that captures the decisions, tradeoffs, an
 - Every technical choice needs a *because*. "I chose Turso because it's SQLite under the hood and my schema is trivial" > "I chose Turso."
 - End sections with what you'd do differently or what comes next.
 - Avoid jargon without context. First mention of a tool/concept gets a one-line explanation.
+- If later work invalidates an earlier section, rewrite that section instead of leaving contradictory history behind.
 - The closing should be memorable — a one-liner, a reflection, or a forward-looking thought. Not a summary.
 
 ## References

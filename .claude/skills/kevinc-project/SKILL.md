@@ -5,7 +5,7 @@ description: Architecture and infrastructure context for the KevinC.dev portfoli
 
 # KevinC.dev Project Architecture
 
-Personal portfolio at **kevinc.dev** (+ kevin-chen.dev, k3vnc.dev). Next.js 15 App Router on Vercel, `dia-design` branch.
+Personal portfolio at **kevinc.dev** (+ kevin-chen.dev, k3vnc.dev). Next.js 16 App Router on Vercel, `dia-design` branch.
 
 ## Repository Layout
 
@@ -13,7 +13,8 @@ Personal portfolio at **kevinc.dev** (+ kevin-chen.dev, k3vnc.dev). Next.js 15 A
 homepage/                    # Next.js app root (run all commands here)
 ├── src/
 │   ├── auth.ts              # Auth.js v5 config (Google OAuth, JWT, email whitelist)
-│   ├── middleware.ts         # Route protection for /projects/*
+│   ├── proxy.ts             # Next.js 16 route protection for /projects/* and /tools/*
+│   ├── lib/secrets.ts       # Runtime secret overrides (Turso-backed, encrypted)
 │   └── app/
 │       ├── page.tsx          # Public homepage (resume/portfolio)
 │       ├── globals.css       # Aurora, blur animations, dark mode vars, status overrides
@@ -28,6 +29,7 @@ homepage/                    # Next.js app root (run all commands here)
 │       │       └── speech/   # Speech Lab (TTS, STT, Pronunciation)
 │       └── api/
 │           ├── auth/[...nextauth]/  # Auth.js handler (2 lines)
+│           ├── secrets/      # Runtime secret override API for /tools/secrets
 │           ├── usage/        # Server-side API proxies (tavily, vercel, render, etc.)
 │           └── speech/       # Speech tool API proxies
 │               ├── tts/      # Gemini 2.5 Flash TTS (POST, GEMINI_API_KEY)
@@ -46,11 +48,21 @@ Auth.js v5 (`next-auth@beta`) with Google OAuth, JWT sessions (no database).
 **Key patterns:**
 - `src/auth.ts` exports `{ handlers, auth, signIn, signOut }`
 - Email whitelist in `signIn` callback reads `ALLOWED_EMAILS` env var
-- `authorized` callback runs via middleware on `/projects/*`
+- `authorized` callback runs via `src/proxy.ts` on `/projects/*` and `/tools/*`
 - Unauthenticated users redirect to `/auth/signin`
 - `AUTH_TRUST_HOST=true` required for multi-domain Vercel deployment
 
-**Adding a new protected route:** Just add it under `src/app/projects/` — middleware already matches `/projects/:path*`.
+**Adding a new protected route:** Put it under `src/app/projects/` or `src/app/tools/` and ensure `src/proxy.ts` plus `auth.ts`'s `authorized` callback both match the new path family.
+
+## Runtime Secrets
+
+API keys can be overridden at runtime via `/tools/secrets` without a redeploy.
+
+**Key patterns:**
+- `src/lib/secrets.ts` exposes `getSecret()` which checks Turso overrides first, then `process.env`
+- Overrides are encrypted at rest using a key derived from `AUTH_SECRET`
+- `/api/secrets` manages the overrides for authenticated users
+- Use `getSecret("KEY_NAME")` in API routes instead of reading `process.env.KEY_NAME` directly when the value may be rotated via the UI
 
 ## API Routes
 
@@ -61,22 +73,26 @@ All follow the same GET pattern with auth check:
 ```typescript
 import { auth } from "@/auth"
 import { NextResponse } from "next/server"
+import { getSecret } from "@/lib/secrets"
 
 export async function GET() {
   const session = await auth()
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  // Fetch from external API using env var token
+  const apiKey = await getSecret("SERVICE_API_KEY")
+  // Fetch from external API using runtime override or env var token
   // Return proxied data
 }
 ```
 
 Services with on-track/burn-rate logic on the dashboard:
 - **Tavily** — monthly credits with plan limit
+- **GitHub** — Codespaces usage + Copilot premium requests via personal billing endpoints
 - **Turso** — rows read/written against Starter plan limits
 - **Odds API** — request count against monthly limit
 - **Venice AI** — DIEM epoch allocation vs remaining balance
 - **Azure** — student credit balance with cost projection
 - **OpenRouter** — prepaid credits usage
+- **Render** — service inventory plus month-to-date bandwidth via `/v1/metrics/bandwidth`
 
 Add `next: { revalidate: 60 }` to fetch options for caching.
 
@@ -109,6 +125,7 @@ Required: `AUTH_SECRET`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, `AUTH_TRUST_HOS
 
 Optional (usage dashboard):
 - `TAVILY_API_KEY`, `VERCEL_API_TOKEN`, `RENDER_API_KEY`
+- `GITHUB_PAT`, `GITHUB_USERNAME`
 - `OPENROUTER_API_KEY`, `ODDS_API_KEY`, `VENICE_API_KEY`
 - `TURSO_API_TOKEN`, `TURSO_ORG_SLUG`
 - `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`
@@ -121,7 +138,7 @@ Optional (speech tools):
 
 ## Tech Stack
 
-- Next.js 15 (App Router, TypeScript, Turbopack dev)
+- Next.js 16 (App Router, TypeScript, Turbopack dev)
 - Tailwind CSS v4 (`@tailwindcss/postcss`)
 - Framer Motion (animations)
 - Auth.js v5 (`next-auth@5.0.0-beta.30`)
@@ -150,7 +167,7 @@ Never use hardcoded `bg-white`, `text-gray-N`, or `bg-black`. See kevinc-design 
 
 **Add a new protected page:**
 1. Create `src/app/projects/<name>/page.tsx`
-2. It's automatically protected by middleware — no config needed
+2. If it's under `/projects/*` or `/tools/*`, make sure `src/proxy.ts` and `auth.ts` already cover that path family
 
 **Add a new tool to the Tools hub:**
 1. Create `src/app/projects/tools/<name>/page.tsx` for the UI
@@ -160,7 +177,7 @@ Never use hardcoded `bg-white`, `text-gray-N`, or `bg-black`. See kevinc-design 
 **Add a new API proxy route:**
 1. Create `src/app/api/usage/<service>/route.ts`
 2. Follow the auth-check pattern above
-3. Add env var for the service token
+3. Fetch secrets via `getSecret()` so runtime overrides work
 4. Add a card to `src/app/projects/usage/page.tsx`
 
 **Add a new OAuth callback domain:**

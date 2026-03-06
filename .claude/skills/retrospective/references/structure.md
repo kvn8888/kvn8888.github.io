@@ -23,6 +23,9 @@
 ## The Gotcha: [Debugging Story Title]
 [Optional but valuable. A dedicated section for the most interesting debugging moment. Structure: symptom → investigation → root cause → fix. Junior devs learn the most from these.]
 
+## The Revision: [What I Corrected Later]
+[Optional but recommended when later debugging changed the story. Cover: what you originally thought was true, what new evidence changed your mind, and how the final implementation differs from the first draft.]
+
 ## What's Next
 [Forward-looking. What's unfinished, what would you do differently, what does the roadmap look like. This turns a report into something worth revisiting.]
 
@@ -35,6 +38,7 @@
 - [ ] Every tool/library mentioned is explained on first use (one line is enough)
 - [ ] Every decision has a "because" — no unexplained choices
 - [ ] At least one "it broke" moment is included with full symptom→fix narrative
+- [ ] If later work changed the solution, stale sections were rewritten or removed
 - [ ] Code snippets show the *interesting* parts, not boilerplate
 - [ ] A junior developer could follow the reasoning without external research
 - [ ] The closing line is worth reading
