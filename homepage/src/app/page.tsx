@@ -1,5 +1,6 @@
 'use client';
 
+import { SpeedInsights } from "@vercel/speed-insights/next"
 import { useState, useEffect } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import { AuroraBackground, ProjectCard, ProjectModal, ThemeToggle, type Project, type ProjectCategory } from './components';
@@ -91,6 +92,7 @@ export default function Home() {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-4 relative">
       <AuroraBackground />
+      <SpeedInsights/>
 
       {/* Theme toggle — top right, subtle */}
       <div className="fixed top-4 right-4 z-50">
