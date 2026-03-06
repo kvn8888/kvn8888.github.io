@@ -1,8 +1,7 @@
 import { auth } from "@/auth"
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3"
+import { getSecret } from "@/lib/secrets"
 import { NextResponse } from "next/server"
-
-const RESUME_KEY = process.env.RESUME_S3_KEY || "resume.pdf"
 
 export async function POST(request: Request) {
   const session = await auth()
@@ -10,10 +9,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const region = process.env.AWS_REGION
-  const bucket = process.env.RESUME_S3_BUCKET
-  const accessKeyId = process.env.AWS_ACCESS_KEY_ID
-  const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY
+  const region = (await getSecret("AWS_REGION")) || "us-east-1"
+  const bucket = await getSecret("RESUME_S3_BUCKET")
+  const accessKeyId = await getSecret("AWS_ACCESS_KEY_ID")
+  const secretAccessKey = await getSecret("AWS_SECRET_ACCESS_KEY")
+  const resumeKey = (await getSecret("RESUME_S3_KEY")) || "resume.pdf"
 
   if (!region || !bucket || !accessKeyId || !secretAccessKey) {
     return NextResponse.json({ error: "S3 environment variables are not configured" }, { status: 500 })
@@ -45,7 +45,7 @@ export async function POST(request: Request) {
     await client.send(
       new PutObjectCommand({
         Bucket: bucket,
-        Key: RESUME_KEY,
+        Key: resumeKey,
         Body: Buffer.from(await file.arrayBuffer()),
         ContentType: "application/pdf",
         CacheControl: "no-cache",

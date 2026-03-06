@@ -1,74 +1,13 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { MANAGED_SECRET_GROUPS } from '@/lib/managedSecrets'
 
 interface SecretOverrideMeta {
   key: string
   userEmail: string
   updatedAt: string
 }
-
-interface SecretGroup {
-  label: string
-  icon: string
-  keys: { key: string; description: string }[]
-}
-
-const SECRET_GROUPS: SecretGroup[] = [
-  {
-    label: 'Google / Gemini',
-    icon: 'acute',
-    keys: [
-      { key: 'GEMINI_API_KEY', description: 'Gemini TTS & cover letter analysis' },
-      { key: 'GCP_SERVICE_ACCOUNT_KEY', description: 'Chirp 3 TTS (base64 JSON service account)' },
-      { key: 'GCP_BILLING_EXPORT_PROJECT_ID', description: 'BigQuery billing export project ID' },
-      { key: 'GCP_BILLING_EXPORT_DATASET', description: 'BigQuery billing export dataset name' },
-    ],
-  },
-  {
-    label: 'Mistral',
-    icon: 'wind_power',
-    keys: [
-      { key: 'MISTRAL_API_KEY', description: 'Voxtral STT transcription' },
-    ],
-  },
-  {
-    label: 'Azure',
-    icon: 'cloud',
-    keys: [
-      { key: 'AZURE_SPEECH_KEY', description: 'Speech Service (pronunciation assessment)' },
-      { key: 'AZURE_SPEECH_REGION', description: 'Speech Service region (e.g. eastus)' },
-      { key: 'AZURE_OPENAI_API_KEY', description: 'Azure OpenAI STT (gpt-4o transcribe)' },
-      { key: 'AZURE_OPENAI_ENDPOINT', description: 'Azure OpenAI endpoint URL' },
-      { key: 'AZURE_TENANT_ID', description: 'Azure AD tenant ID (billing)' },
-      { key: 'AZURE_CLIENT_ID', description: 'Azure app client ID (billing)' },
-      { key: 'AZURE_CLIENT_SECRET', description: 'Azure app client secret (billing)' },
-      { key: 'AZURE_SUBSCRIPTION_ID', description: 'Azure subscription ID (cost mgmt)' },
-      { key: 'AZURE_BILLING_ACCOUNT_ID', description: 'Azure billing account ID (credits)' },
-      { key: 'AZURE_BILLING_PROFILE_ID', description: 'Azure billing profile ID (credits)' },
-    ],
-  },
-  {
-    label: 'Usage Monitoring',
-    icon: 'monitoring',
-    keys: [
-      { key: 'GITHUB_PAT', description: 'GitHub billing API (Codespaces + Copilot usage)' },
-      { key: 'GITHUB_USERNAME', description: 'GitHub username for personal billing endpoints' },
-      { key: 'TAVILY_API_KEY', description: 'Tavily search & usage' },
-      { key: 'OPENROUTER_API_KEY', description: 'OpenRouter AI credits' },
-      { key: 'RENDER_API_KEY', description: 'Render services usage' },
-      { key: 'VERCEL_API_TOKEN', description: 'Vercel billing API + env sync token' },
-      { key: 'VERCEL_PROJECT_ID', description: 'Vercel project ID for env sync (preferred)' },
-      { key: 'VERCEL_PROJECT_NAME', description: 'Vercel project name/slug for env sync (fallback)' },
-      { key: 'VERCEL_TEAM_ID', description: 'Vercel team ID for env sync (optional)' },
-      { key: 'VERCEL_TEAM_SLUG', description: 'Vercel team slug for env sync (optional)' },
-      { key: 'ODDS_API_KEY', description: 'The Odds API usage' },
-      { key: 'VENICE_API_KEY', description: 'Venice AI usage' },
-      { key: 'TURSO_API_TOKEN', description: 'Turso DB usage API' },
-      { key: 'TURSO_ORG_SLUG', description: 'Turso organization slug' },
-    ],
-  },
-]
 
 export default function SecretsPage() {
   const [overrides, setOverrides] = useState<SecretOverrideMeta[]>([])
@@ -174,8 +113,8 @@ export default function SecretsPage() {
           Runtime Secrets
         </h1>
         <p className="text-foreground/60 mt-2 blur-reveal-1">
-          Override API keys at runtime — no redeploy needed. Values are encrypted at rest.
-          Vercel environment variables remain the primary source; overrides are applied on top.
+          Override service credentials and related runtime config without a redeploy.
+          Values are encrypted at rest and layered on top of the existing environment.
         </p>
       </div>
 
@@ -187,8 +126,9 @@ export default function SecretsPage() {
         <div className="text-sm text-amber-800 dark:text-amber-300">
           <span className="font-medium">Write-only:</span> Values cannot be read back once saved.
           Overrides take effect immediately on the next API call. Clear an override to fall back to
-          the Vercel env var. If `VERCEL_API_TOKEN` plus a Vercel project ID or name are configured,
+          the underlying env var. If `VERCEL_API_TOKEN` plus a Vercel project ID or name are configured,
           Save also upserts the key into Vercel preview/production envs for the next redeploy.
+          Bootstrap-only auth and Turso connection vars intentionally stay env-only.
         </div>
       </div>
 
@@ -201,7 +141,7 @@ export default function SecretsPage() {
         </div>
       ) : (
         <div className="space-y-6">
-          {SECRET_GROUPS.map((group, gi) => (
+          {MANAGED_SECRET_GROUPS.map((group, gi) => (
             <div
               key={group.label}
               className={`rounded-2xl bg-glass backdrop-blur-sm border border-glass-border blur-reveal-${Math.min(gi + 2, 5)}`}

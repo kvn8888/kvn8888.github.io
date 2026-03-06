@@ -1,5 +1,6 @@
 import { auth } from '@/auth'
 import { ensureJobsSchema, getJobsDb } from '@/lib/jobsDb'
+import { getSecret } from '@/lib/secrets'
 import { NextRequest, NextResponse } from 'next/server'
 
 export async function GET(req: NextRequest) {
@@ -89,7 +90,7 @@ export async function POST(req: NextRequest) {
     const id = Number(result.lastInsertRowid)
 
     // Optional Google Sheets webhook dual-write
-    const webhookUrl = process.env.SHEETS_WEBHOOK_URL
+    const webhookUrl = await getSecret('SHEETS_WEBHOOK_URL')
     if (webhookUrl) {
       try {
         await fetch(webhookUrl, {

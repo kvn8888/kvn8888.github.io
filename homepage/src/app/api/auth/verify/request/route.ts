@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server'
 import { createLoginAttempt, generateVerificationCode, isEmailApproved } from '@/lib/db'
+import { getSecret } from '@/lib/secrets'
 
 async function sendVerificationEmail(email: string, code: string): Promise<boolean> {
-  const apiKey = process.env.RESEND_API_KEY
-  const from = process.env.AUTH_EMAIL_FROM
+  const apiKey = await getSecret('RESEND_API_KEY')
+  const from = await getSecret('AUTH_EMAIL_FROM')
   if (!apiKey || !from) return false
 
   const response = await fetch('https://api.resend.com/emails', {

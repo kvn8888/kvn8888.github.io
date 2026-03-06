@@ -1,5 +1,6 @@
 import { auth } from '@/auth'
 import { NextResponse } from 'next/server'
+import { getSecret } from '@/lib/secrets'
 
 /*
  * Resend Usage API Proxy — /api/usage/resend
@@ -39,7 +40,7 @@ export async function GET() {
   const session = await auth()
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const apiKey = process.env.RESEND_API_KEY
+  const apiKey = await getSecret('RESEND_API_KEY')
   if (!apiKey) {
     return NextResponse.json({ error: 'RESEND_API_KEY not configured' }, { status: 500 })
   }

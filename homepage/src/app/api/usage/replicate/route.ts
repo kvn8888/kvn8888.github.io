@@ -1,5 +1,6 @@
 import { auth } from '@/auth'
 import { NextResponse } from 'next/server'
+import { getSecret } from '@/lib/secrets'
 
 /*
  * Replicate Usage API Proxy — /api/usage/replicate
@@ -28,7 +29,7 @@ export async function GET() {
   const session = await auth()
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const apiToken = process.env.REPLICATE_API_TOKEN
+  const apiToken = await getSecret('REPLICATE_API_TOKEN')
   if (!apiToken) {
     return NextResponse.json({ error: 'REPLICATE_API_TOKEN not configured' }, { status: 500 })
   }

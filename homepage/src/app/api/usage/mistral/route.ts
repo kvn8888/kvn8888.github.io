@@ -1,5 +1,6 @@
 import { auth } from '@/auth'
 import { NextResponse } from 'next/server'
+import { getSecret } from '@/lib/secrets'
 
 /*
  * Mistral Usage API Proxy — /api/usage/mistral
@@ -36,7 +37,7 @@ export async function GET() {
   const session = await auth()
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const apiKey = process.env.MISTRAL_API_KEY
+  const apiKey = await getSecret('MISTRAL_API_KEY')
   if (!apiKey) {
     return NextResponse.json({ error: 'MISTRAL_API_KEY not configured' }, { status: 500 })
   }

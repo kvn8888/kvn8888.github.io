@@ -74,12 +74,25 @@ async function summarizeText(apiKey: string, text: string): Promise<string | nul
 }
 
 async function uploadToS3(wavBuffer: Buffer, key: string): Promise<string | null> {
-  const bucket = process.env.SPEECH_S3_BUCKET
-  const region = process.env.AWS_REGION || 'us-east-1'
+  const bucket = await getSecret('SPEECH_S3_BUCKET')
+  const region = (await getSecret('AWS_REGION')) || 'us-east-1'
   if (!bucket) return null
 
+  const accessKeyId = await getSecret('AWS_ACCESS_KEY_ID')
+  const secretAccessKey = await getSecret('AWS_SECRET_ACCESS_KEY')
+
   try {
-    const client = new S3Client({ region })
+    const client = new S3Client({
+      region,
+      ...(accessKeyId && secretAccessKey
+        ? {
+            credentials: {
+              accessKeyId,
+              secretAccessKey,
+            },
+          }
+        : {}),
+    })
     await client.send(
       new PutObjectCommand({
         Bucket: bucket,
@@ -255,12 +268,10 @@ export async function POST(req: NextRequest) {
     // Best-effort: summarize + upload in parallel without blocking the response
     const [summary, storageUrl] = await Promise.all([
       summarizeText(apiKey, normalizedText),
-      process.env.SPEECH_S3_BUCKET
-        ? uploadToS3(
-            createWavBuffer(audioData, 24000, 1, 16),
-            `speech/tts/${Date.now()}-${voice}.wav`
-          )
-        : Promise.resolve(null),
+      uploadToS3(
+        createWavBuffer(audioData, 24000, 1, 16),
+        `speech/tts/${Date.now()}-${voice}.wav`
+      ),
     ])
 
     return NextResponse.json({

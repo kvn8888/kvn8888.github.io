@@ -56,13 +56,20 @@ export async function POST(req: NextRequest) {
 
     let headers: Record<string, string> = {}
     if (isAzureOpenAiModel) {
+      const gpt4oTranscribeDeployment =
+        (await getSecret('AZURE_OPENAI_STT_DEPLOYMENT_GPT4O_TRANSCRIBE')) || 'gpt-4o-transcribe'
+      const gpt4oTranscribeDiarizeDeployment =
+        (await getSecret('AZURE_OPENAI_STT_DEPLOYMENT_GPT4O_TRANSCRIBE_DIARIZE')) || 'gpt-4o-transcribe-diarize'
+      const gpt4oMiniTranscribeDeployment =
+        (await getSecret('AZURE_OPENAI_STT_DEPLOYMENT_GPT4O_MINI_TRANSCRIBE')) || 'gpt-4o-mini-transcribe'
+
       const deployment =
         model === 'gpt-4o-transcribe'
-          ? process.env.AZURE_OPENAI_STT_DEPLOYMENT_GPT4O_TRANSCRIBE || model
+          ? gpt4oTranscribeDeployment
           : model === 'gpt-4o-transcribe-diarize'
-            ? process.env.AZURE_OPENAI_STT_DEPLOYMENT_GPT4O_TRANSCRIBE_DIARIZE || model
+            ? gpt4oTranscribeDiarizeDeployment
             : model === 'gpt-4o-mini-transcribe'
-              ? process.env.AZURE_OPENAI_STT_DEPLOYMENT_GPT4O_MINI_TRANSCRIBE || model
+              ? gpt4oMiniTranscribeDeployment
               : model
 
       url = `${azureOpenAiEndpoint}/openai/deployments/${encodeURIComponent(deployment)}/audio/transcriptions?api-version=${encodeURIComponent(azureOpenAiApiVersion)}`

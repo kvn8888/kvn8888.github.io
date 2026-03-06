@@ -1,5 +1,6 @@
 import { auth } from '@/auth'
 import { S3Client, ListBucketsCommand, GetBucketLocationCommand } from '@aws-sdk/client-s3'
+import { getSecret } from '@/lib/secrets'
 import { NextResponse } from 'next/server'
 
 /*
@@ -10,7 +11,7 @@ import { NextResponse } from 'next/server'
  * is not included here to avoid adding an additional SDK dependency.
  * This route lists buckets and their regions as a lightweight status check.
  *
- * Env vars used (AWS SDK automatically reads these):
+ * Runtime config used:
  *   AWS_ACCESS_KEY_ID
  *   AWS_SECRET_ACCESS_KEY
  *   AWS_REGION (default: us-east-1)
@@ -21,9 +22,9 @@ export async function GET() {
   const session = await auth()
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const hasCredentials = Boolean(
-    process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY
-  )
+  const accessKeyId = await getSecret('AWS_ACCESS_KEY_ID')
+  const secretAccessKey = await getSecret('AWS_SECRET_ACCESS_KEY')
+  const hasCredentials = Boolean(accessKeyId && secretAccessKey)
   if (!hasCredentials) {
     return NextResponse.json(
       { error: 'AWS_ACCESS_KEY_ID or AWS_SECRET_ACCESS_KEY not configured' },
@@ -31,9 +32,15 @@ export async function GET() {
     )
   }
 
-  const region = process.env.AWS_REGION || 'us-east-1'
-  const speechBucket = process.env.SPEECH_S3_BUCKET || null
-  const client = new S3Client({ region })
+  const region = (await getSecret('AWS_REGION')) || 'us-east-1'
+  const speechBucket = (await getSecret('SPEECH_S3_BUCKET')) || null
+  const client = new S3Client({
+    region,
+    credentials: {
+      accessKeyId: accessKeyId!,
+      secretAccessKey: secretAccessKey!,
+    },
+  })
 
   try {
     const listResult = await client.send(new ListBucketsCommand({}))
