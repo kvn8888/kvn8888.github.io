@@ -11,15 +11,19 @@ const nextConfig: NextConfig = {
   },
   async rewrites() {
     return [
-      // Proxy /polymarket and all sub-paths to the Render app.
-      // Vercel acts as a reverse proxy — the user's browser always sees kevinc.dev/polymarket.
+      // API proxy — dashboard makes calls to /api/*
+      {
+        source: "/api/:path*",
+        destination: "https://polymarket-ev-bot-docker.onrender.com/api/:path*",
+      },
+      // Dashboard proxy — map /polymarket to /polymarket on Render
       {
         source: "/polymarket",
-        destination: "https://polymarket-ev-bot-docker.onrender.com",
+        destination: "https://polymarket-ev-bot-docker.onrender.com/polymarket",
       },
       {
         source: "/polymarket/:path*",
-        destination: "https://polymarket-ev-bot-docker.onrender.com/:path*",
+        destination: "https://polymarket-ev-bot-docker.onrender.com/polymarket/:path*",
       },
     ];
   },
