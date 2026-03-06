@@ -1,6 +1,7 @@
 import { auth } from "@/auth"
 import { NextResponse } from "next/server"
 import { getSecret } from "@/lib/secrets"
+import { recordUsageMetricSnapshot } from "@/lib/usageSnapshots"
 
 export async function GET() {
   const session = await auth()
@@ -24,6 +25,17 @@ export async function GET() {
     }
 
     const data = await res.json()
+
+    try {
+      await recordUsageMetricSnapshot({
+        service: "tavily",
+        metric: "plan_usage",
+        totalValue: Number(data?.account?.plan_usage ?? 0),
+      })
+    } catch {
+      // Snapshot failures should not block the live usage response.
+    }
+
     return NextResponse.json(data)
   } catch {
     return NextResponse.json({ error: "Failed to fetch Tavily usage" }, { status: 500 })

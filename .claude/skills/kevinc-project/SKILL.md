@@ -31,6 +31,7 @@ homepage/                    # Next.js app root (run all commands here)
 │           ├── auth/[...nextauth]/  # Auth.js handler (2 lines)
 │           ├── secrets/      # Runtime secret override API for /tools/secrets
 │           ├── usage/        # Server-side API proxies (tavily, vercel, render, etc.)
+│           │   ├── history/  # Snapshot-backed daily usage history for burn-rate projections
 │           └── speech/       # Speech tool API proxies
 │               ├── tts/      # Gemini 2.5 Flash TTS (POST, GEMINI_API_KEY)
 │               ├── stt/      # Voxtral Transcribe/Realtime 2 (POST, MISTRAL_API_KEY)
@@ -88,6 +89,7 @@ export async function GET() {
 Services with on-track/burn-rate logic on the dashboard:
 - **Tavily** — monthly credits with plan limit
 - **GitHub** — Codespaces usage + Copilot premium requests via personal billing endpoints
+- **Usage snapshots** — daily cumulative totals persisted to Turso and read back through `/api/usage/history`
 - **Turso** — rows read/written against Starter plan limits
 - **Odds API** — request count against monthly limit
 - **Venice AI** — DIEM epoch allocation vs remaining balance
@@ -128,6 +130,7 @@ Optional (usage dashboard):
 - `TAVILY_API_KEY`, `VERCEL_API_TOKEN`, `RENDER_API_KEY`
 - `VERCEL_PROJECT_ID`, `VERCEL_PROJECT_NAME`, `VERCEL_TEAM_ID`, `VERCEL_TEAM_SLUG`
 - `GITHUB_PAT`, `GITHUB_USERNAME`
+- `GCP_BILLING_EXPORT_PROJECT_ID`, `GCP_BILLING_EXPORT_DATASET`
 - `OPENROUTER_API_KEY`, `ODDS_API_KEY`, `VENICE_API_KEY`
 - `TURSO_API_TOKEN`, `TURSO_ORG_SLUG`
 - `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`
@@ -180,7 +183,8 @@ Never use hardcoded `bg-white`, `text-gray-N`, or `bg-black`. See kevinc-design 
 1. Create `src/app/api/usage/<service>/route.ts`
 2. Follow the auth-check pattern above
 3. Fetch secrets via `getSecret()` so runtime overrides work
-4. Add a card to `src/app/projects/usage/page.tsx`
+4. If the route feeds burn-rate UI, record a daily cumulative total in `src/lib/usageSnapshots.ts`
+5. Add a card to `src/app/projects/usage/page.tsx`
 
 **Add a new OAuth callback domain:**
 1. Register URI in Google Cloud Console: `https://<domain>/api/auth/callback/google`

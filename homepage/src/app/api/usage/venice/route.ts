@@ -1,6 +1,7 @@
 import { auth } from '@/auth'
 import { NextResponse } from 'next/server'
 import { getSecret } from '@/lib/secrets'
+import { recordUsageMetricSnapshot } from '@/lib/usageSnapshots'
 
 export async function GET() {
   const session = await auth()
@@ -25,15 +26,27 @@ export async function GET() {
     }
 
     const data = await res.json()
+    const diemRemaining = Number(data.balances?.diem ?? 0)
+    const diemAllocation = Number(data.diemEpochAllocation ?? 0)
+
+    try {
+      await recordUsageMetricSnapshot({
+        service: 'venice',
+        metric: 'diem_used',
+        totalValue: Math.max(0, diemAllocation - diemRemaining),
+      })
+    } catch {
+      // Snapshot failures should not block the live usage response.
+    }
 
     return NextResponse.json({
       canConsume: data.canConsume ?? false,
       consumptionCurrency: data.consumptionCurrency ?? null,
       balances: {
-        diem: data.balances?.diem ?? 0,
+        diem: diemRemaining,
         usd: data.balances?.usd ?? 0,
       },
-      diemEpochAllocation: data.diemEpochAllocation ?? 0,
+      diemEpochAllocation: diemAllocation,
       dashboardUrl: 'https://venice.ai/settings/api',
     })
   } catch (error) {

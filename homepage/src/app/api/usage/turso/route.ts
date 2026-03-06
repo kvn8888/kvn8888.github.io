@@ -1,6 +1,7 @@
 import { auth } from "@/auth"
 import { NextResponse } from "next/server"
 import { getSecret } from "@/lib/secrets"
+import { recordUsageMetricSnapshot } from "@/lib/usageSnapshots"
 
 export async function GET() {
   const session = await auth()
@@ -53,7 +54,7 @@ export async function GET() {
       locations: 3,
     }
 
-    return NextResponse.json({
+    const payload = {
       usage: {
         rows_read: usage.rows_read || 0,
         rows_written: usage.rows_written || 0,
@@ -71,7 +72,19 @@ export async function GET() {
         storage_bytes: db.total?.storage_bytes || 0,
       })),
       dashboardUrl: "https://turso.tech/app",
-    })
+    }
+
+    try {
+      await recordUsageMetricSnapshot({
+        service: "turso",
+        metric: "rows_read",
+        totalValue: Number(payload.usage.rows_read),
+      })
+    } catch {
+      // Snapshot failures should not block the live usage response.
+    }
+
+    return NextResponse.json(payload)
   } catch (err) {
     console.error('Failed to fetch Turso usage', {
       error: err,

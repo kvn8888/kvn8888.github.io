@@ -186,9 +186,107 @@ interface GitHubUsage {
   } | null
   // copilot is null when the premium_request/usage endpoint is unavailable
   copilot: {
+    includedPremiumRequests: number
     items: { model: string; sku: string; quantity: number; cost: number }[]
   } | null
   dashboardUrl: string
+}
+
+interface UsageMetricSnapshot {
+  service: string
+  metric: string
+  snapshotDate: string
+  periodKey: string
+  totalValue: number
+  capturedAt: number
+  updatedAt: number
+}
+
+interface UsageHistory {
+  periodKey: string
+  snapshots: UsageMetricSnapshot[]
+}
+
+function getUtcSnapshotDate(date = new Date()): string {
+  return date.toISOString().split('T')[0]
+}
+
+function getUtcDayDifference(startDate: string, endDate: string): number {
+  const start = new Date(`${startDate}T00:00:00.000Z`)
+  const end = new Date(`${endDate}T00:00:00.000Z`)
+  return Math.max(Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)), 0)
+}
+
+function getMetricSnapshotSeries(
+  usageHistory: UsageHistory | null,
+  service: string,
+  metric: string,
+): UsageMetricSnapshot[] {
+  return usageHistory?.snapshots.filter(
+    (snapshot) => snapshot.service === service && snapshot.metric === metric,
+  ) ?? []
+}
+
+function computeBurnProjection({
+  used,
+  limit,
+  snapshots,
+  now = new Date(),
+}: {
+  used: number
+  limit: number
+  snapshots?: UsageMetricSnapshot[]
+  now?: Date
+}) {
+  const dayOfMonth = now.getDate()
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
+  const daysRemaining = daysInMonth - dayOfMonth
+
+  if (dayOfMonth === 0 || limit <= 0) return null
+
+  let dailyRate = used / dayOfMonth
+  let source: 'snapshots' | 'estimated' = 'estimated'
+
+  if (snapshots && snapshots.length > 0) {
+    const points = new Map<string, number>()
+    for (const snapshot of snapshots) {
+      points.set(snapshot.snapshotDate, snapshot.totalValue)
+    }
+    points.set(getUtcSnapshotDate(now), used)
+
+    const ordered = [...points.entries()].sort(([left], [right]) => left.localeCompare(right))
+    if (ordered.length >= 2) {
+      const [firstDate, firstTotal] = ordered[0]
+      const [lastDate, lastTotal] = ordered[ordered.length - 1]
+      const elapsedDays = getUtcDayDifference(firstDate, lastDate)
+      const delta = lastTotal - firstTotal
+
+      if (elapsedDays > 0 && delta >= 0) {
+        dailyRate = delta / elapsedDays
+        source = 'snapshots'
+      }
+    }
+  }
+
+  const projected = used + dailyRate * daysRemaining
+  const remaining = limit - used
+  const willBurnOut = projected > limit
+  let burnOutDate: Date | null = null
+
+  if (dailyRate > 0) {
+    burnOutDate = new Date(now)
+    burnOutDate.setDate(now.getDate() + Math.ceil(Math.max(remaining, 0) / dailyRate))
+  }
+
+  return {
+    dailyRate,
+    projected,
+    remaining,
+    willBurnOut,
+    burnOutDate,
+    daysRemaining,
+    source,
+  }
 }
 
 function UsageMeter({
@@ -345,6 +443,7 @@ export default function UsagePage() {
   // GitHub state — covers both Codespaces billing and Copilot premium requests
   const [github, setGithub] = useState<GitHubUsage | null>(null)
   const [githubStatus, setGithubStatus] = useState<'loading' | 'ok' | 'error'>('loading')
+  const [usageHistory, setUsageHistory] = useState<UsageHistory | null>(null)
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
 
   const fetchData = useCallback(async () => {
@@ -397,6 +496,7 @@ export default function UsagePage() {
       fetchService('/api/usage/resend', setResend, setResendStatus),
       // Fetches Codespaces billing and Copilot premium request usage in one round-trip
       fetchService('/api/usage/github', setGithub, setGithubStatus),
+      fetchService('/api/usage/history', setUsageHistory, () => {}),
     ])
 
     setLastRefresh(new Date())
@@ -470,39 +570,31 @@ export default function UsagePage() {
 
             {/* Burn rate estimate */}
             {tavily.account.plan_limit > 0 && (() => {
-              const now = new Date()
-              const dayOfMonth = now.getDate()
-              const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
-              const daysRemaining = daysInMonth - dayOfMonth
-              const dailyRate = dayOfMonth > 0 ? tavily.account.plan_usage / dayOfMonth : 0
-              const projected = tavily.account.plan_usage + dailyRate * daysRemaining
-              const remaining = tavily.account.plan_limit - tavily.account.plan_usage
-              const willBurnOut = projected > tavily.account.plan_limit
-              const burnOutDay = dailyRate > 0
-                ? Math.ceil(remaining / dailyRate) + dayOfMonth
-                : null
-              const burnOutDate = burnOutDay && burnOutDay <= daysInMonth
-                ? new Date(now.getFullYear(), now.getMonth(), burnOutDay)
-                : null
+              const burn = computeBurnProjection({
+                used: tavily.account.plan_usage,
+                limit: tavily.account.plan_limit,
+                snapshots: getMetricSnapshotSeries(usageHistory, 'tavily', 'plan_usage'),
+              })
+              if (!burn) return null
 
               return (
                 <div className="pt-2 border-t border-foreground/5 space-y-2">
                   <div className="flex items-baseline justify-between text-sm">
                     <span className="text-foreground/50">Remaining</span>
                     <span className="tabular-nums font-semibold text-foreground">
-                      {remaining.toLocaleString()} credits
+                      {burn.remaining.toLocaleString()} credits
                     </span>
                   </div>
                   <div className="flex items-baseline justify-between text-sm">
                     <span className="text-foreground/50">Daily Burn Rate</span>
                     <span className="tabular-nums text-foreground/60">
-                      ~{Math.round(dailyRate).toLocaleString()} credits/day
+                      ~{Math.round(burn.dailyRate).toLocaleString()} credits/day
                     </span>
                   </div>
                   <div className="flex items-baseline justify-between text-sm">
                     <span className="text-foreground/50">Projected This Month</span>
-                    <span className={`tabular-nums font-medium ${willBurnOut ? 'text-red-600' : 'text-foreground/60'}`}>
-                      {Math.round(projected).toLocaleString()} / {tavily.account.plan_limit.toLocaleString()}
+                    <span className={`tabular-nums font-medium ${burn.willBurnOut ? 'text-red-600' : 'text-foreground/60'}`}>
+                      {Math.round(burn.projected).toLocaleString()} / {tavily.account.plan_limit.toLocaleString()}
                     </span>
                   </div>
                   <div className="flex items-baseline justify-between text-sm">
@@ -511,23 +603,23 @@ export default function UsagePage() {
                       {((tavily.account.plan_usage / tavily.account.plan_limit) * 100).toFixed(1)}%
                     </span>
                   </div>
-                  {willBurnOut && (
+                  {burn.willBurnOut && (
                     <div className="mt-2 px-3 py-2 rounded-xl bg-red-50 border border-red-200 flex items-center gap-2">
                       <span className="material-symbols-outlined text-red-500 text-lg">warning</span>
                       <span className="text-sm text-red-700">
                         At current pace, credits will run out
-                        {burnOutDate
-                          ? ` on ${burnOutDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+                        {burn.burnOutDate
+                          ? ` on ${burn.burnOutDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
                           : ' before month end'}
-                        . {daysRemaining} days remaining.
+                        . {burn.daysRemaining} days remaining.
                       </span>
                     </div>
                   )}
-                  {!willBurnOut && daysRemaining > 0 && (
+                  {!burn.willBurnOut && burn.daysRemaining > 0 && (
                     <div className="mt-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-2">
                       <span className="material-symbols-outlined text-emerald-500 text-lg">check_circle</span>
                       <span className="text-sm text-emerald-700">
-                        On track — projected to use {((projected / tavily.account.plan_limit) * 100).toFixed(0)}% by month end.
+                        On track — projected to use {((burn.projected / tavily.account.plan_limit) * 100).toFixed(0)}% by month end.
                       </span>
                     </div>
                   )}
@@ -740,64 +832,54 @@ export default function UsagePage() {
                   {/* Burn rate projection — same formula used across all service cards */}
                   {(() => {
                     const { totalMinutes, includedMinutes } = github.codespaces!
-                    const now = new Date()
-                    const dayOfMonth = now.getDate()
-                    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
-                    const daysRemaining = daysInMonth - dayOfMonth
-                    if (dayOfMonth === 0 || includedMinutes === 0) return null
-                    const dailyRate = totalMinutes / dayOfMonth
-                    const projected = totalMinutes + dailyRate * daysRemaining
-                    const remaining = includedMinutes - totalMinutes
-                    const willBurnOut = projected > includedMinutes
-                    // Calculate the calendar day within this month when minutes would run out
-                    const burnOutDay =
-                      dailyRate > 0 ? Math.ceil(remaining / dailyRate) + dayOfMonth : null
-                    const burnOutDate =
-                      burnOutDay && burnOutDay <= daysInMonth
-                        ? new Date(now.getFullYear(), now.getMonth(), burnOutDay)
-                        : null
+                    const burn = computeBurnProjection({
+                      used: totalMinutes,
+                      limit: includedMinutes,
+                      snapshots: getMetricSnapshotSeries(usageHistory, 'github', 'codespaces_minutes'),
+                    })
+                    if (!burn) return null
 
                     return (
                       <div className="pt-2 border-t border-foreground/5 space-y-2">
                         <div className="flex items-baseline justify-between text-sm">
                           <span className="text-foreground/50">Remaining</span>
                           <span className="tabular-nums font-semibold text-foreground">
-                            {remaining.toLocaleString()} min
+                            {burn.remaining.toLocaleString()} min
                           </span>
                         </div>
                         <div className="flex items-baseline justify-between text-sm">
                           <span className="text-foreground/50">Daily Burn Rate</span>
                           <span className="tabular-nums text-foreground/60">
-                            ~{Math.round(dailyRate).toLocaleString()} min/day
+                            ~{Math.round(burn.dailyRate).toLocaleString()} min/day
                           </span>
                         </div>
                         <div className="flex items-baseline justify-between text-sm">
                           <span className="text-foreground/50">Projected This Month</span>
                           <span
                             className={`tabular-nums font-medium ${
-                              willBurnOut ? 'text-red-600' : 'text-foreground/60'
+                              burn.willBurnOut ? 'text-red-600' : 'text-foreground/60'
                             }`}
                           >
-                            {Math.round(projected).toLocaleString()} / {includedMinutes.toLocaleString()}
+                            {Math.round(burn.projected).toLocaleString()} / {includedMinutes.toLocaleString()}
                           </span>
                         </div>
-                        {willBurnOut && (
+                        {burn.willBurnOut && (
                           <div className="mt-2 px-3 py-2 rounded-xl bg-red-50 border border-red-200 flex items-center gap-2">
                             <span className="material-symbols-outlined text-red-500 text-lg">warning</span>
                             <span className="text-sm text-red-700">
                               At current pace, Codespaces minutes will run out
-                              {burnOutDate
-                                ? ` on ${burnOutDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
-                                : ' before month end'}. {daysRemaining} days remaining.
+                              {burn.burnOutDate
+                                ? ` on ${burn.burnOutDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+                                : ' before month end'}. {burn.daysRemaining} days remaining.
                             </span>
                           </div>
                         )}
-                        {!willBurnOut && daysRemaining > 0 && (
+                        {!burn.willBurnOut && burn.daysRemaining > 0 && (
                           <div className="mt-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-2">
                             <span className="material-symbols-outlined text-emerald-500 text-lg">check_circle</span>
                             <span className="text-sm text-emerald-700">
                               On track — projected to use{' '}
-                              {((projected / includedMinutes) * 100).toFixed(0)}% by month end.
+                              {((burn.projected / includedMinutes) * 100).toFixed(0)}% by month end.
                             </span>
                           </div>
                         )}
@@ -818,6 +900,68 @@ export default function UsagePage() {
               <p className="text-xs text-foreground/40 uppercase tracking-wider font-medium">
                 Copilot Premium Requests
               </p>
+
+              {github.copilot && (() => {
+                const totalRequests = github.copilot.items.reduce((sum, item) => sum + item.quantity, 0)
+                const burn = computeBurnProjection({
+                  used: totalRequests,
+                  limit: github.copilot.includedPremiumRequests,
+                  snapshots: getMetricSnapshotSeries(usageHistory, 'github', 'copilot_premium_requests'),
+                })
+
+                return (
+                  <>
+                    <UsageMeter
+                      label="Premium Requests"
+                      used={totalRequests}
+                      limit={github.copilot.includedPremiumRequests}
+                      unit="req"
+                    />
+
+                    {burn && (
+                      <div className="pt-2 border-t border-foreground/5 space-y-2">
+                        <div className="flex items-baseline justify-between text-sm">
+                          <span className="text-foreground/50">Remaining</span>
+                          <span className="tabular-nums font-semibold text-foreground">
+                            {burn.remaining.toLocaleString()} req
+                          </span>
+                        </div>
+                        <div className="flex items-baseline justify-between text-sm">
+                          <span className="text-foreground/50">Daily Burn Rate</span>
+                          <span className="tabular-nums text-foreground/60">
+                            ~{Math.round(burn.dailyRate).toLocaleString()} req/day
+                          </span>
+                        </div>
+                        <div className="flex items-baseline justify-between text-sm">
+                          <span className="text-foreground/50">Projected This Month</span>
+                          <span className={`tabular-nums font-medium ${burn.willBurnOut ? 'text-red-600' : 'text-foreground/60'}`}>
+                            {Math.round(burn.projected).toLocaleString()} / {github.copilot.includedPremiumRequests.toLocaleString()}
+                          </span>
+                        </div>
+                        {burn.willBurnOut && (
+                          <div className="mt-2 px-3 py-2 rounded-xl bg-red-50 border border-red-200 flex items-center gap-2">
+                            <span className="material-symbols-outlined text-red-500 text-lg">warning</span>
+                            <span className="text-sm text-red-700">
+                              At current pace, premium requests will run out
+                              {burn.burnOutDate
+                                ? ` on ${burn.burnOutDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+                                : ' before month end'}. {burn.daysRemaining} days remaining.
+                            </span>
+                          </div>
+                        )}
+                        {!burn.willBurnOut && burn.daysRemaining > 0 && (
+                          <div className="mt-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-2">
+                            <span className="material-symbols-outlined text-emerald-500 text-lg">check_circle</span>
+                            <span className="text-sm text-emerald-700">
+                              On track — projected to use {((burn.projected / github.copilot.includedPremiumRequests) * 100).toFixed(0)}% by month end.
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )
+              })()}
 
               {github.copilot && github.copilot.items.length > 0 ? (
                 <div className="space-y-1">
@@ -1026,44 +1170,42 @@ export default function UsagePage() {
 
                 {/* Burn rate projection */}
                 {(() => {
-                  const now = new Date()
-                  const dayOfMonth = now.getDate()
-                  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
-                  const daysRemaining = daysInMonth - dayOfMonth
                   const total = azure.estimatedBalance ?? azure.currentBalance
                   const used = Math.max(0, total - azure.currentBalance)
-                  if (dayOfMonth === 0 || total === 0) return null
-                  const dailyRate = used / dayOfMonth
-                  const projected = used + dailyRate * daysRemaining
-                  const willBurnOut = projected > total
+                  const burn = computeBurnProjection({
+                    used,
+                    limit: total,
+                    snapshots: getMetricSnapshotSeries(usageHistory, 'azure', 'student_credit_used_usd'),
+                  })
+                  if (!burn) return null
 
                   return (
                     <div className="pt-2 border-t border-foreground/5 space-y-2">
                       <div className="flex items-baseline justify-between text-sm">
                         <span className="text-foreground/50">Daily Burn Rate</span>
                         <span className="tabular-nums text-foreground/60">
-                          ~${dailyRate.toFixed(2)}/day
+                          ~${burn.dailyRate.toFixed(2)}/day
                         </span>
                       </div>
                       <div className="flex items-baseline justify-between text-sm">
                         <span className="text-foreground/50">Projected This Month</span>
-                        <span className={`tabular-nums font-medium ${willBurnOut ? 'text-red-600' : 'text-foreground/60'}`}>
-                          ${projected.toFixed(2)} / ${total.toFixed(2)}
+                        <span className={`tabular-nums font-medium ${burn.willBurnOut ? 'text-red-600' : 'text-foreground/60'}`}>
+                          ${burn.projected.toFixed(2)} / ${total.toFixed(2)}
                         </span>
                       </div>
-                      {willBurnOut && (
+                      {burn.willBurnOut && (
                         <div className="mt-2 px-3 py-2 rounded-xl bg-red-50 border border-red-200 flex items-center gap-2">
                           <span className="material-symbols-outlined text-red-500 text-lg">warning</span>
                           <span className="text-sm text-red-700">
-                            Credits projected to run out this month. {daysRemaining} days remaining.
+                            Credits projected to run out this month. {burn.daysRemaining} days remaining.
                           </span>
                         </div>
                       )}
-                      {!willBurnOut && daysRemaining > 0 && (
+                      {!burn.willBurnOut && burn.daysRemaining > 0 && (
                         <div className="mt-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-2">
                           <span className="material-symbols-outlined text-emerald-500 text-lg">check_circle</span>
                           <span className="text-sm text-emerald-700">
-                            On track — projected to use {((projected / total) * 100).toFixed(0)}% by month end.
+                            On track — projected to use {((burn.projected / total) * 100).toFixed(0)}% by month end.
                           </span>
                         </div>
                       )}
@@ -1103,44 +1245,42 @@ export default function UsagePage() {
 
                 {/* Burn rate projection */}
                 {(() => {
-                  const now = new Date()
-                  const dayOfMonth = now.getDate()
-                  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
-                  const daysRemaining = daysInMonth - dayOfMonth
                   const limit = azure.studentCredit ?? 100
                   const used = azure.totalSpend
-                  if (dayOfMonth === 0) return null
-                  const dailyRate = used / dayOfMonth
-                  const projected = used + dailyRate * daysRemaining
-                  const willBurnOut = projected > limit
+                  const burn = computeBurnProjection({
+                    used,
+                    limit,
+                    snapshots: getMetricSnapshotSeries(usageHistory, 'azure', 'student_credit_used_usd'),
+                  })
+                  if (!burn) return null
 
                   return (
                     <div className="pt-2 border-t border-foreground/5 space-y-2">
                       <div className="flex items-baseline justify-between text-sm">
                         <span className="text-foreground/50">Daily Burn Rate</span>
                         <span className="tabular-nums text-foreground/60">
-                          ~${dailyRate.toFixed(2)}/day
+                          ~${burn.dailyRate.toFixed(2)}/day
                         </span>
                       </div>
                       <div className="flex items-baseline justify-between text-sm">
                         <span className="text-foreground/50">Projected This Month</span>
-                        <span className={`tabular-nums font-medium ${willBurnOut ? 'text-red-600' : 'text-foreground/60'}`}>
-                          ${projected.toFixed(2)} / ${limit.toFixed(2)}
+                        <span className={`tabular-nums font-medium ${burn.willBurnOut ? 'text-red-600' : 'text-foreground/60'}`}>
+                          ${burn.projected.toFixed(2)} / ${limit.toFixed(2)}
                         </span>
                       </div>
-                      {willBurnOut && (
+                      {burn.willBurnOut && (
                         <div className="mt-2 px-3 py-2 rounded-xl bg-red-50 border border-red-200 flex items-center gap-2">
                           <span className="material-symbols-outlined text-red-500 text-lg">warning</span>
                           <span className="text-sm text-red-700">
-                            Credits projected to run out this month. {daysRemaining} days remaining.
+                            Credits projected to run out this month. {burn.daysRemaining} days remaining.
                           </span>
                         </div>
                       )}
-                      {!willBurnOut && daysRemaining > 0 && (
+                      {!burn.willBurnOut && burn.daysRemaining > 0 && (
                         <div className="mt-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-2">
                           <span className="material-symbols-outlined text-emerald-500 text-lg">check_circle</span>
                           <span className="text-sm text-emerald-700">
-                            On track — projected to use {((projected / limit) * 100).toFixed(0)}% by month end.
+                            On track — projected to use {((burn.projected / limit) * 100).toFixed(0)}% by month end.
                           </span>
                         </div>
                       )}
@@ -1203,51 +1343,48 @@ export default function UsagePage() {
 
             {/* Burn rate projection (rows read) */}
             {(() => {
-              const now = new Date()
-              const dayOfMonth = now.getDate()
-              const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
-              const daysRemaining = daysInMonth - dayOfMonth
               const used = turso.usage.rows_read
               const limit = turso.limits.rows_read
-              if (!limit || dayOfMonth === 0) return null
-              const dailyRate = used / dayOfMonth
-              const projected = used + dailyRate * daysRemaining
-              const remaining = limit - used
-              const willBurnOut = projected > limit
+              const burn = computeBurnProjection({
+                used,
+                limit,
+                snapshots: getMetricSnapshotSeries(usageHistory, 'turso', 'rows_read'),
+              })
+              if (!burn) return null
 
               return (
                 <div className="pt-2 border-t border-foreground/5 space-y-2">
                   <div className="flex items-baseline justify-between text-sm">
                     <span className="text-foreground/50">Rows Read Remaining</span>
                     <span className="tabular-nums font-semibold text-foreground">
-                      {remaining.toLocaleString()}
+                      {burn.remaining.toLocaleString()}
                     </span>
                   </div>
                   <div className="flex items-baseline justify-between text-sm">
                     <span className="text-foreground/50">Daily Burn Rate</span>
                     <span className="tabular-nums text-foreground/60">
-                      ~{Math.round(dailyRate).toLocaleString()} rows/day
+                      ~{Math.round(burn.dailyRate).toLocaleString()} rows/day
                     </span>
                   </div>
                   <div className="flex items-baseline justify-between text-sm">
                     <span className="text-foreground/50">Projected This Month</span>
-                    <span className={`tabular-nums font-medium ${willBurnOut ? 'text-red-600' : 'text-foreground/60'}`}>
-                      {Math.round(projected).toLocaleString()} / {limit.toLocaleString()}
+                    <span className={`tabular-nums font-medium ${burn.willBurnOut ? 'text-red-600' : 'text-foreground/60'}`}>
+                      {Math.round(burn.projected).toLocaleString()} / {limit.toLocaleString()}
                     </span>
                   </div>
-                  {willBurnOut && (
+                  {burn.willBurnOut && (
                     <div className="mt-2 px-3 py-2 rounded-xl bg-red-50 border border-red-200 flex items-center gap-2">
                       <span className="material-symbols-outlined text-red-500 text-lg">warning</span>
                       <span className="text-sm text-red-700">
-                        Row reads projected to exceed limit. {daysRemaining} days remaining.
+                        Row reads projected to exceed limit. {burn.daysRemaining} days remaining.
                       </span>
                     </div>
                   )}
-                  {!willBurnOut && daysRemaining > 0 && (
+                  {!burn.willBurnOut && burn.daysRemaining > 0 && (
                     <div className="mt-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-2">
                       <span className="material-symbols-outlined text-emerald-500 text-lg">check_circle</span>
                       <span className="text-sm text-emerald-700">
-                        On track — projected to use {((projected / limit) * 100).toFixed(0)}% by month end.
+                        On track — projected to use {((burn.projected / limit) * 100).toFixed(0)}% by month end.
                       </span>
                     </div>
                   )}
@@ -1288,42 +1425,40 @@ export default function UsagePage() {
 
             {/* Burn rate projection */}
             {(() => {
-              const now = new Date()
-              const dayOfMonth = now.getDate()
-              const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
-              const daysRemaining = daysInMonth - dayOfMonth
-              if (dayOfMonth === 0) return null
-              const dailyRate = odds.requestsUsed / dayOfMonth
-              const projected = odds.requestsUsed + dailyRate * daysRemaining
-              const willBurnOut = projected > odds.requestsLimit
+              const burn = computeBurnProjection({
+                used: odds.requestsUsed,
+                limit: odds.requestsLimit,
+                snapshots: getMetricSnapshotSeries(usageHistory, 'odds', 'requests_used'),
+              })
+              if (!burn) return null
 
               return (
                 <div className="pt-2 border-t border-foreground/5 space-y-2">
                   <div className="flex items-baseline justify-between text-sm">
                     <span className="text-foreground/50">Daily Burn Rate</span>
                     <span className="tabular-nums text-foreground/60">
-                      ~{Math.round(dailyRate).toLocaleString()} req/day
+                      ~{Math.round(burn.dailyRate).toLocaleString()} req/day
                     </span>
                   </div>
                   <div className="flex items-baseline justify-between text-sm">
                     <span className="text-foreground/50">Projected This Month</span>
-                    <span className={`tabular-nums font-medium ${willBurnOut ? 'text-red-600' : 'text-foreground/60'}`}>
-                      {Math.round(projected).toLocaleString()} / {odds.requestsLimit.toLocaleString()}
+                    <span className={`tabular-nums font-medium ${burn.willBurnOut ? 'text-red-600' : 'text-foreground/60'}`}>
+                      {Math.round(burn.projected).toLocaleString()} / {odds.requestsLimit.toLocaleString()}
                     </span>
                   </div>
-                  {willBurnOut && (
+                  {burn.willBurnOut && (
                     <div className="mt-2 px-3 py-2 rounded-xl bg-red-50 border border-red-200 flex items-center gap-2">
                       <span className="material-symbols-outlined text-red-500 text-lg">warning</span>
                       <span className="text-sm text-red-700">
-                        Requests projected to exceed limit. {daysRemaining} days remaining.
+                        Requests projected to exceed limit. {burn.daysRemaining} days remaining.
                       </span>
                     </div>
                   )}
-                  {!willBurnOut && daysRemaining > 0 && (
+                  {!burn.willBurnOut && burn.daysRemaining > 0 && (
                     <div className="mt-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-2">
                       <span className="material-symbols-outlined text-emerald-500 text-lg">check_circle</span>
                       <span className="text-sm text-emerald-700">
-                        On track — projected to use {((projected / odds.requestsLimit) * 100).toFixed(0)}% by month end.
+                        On track — projected to use {((burn.projected / odds.requestsLimit) * 100).toFixed(0)}% by month end.
                       </span>
                     </div>
                   )}
@@ -1382,45 +1517,40 @@ export default function UsagePage() {
               const allocation = venice.diemEpochAllocation ?? 0
               const remaining = venice.balances?.diem ?? 0
               const used = allocation - remaining
-              if (allocation === 0) return null
-
-              const now = new Date()
-              const dayOfMonth = now.getDate()
-              const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
-              const daysRemaining = daysInMonth - dayOfMonth
-              if (dayOfMonth === 0) return null
-
-              const dailyRate = used / dayOfMonth
-              const projected = used + dailyRate * daysRemaining
-              const willBurnOut = projected > allocation
+              const burn = computeBurnProjection({
+                used,
+                limit: allocation,
+                snapshots: getMetricSnapshotSeries(usageHistory, 'venice', 'diem_used'),
+              })
+              if (!burn) return null
 
               return (
                 <div className="pt-2 border-t border-foreground/5 space-y-2">
                   <div className="flex items-baseline justify-between text-sm">
                     <span className="text-foreground/50">Daily Burn Rate</span>
                     <span className="tabular-nums text-foreground/60">
-                      ~{dailyRate.toFixed(1)} DIEM/day
+                      ~{burn.dailyRate.toFixed(2)} DIEM/day
                     </span>
                   </div>
                   <div className="flex items-baseline justify-between text-sm">
                     <span className="text-foreground/50">Projected This Month</span>
-                    <span className={`tabular-nums font-medium ${willBurnOut ? 'text-red-600' : 'text-foreground/60'}`}>
-                      {projected.toFixed(1)} / {allocation.toFixed(1)}
+                    <span className={`tabular-nums font-medium ${burn.willBurnOut ? 'text-red-600' : 'text-foreground/60'}`}>
+                      {burn.projected.toFixed(2)} / {allocation.toFixed(2)}
                     </span>
                   </div>
-                  {willBurnOut && (
+                  {burn.willBurnOut && (
                     <div className="mt-2 px-3 py-2 rounded-xl bg-red-50 border border-red-200 flex items-center gap-2">
                       <span className="material-symbols-outlined text-red-500 text-lg">warning</span>
                       <span className="text-sm text-red-700">
-                        DIEM projected to run out this month. {daysRemaining} days remaining.
+                        DIEM projected to run out this month. {burn.daysRemaining} days remaining.
                       </span>
                     </div>
                   )}
-                  {!willBurnOut && daysRemaining > 0 && (
+                  {!burn.willBurnOut && burn.daysRemaining > 0 && (
                     <div className="mt-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-2">
                       <span className="material-symbols-outlined text-emerald-500 text-lg">check_circle</span>
                       <span className="text-sm text-emerald-700">
-                        On track — projected to use {((projected / allocation) * 100).toFixed(0)}% by month end.
+                        On track — projected to use {((burn.projected / allocation) * 100).toFixed(0)}% by month end.
                       </span>
                     </div>
                   )}

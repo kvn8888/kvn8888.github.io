@@ -1,6 +1,7 @@
 import { auth } from '@/auth'
 import { NextResponse } from 'next/server'
 import { getSecret } from '@/lib/secrets'
+import { recordUsageMetricSnapshot } from '@/lib/usageSnapshots'
 
 export async function GET() {
   const session = await auth()
@@ -22,6 +23,16 @@ export async function GET() {
 
     const requestsUsed = parseInt(res.headers.get('x-requests-used') || '0', 10)
     const requestsRemaining = parseInt(res.headers.get('x-requests-remaining') || '0', 10)
+
+    try {
+      await recordUsageMetricSnapshot({
+        service: 'odds',
+        metric: 'requests_used',
+        totalValue: requestsUsed,
+      })
+    } catch {
+      // Snapshot failures should not block the live usage response.
+    }
 
     return NextResponse.json({
       requestsUsed,

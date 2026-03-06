@@ -1,6 +1,7 @@
 import { auth } from "@/auth"
 import { NextResponse } from "next/server"
 import { getSecret } from "@/lib/secrets"
+import { recordUsageMetricSnapshot } from "@/lib/usageSnapshots"
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -136,6 +137,20 @@ export async function GET() {
           pendingCharges: props?.pendingEligibleCharges?.value ?? 0,
           dashboardUrl: "https://portal.azure.com/#view/Microsoft_Azure_Billing/BillingMenuBlade/~/Credits",
         }
+
+        try {
+          await recordUsageMetricSnapshot({
+            service: "azure",
+            metric: "student_credit_used_usd",
+            totalValue: Math.max(
+              0,
+              Number(payload.estimatedBalance ?? 0) - Number(payload.currentBalance ?? 0)
+            ),
+          })
+        } catch {
+          // Snapshot failures should not block the live usage response.
+        }
+
         rememberAzurePayload(payload)
         return NextResponse.json(payload)
       }
@@ -192,6 +207,17 @@ export async function GET() {
           period: `${startOfMonth} to ${today}`,
           dashboardUrl: `https://portal.azure.com/#view/Microsoft_Azure_CostManagement/Menu/~/costanalysis/openedBy/AzurePortal/scope/subscriptions%2F${subscriptionId}`,
         }
+
+        try {
+          await recordUsageMetricSnapshot({
+            service: "azure",
+            metric: "student_credit_used_usd",
+            totalValue: Number(totalCost),
+          })
+        } catch {
+          // Snapshot failures should not block the live usage response.
+        }
+
         rememberAzurePayload(payload)
         return NextResponse.json(payload)
       }

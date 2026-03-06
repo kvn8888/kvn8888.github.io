@@ -1,6 +1,7 @@
 import { auth } from "@/auth"
 import { NextResponse } from "next/server"
 import { getSecret } from "@/lib/secrets"
+import { recordUsageMetricSnapshot } from "@/lib/usageSnapshots"
 
 // ── Student plan allocation constants ──────────────────────────────────────────
 // These are hardcoded because GitHub doesn't return plan limits via the API.
@@ -9,6 +10,7 @@ import { getSecret } from "@/lib/secrets"
 //   20 GB storage   (for prebuilds and inactive codespace disk images)
 const INCLUDED_MINUTES = 10800 // 180 core hours × 60 min/hr
 const INCLUDED_STORAGE_GB = 20
+const INCLUDED_PREMIUM_REQUESTS = 300
 
 // Shape of a single line item in the billing/usage response
 interface BillingLineItem {
@@ -179,6 +181,7 @@ export async function GET() {
   // "Premium requests" are interactions with expensive models (e.g. Claude, o1) that
   // consume from a monthly allowance separate from standard Copilot completions.
   let copilot: {
+    includedPremiumRequests: number
     items: { model: string; sku: string; quantity: number; cost: number }[]
   } | null = null
 
@@ -192,6 +195,7 @@ export async function GET() {
         : (data.usageItems ?? data.items ?? [])
 
       copilot = {
+        includedPremiumRequests: INCLUDED_PREMIUM_REQUESTS,
         items: rawItems
           .map((item) => ({
             model: item.model ?? item.sku ?? "Unknown",
@@ -205,6 +209,26 @@ export async function GET() {
     } catch {
       // Parsing failed — leave copilot as null
     }
+  }
+
+  try {
+    if (codespaces) {
+      await recordUsageMetricSnapshot({
+        service: "github",
+        metric: "codespaces_minutes",
+        totalValue: codespaces.totalMinutes,
+      })
+    }
+
+    if (copilot) {
+      await recordUsageMetricSnapshot({
+        service: "github",
+        metric: "copilot_premium_requests",
+        totalValue: copilot.items.reduce((sum, item) => sum + item.quantity, 0),
+      })
+    }
+  } catch {
+    // Snapshot failures should not block the live usage response.
   }
 
   return NextResponse.json({

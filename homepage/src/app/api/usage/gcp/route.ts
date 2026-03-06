@@ -2,6 +2,7 @@ import { auth } from "@/auth"
 import { NextResponse } from "next/server"
 import { SignJWT, importPKCS8 } from "jose"
 import { getSecret } from "@/lib/secrets"
+import { recordUsageMetricSnapshot } from "@/lib/usageSnapshots"
 
 interface ServiceAccountKey {
   client_email: string
@@ -140,8 +141,8 @@ export async function GET() {
     } | null = null
     let costStatus: "ok" | "missing_dataset_or_table" | "unavailable" = "unavailable"
 
-    const exportProject = process.env.GCP_BILLING_EXPORT_PROJECT_ID || sa.project_id
-    const exportDataset = process.env.GCP_BILLING_EXPORT_DATASET || "billing_export"
+    const exportProject = (await getSecret("GCP_BILLING_EXPORT_PROJECT_ID")) || sa.project_id
+    const exportDataset = (await getSecret("GCP_BILLING_EXPORT_DATASET")) || "billing_export"
 
     try {
       const tableLookupQuery = `
@@ -177,6 +178,16 @@ export async function GET() {
             .split("T")[0],
         }
         costStatus = "ok"
+
+        try {
+          await recordUsageMetricSnapshot({
+            service: "gcp",
+            metric: "month_spend_usd",
+            totalValue: totalCost,
+          })
+        } catch {
+          // Snapshot failures should not block the live usage response.
+        }
       } else {
         costStatus = "missing_dataset_or_table"
       }

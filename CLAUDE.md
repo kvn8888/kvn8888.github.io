@@ -43,6 +43,7 @@ Built with **Next.js 16** (App Router), **Tailwind v4**, **Framer Motion**, depl
 - `/api/auth/[...nextauth]` — Auth.js handlers
 - `/api/secrets` — Runtime secret override management (encrypted, Turso-backed)
 - `/api/usage/github` — GitHub personal billing usage (Codespaces + Copilot premium requests)
+- `/api/usage/history` — Turso-backed daily usage snapshots for burn-rate projections
 - `/api/usage/tavily` — Proxies Tavily usage API (live credits/limits)
 - `/api/usage/vercel` — Proxies Vercel billing API (or shows known Hobby limits)
 - `/api/usage/render` — Proxies Render management API (services list + bandwidth metrics)
@@ -54,6 +55,12 @@ Built with **Next.js 16** (App Router), **Tailwind v4**, **Framer Motion**, depl
 - `src/lib/secrets.ts` checks Turso-backed encrypted overrides first, then falls back to `process.env`
 - `/api/secrets` can also mirror saved keys into Vercel preview/production envs when Vercel sync credentials are configured; a redeploy is still required for deployed code to pick them up
 - Use `getSecret()` in server routes for any secret that may be rotated via the UI
+
+## Usage Snapshots
+
+- `src/lib/usageSnapshots.ts` stores one cumulative total per service/metric/day in Turso
+- `/api/usage/history` returns the current billing period's snapshots to the dashboard
+- Burn-rate cards now prefer snapshot-backed daily averages when history exists, and fall back to month-to-date/day-of-month math until enough history accumulates
 
 ## Environment Variables
 
@@ -74,6 +81,8 @@ VERCEL_TEAM_SLUG     — Vercel team slug for env sync (optional)
 RENDER_API_KEY       — For Render services API (optional)
 GITHUB_PAT           — Fine-grained GitHub token for personal billing endpoints
 GITHUB_USERNAME      — GitHub username for personal billing endpoints
+GCP_BILLING_EXPORT_PROJECT_ID — BigQuery export project ID (optional)
+GCP_BILLING_EXPORT_DATASET    — BigQuery export dataset name (optional)
 ```
 
 ## Design Language
