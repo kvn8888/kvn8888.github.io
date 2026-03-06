@@ -15,11 +15,11 @@ const nextConfig: NextConfig = {
       // Vercel acts as a reverse proxy — the user's browser always sees kevinc.dev/polymarket.
       {
         source: "/polymarket",
-        destination: "https://polymarket-ev-bot-1.onrender.com",
+        destination: "https://polymarket-ev-bot-docker.onrender.com",
       },
       {
         source: "/polymarket/:path*",
-        destination: "https://polymarket-ev-bot-1.onrender.com/:path*",
+        destination: "https://polymarket-ev-bot-docker.onrender.com/:path*",
       },
     ];
   },
