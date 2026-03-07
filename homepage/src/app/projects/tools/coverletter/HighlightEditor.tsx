@@ -271,6 +271,7 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
       // Increased line-height ensures highlight backgrounds from adjacent
       // lines overlap slightly, eliminating visible gaps.
       'line-height: 2.2',
+      'white-space: pre-wrap',
       'transition: filter 0.2s, box-shadow 0.2s',
       `box-shadow: 0 1px 4px ${borderColor}33`,
       'display: inline',
@@ -672,6 +673,7 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
         'padding: 3px 8px',
         'border-radius: 6px',
         'line-height: 2.2',
+        'white-space: pre-wrap',
         'transition: filter 0.2s, box-shadow 0.2s',
         `box-shadow: 0 1px 4px ${color.border}33`,
         'display: inline',

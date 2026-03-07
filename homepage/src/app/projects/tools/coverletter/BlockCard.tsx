@@ -197,7 +197,7 @@ export default function BlockCard({
           className="w-full bg-transparent border-none outline-none resize-none text-sm leading-relaxed text-foreground"
         />
       ) : (
-        <p className="text-sm leading-relaxed text-foreground/80 m-0">
+        <p className="text-sm leading-relaxed text-foreground/80 m-0 whitespace-pre-wrap">
           {block.text}
         </p>
       )}
