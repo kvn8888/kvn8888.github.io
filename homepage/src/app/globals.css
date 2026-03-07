@@ -424,10 +424,6 @@ html {
   user-select: none;
   -webkit-user-select: none;
   white-space: pre-wrap;
-  display: inline-block;
-  max-width: 100%;
-  overflow-wrap: anywhere;
-  vertical-align: top;
   transition: opacity 0.25s ease, filter 0.2s, box-shadow 0.2s;
 }
 .hl-card-editor {
