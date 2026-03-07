@@ -269,20 +269,21 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
     span.dataset.category = category
     span.style.cssText = [
       `background: ${bgColor}`,
-      // box-decoration-break: clone makes the highlight paint on every line
-      // fragment independently, so multi-line text looks like one continuous
-      // highlight with no vertical gaps between lines.
+      // These blocks are treated as atomic inline objects, not loose text
+      // highlights, so multi-line and multi-paragraph content can stay inside
+      // one filled surface with consistent selection and drag behavior.
       'box-decoration-break: clone',
       '-webkit-box-decoration-break: clone',
-      'padding: 3px 8px',
-      'border-radius: 6px',
-      // Increased line-height ensures highlight backgrounds from adjacent
-      // lines overlap slightly, eliminating visible gaps.
-      'line-height: 2.2',
+      'padding: 8px 10px',
+      'border-radius: 12px',
+      'line-height: 1.7',
       'white-space: pre-wrap',
+      'max-width: 100%',
+      'overflow-wrap: anywhere',
+      'vertical-align: top',
       'transition: filter 0.2s, box-shadow 0.2s',
       `box-shadow: 0 1px 4px ${borderColor}33`,
-      'display: inline',
+      'display: inline-block',
     ].join(';')
     span.textContent = text
     attachCardEvents(span)
@@ -678,13 +679,16 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
         `background: ${bgColor}`,
         'box-decoration-break: clone',
         '-webkit-box-decoration-break: clone',
-        'padding: 3px 8px',
-        'border-radius: 6px',
-        'line-height: 2.2',
+        'padding: 8px 10px',
+        'border-radius: 12px',
+        'line-height: 1.7',
         'white-space: pre-wrap',
+        'max-width: 100%',
+        'overflow-wrap: anywhere',
+        'vertical-align: top',
         'transition: filter 0.2s, box-shadow 0.2s',
         `box-shadow: 0 1px 4px ${color.border}33`,
-        'display: inline',
+        'display: inline-block',
       ].join(';')
 
       // Extract the selected content and wrap it in the highlight span
