@@ -50,6 +50,7 @@ Built with **Next.js 16** (App Router), **Tailwind v4**, **Framer Motion**, depl
 - `/api/coverletter/library` — Loads the full reusable cover-letter block/tag library from Jobs Turso
 - `/api/coverletter/blocks` — Creates and lists reusable cover-letter blocks
 - `/api/coverletter/blocks/[id]` — Updates and deletes reusable cover-letter blocks
+- `/api/coverletter/grade` — Grades the current cover letter against the verbatim Gemini rubric and returns structured feedback
 - `/api/coverletter/letters` — Lists S3-backed saved cover-letter drafts and creates new draft documents
 - `/api/coverletter/letters/[id]` — Loads, updates, and deletes individual S3-backed cover-letter drafts
 - `/api/coverletter/tags` — Creates and lists reusable cover-letter tags
@@ -80,11 +81,13 @@ Built with **Next.js 16** (App Router), **Tailwind v4**, **Framer Motion**, depl
 
 - The reusable cover-letter library is stored in the Jobs Turso database, not in client-side `localStorage`
 - Schema and CRUD helpers live in `homepage/src/lib/coverLetterDb.ts`
+- The grading rubric lives in `homepage/src/lib/coverLetterRubric.ts` and is consumed by `/api/coverletter/grade`
 - S3-backed draft and resume helpers live in `homepage/src/lib/coverLetterStorage.ts`
 - Tables: `cover_letter_blocks`, `cover_letter_tags`, `cover_letter_block_tags`
 - The original 12 hard-coded library entries now seed server-side on schema initialization via stable `legacy-*` keys
 - Saved cover letters live in the existing `RESUME_S3_BUCKET` under the `coverletter/letters/` prefix as JSON documents that preserve both editor HTML and plain text
 - Reference resumes live in the same bucket under the `coverletter/reference-resumes/` prefix as uploaded PDFs that can later be passed into Gemini review/generation flows
+- The workbench UI now exposes a second Gemini action that scores the current draft against the rubric and returns per-criterion feedback plus a weakest-paragraph rewrite
 - `homepage/scripts/seed-coverletter-library.mjs` is the bootstrap and verification script for seeding the live Jobs Turso library, smoke-testing block/tag CRUD, and confirming Gemini matching with DB-backed blocks
 - `homepage/tmp/coverletter-library-report.json` is the local verification artifact written by that script
 

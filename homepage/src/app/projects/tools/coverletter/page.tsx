@@ -47,6 +47,24 @@ interface StoredCoverLetterDocument {
   jobPosting: string
 }
 
+type ReviewScore = 'Strong' | 'Adequate' | 'Weak'
+
+interface CoverLetterReviewCriterion {
+  name: string
+  score: ReviewScore
+  feedback: string
+}
+
+interface CoverLetterReviewResult {
+  overallAssessment: string
+  highestImpactChange: string
+  criteria: CoverLetterReviewCriterion[]
+  weakestParagraph: {
+    original: string
+    rewritten: string
+  }
+}
+
 function formatStorageSize(bytes: number) {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`
@@ -65,6 +83,18 @@ function formatStorageTimestamp(value: string | null) {
     hour: 'numeric',
     minute: '2-digit',
   })
+}
+
+function getReviewScoreClasses(score: ReviewScore) {
+  if (score === 'Strong') {
+    return 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300'
+  }
+
+  if (score === 'Adequate') {
+    return 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300'
+  }
+
+  return 'border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300'
 }
 
 // ─── Main Page Component ────────────────────────────────────────────────────
@@ -103,6 +133,9 @@ export default function CoverLetterWorkbench() {
   const [jobPosting, setJobPosting] = useState('')
   const [matches, setMatches] = useState<Record<string, string>>({})
   const [isMatching, setIsMatching] = useState(false)
+  const [isGrading, setIsGrading] = useState(false)
+  const [reviewResult, setReviewResult] = useState<CoverLetterReviewResult | null>(null)
+  const [reviewError, setReviewError] = useState<string | null>(null)
 
   // ── Library filter ──
   const [filterCategory, setFilterCategory] = useState('All')
@@ -376,6 +409,8 @@ export default function CoverLetterWorkbench() {
     setActiveLetterId(null)
     setJobPosting('')
     setMatches({})
+    setReviewResult(null)
+    setReviewError(null)
     setStatusMessage(message)
   }, [])
 
@@ -482,6 +517,8 @@ export default function CoverLetterWorkbench() {
       setActiveLetterId(letter.id)
       setJobPosting(letter.jobPosting ?? '')
       setMatches({})
+      setReviewResult(null)
+      setReviewError(null)
       setStatusMessage(`Loaded ${letter.title}`)
     } catch (error) {
       setStorageError(error instanceof Error ? error.message : 'Failed to load saved cover letter')
@@ -539,6 +576,43 @@ export default function CoverLetterWorkbench() {
     setIsMatching(false)
   }
 
+  const gradeCurrentLetter = useCallback(async () => {
+    const coverLetter = editorRef.current?.getPlainText() ?? ''
+    if (!coverLetter.trim()) {
+      setReviewError('Add some cover letter content before running the rubric review')
+      setReviewResult(null)
+      return
+    }
+
+    if (!jobPosting.trim()) {
+      setReviewError('Paste a job posting before running the rubric review')
+      setReviewResult(null)
+      return
+    }
+
+    setIsGrading(true)
+    setReviewResult(null)
+    setReviewError(null)
+
+    try {
+      const res = await fetch('/api/coverletter/grade', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ coverLetter, jobPosting }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to grade cover letter')
+
+      setReviewResult(data.review ?? null)
+      setStatusMessage('Cover letter reviewed against your rubric')
+    } catch (error) {
+      setReviewResult(null)
+      setReviewError(error instanceof Error ? error.message : 'Failed to grade cover letter')
+    } finally {
+      setIsGrading(false)
+    }
+  }, [jobPosting])
+
   // ── Derived data ──
   const sortedLibrary = [...libraryBlocks]
     .filter((b) => filterCategory === 'All' || b.category === filterCategory)
@@ -585,35 +659,153 @@ export default function CoverLetterWorkbench() {
               <span className="text-xs font-bold uppercase tracking-wider text-foreground/40 font-mono">
                 Job Posting
               </span>
-              <button
-                onClick={matchBlocks}
-                disabled={isMatching || !jobPosting.trim() || libraryBlocks.length === 0}
-                className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${
-                  isMatching || !jobPosting.trim() || libraryBlocks.length === 0
-                    ? 'bg-foreground/5 text-foreground/30 cursor-not-allowed'
-                    : 'bg-foreground text-background hover:opacity-90 cursor-pointer'
-                }`}
-              >
-                {isMatching ? (
-                  <span className="flex items-center gap-1.5">
-                    <span className="material-symbols-outlined text-sm animate-spin">progress_activity</span>
-                    Matching…
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-1.5">
-                    <span className="material-symbols-outlined text-sm">auto_awesome</span>
-                    Match Blocks
-                  </span>
-                )}
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={matchBlocks}
+                  disabled={isMatching || !jobPosting.trim() || libraryBlocks.length === 0}
+                  className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${
+                    isMatching || !jobPosting.trim() || libraryBlocks.length === 0
+                      ? 'bg-foreground/5 text-foreground/30 cursor-not-allowed'
+                      : 'bg-foreground text-background hover:opacity-90 cursor-pointer'
+                  }`}
+                >
+                  {isMatching ? (
+                    <span className="flex items-center gap-1.5">
+                      <span className="material-symbols-outlined text-sm animate-spin">progress_activity</span>
+                      Matching…
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1.5">
+                      <span className="material-symbols-outlined text-sm">auto_awesome</span>
+                      Match Blocks
+                    </span>
+                  )}
+                </button>
+
+                <button
+                  onClick={() => void gradeCurrentLetter()}
+                  disabled={isGrading || !jobPosting.trim() || editorBlockCount === 0}
+                  className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${
+                    isGrading || !jobPosting.trim() || editorBlockCount === 0
+                      ? 'bg-foreground/5 text-foreground/30 cursor-not-allowed'
+                      : 'border border-glass-border hover:bg-foreground/5 text-foreground/60 hover:text-foreground/80 cursor-pointer'
+                  }`}
+                >
+                  {isGrading ? (
+                    <span className="flex items-center gap-1.5">
+                      <span className="material-symbols-outlined text-sm animate-spin">progress_activity</span>
+                      Grading…
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1.5">
+                      <span className="material-symbols-outlined text-sm">auto_awesome</span>
+                      Grade Letter
+                    </span>
+                  )}
+                </button>
+              </div>
             </div>
             <textarea
               value={jobPosting}
-              onChange={(e) => setJobPosting(e.target.value)}
+              onChange={(e) => {
+                setJobPosting(e.target.value)
+                setReviewResult(null)
+                setReviewError(null)
+              }}
               placeholder="Paste a job posting here, then click Match Blocks to find the best sentences from your library…"
               className="w-full h-20 p-3 rounded-xl bg-foreground/5 border border-glass-border text-sm text-foreground placeholder:text-foreground/30 resize-none outline-none focus:border-glass-border-hover transition-colors"
             />
           </div>
+
+          {(isGrading || reviewResult || reviewError) && (
+            <div className="rounded-2xl bg-glass backdrop-blur-sm border border-glass-border p-4 space-y-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-foreground/40 font-mono">
+                    Gemini Rubric Review
+                  </p>
+                  <p className="text-sm text-foreground/50 mt-1">
+                    Scores the current letter against your verbatim cover letter rubric.
+                  </p>
+                </div>
+
+                {isGrading && (
+                  <span className="text-xs text-foreground/35">Scoring…</span>
+                )}
+              </div>
+
+              {reviewError && (
+                <p className="text-sm text-red-500">{reviewError}</p>
+              )}
+
+              {reviewResult && (
+                <>
+                  <div className="grid gap-3 lg:grid-cols-2">
+                    <div className="rounded-xl border border-glass-border bg-foreground/5 p-3">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-foreground/35 font-mono">
+                        Overall Assessment
+                      </p>
+                      <p className="text-sm text-foreground/75 mt-2 leading-relaxed">
+                        {reviewResult.overallAssessment}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl border border-glass-border bg-foreground/5 p-3">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-foreground/35 font-mono">
+                        Highest-Impact Change
+                      </p>
+                      <p className="text-sm text-foreground/75 mt-2 leading-relaxed">
+                        {reviewResult.highestImpactChange}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-glass-border bg-foreground/5 p-3">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-foreground/35 font-mono">
+                      Weakest Paragraph Rewrite
+                    </p>
+                    <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-foreground/35 font-mono">
+                          Original
+                        </p>
+                        <p className="text-sm text-foreground/60 mt-2 leading-relaxed italic">
+                          {reviewResult.weakestParagraph.original}
+                        </p>
+                      </div>
+
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-foreground/35 font-mono">
+                          Rewrite
+                        </p>
+                        <p className="text-sm text-foreground/80 mt-2 leading-relaxed">
+                          {reviewResult.weakestParagraph.rewritten}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 lg:grid-cols-2">
+                    {reviewResult.criteria.map((criterion) => (
+                      <div key={criterion.name} className="rounded-xl border border-glass-border bg-foreground/5 p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <p className="text-sm font-medium text-foreground/80 leading-snug">
+                            {criterion.name}
+                          </p>
+                          <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${getReviewScoreClasses(criterion.score)}`}>
+                            {criterion.score}
+                          </span>
+                        </div>
+                        <p className="text-sm text-foreground/60 mt-2 leading-relaxed">
+                          {criterion.feedback}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
 
           <div className="rounded-2xl bg-glass backdrop-blur-sm border border-glass-border p-4 space-y-4">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
