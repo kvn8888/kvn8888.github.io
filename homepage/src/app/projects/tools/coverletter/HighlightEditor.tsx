@@ -222,6 +222,40 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
       sel?.addRange(range)
     })
 
+    // Handle Enter manually so the block behaves like a custom inline object
+    // editor instead of letting the browser inject nested div/br structures.
+    span.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (span.contentEditable !== 'true') return
+
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        e.stopPropagation()
+
+        const selection = window.getSelection()
+        if (!selection || selection.rangeCount === 0) return
+
+        const range = selection.getRangeAt(0)
+        if (!span.contains(range.startContainer)) return
+
+        range.deleteContents()
+        const textNode = document.createTextNode('\n')
+        range.insertNode(textNode)
+
+        const nextRange = document.createRange()
+        nextRange.setStart(textNode, textNode.textContent?.length ?? 1)
+        nextRange.collapse(true)
+        selection.removeAllRanges()
+        selection.addRange(nextRange)
+        return
+      }
+
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        e.stopPropagation()
+        span.blur()
+      }
+    })
+
     // Blur: exit edit mode, restore draggable behavior
     span.addEventListener('blur', () => {
       span.contentEditable = 'false'
