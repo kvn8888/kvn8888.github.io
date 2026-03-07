@@ -132,6 +132,12 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
   //
   // Setting contentEditable=false on spans makes them discrete draggable
   // objects instead of editable text. Double-click toggles this temporarily.
+  const normalizeCardText = useCallback((span: HTMLSpanElement) => {
+    const normalizedText = span.innerText.replace(/\r/g, '')
+    span.textContent = normalizedText
+    return normalizedText
+  }, [])
+
   const attachCardEvents = useCallback((span: HTMLSpanElement) => {
     // Make the span a discrete draggable element, not editable inline text
     span.draggable = true
@@ -221,13 +227,14 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
       span.contentEditable = 'false'
       span.draggable = true
       span.style.cursor = 'grab'
-      if (!span.textContent?.trim()) {
+      const normalizedText = normalizeCardText(span)
+      if (!normalizedText.trim()) {
         span.parentNode?.removeChild(span)
         recount()
       }
       saveContent()
     })
-  }, [recount, saveContent, positionXBtn])
+  }, [normalizeCardText, recount, saveContent, positionXBtn])
 
   // ── Replace the full editor HTML and re-bind all highlight interactions ──
   const loadHtmlContent = useCallback((html: string) => {
@@ -235,6 +242,7 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
 
     editorRef.current.innerHTML = html
     editorRef.current.querySelectorAll('.hl-card').forEach((card) => {
+      normalizeCardText(card as HTMLSpanElement)
       attachCardEvents(card as HTMLSpanElement)
     })
 
@@ -243,7 +251,7 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
     setPopup(null)
     recount()
     saveContent()
-  }, [attachCardEvents, recount, saveContent])
+  }, [attachCardEvents, normalizeCardText, recount, saveContent])
 
   // ── Create a highlighted span element ──
   // Used when inserting library blocks or creating cards from selection.
