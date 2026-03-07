@@ -89,7 +89,7 @@ Protected CRUD and matching routes for the reusable cover-letter library.
 - The original 12 client-side seed blocks were moved server-side and are inserted with stable `legacy-*` keys during schema initialization
 - `src/app/api/coverletter/library/route.ts` returns `{ blocks, tags }` for the UI
 - `src/app/api/coverletter/blocks` and `src/app/api/coverletter/tags` provide create/list, while `[id]` routes provide update/delete
-- `src/app/api/coverletter/grade/route.ts` evaluates the current letter against the rubric with Gemini and returns structured scores, the highest-impact change, and a weakest-paragraph rewrite
+- `src/app/api/coverletter/grade/route.ts` evaluates the current letter against the rubric with Gemini, attaches up to the three most recent uploaded reference resume PDFs as multimodal context, and returns structured scores, the highest-impact change, and a weakest-paragraph rewrite
 - `src/app/api/coverletter/match/route.ts` sends the current block library to Gemini and filters returned ids against known block ids before responding
 - `src/app/api/coverletter/reference-resumes` plus `[id]` provide upload/list/open/delete for S3-backed reference resume PDFs stored under `coverletter/reference-resumes/`
 - `src/app/api/coverletter/letters` plus `[id]` provide create/list/load/update/delete for S3-backed cover letter draft JSON stored under `coverletter/letters/`

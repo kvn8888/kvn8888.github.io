@@ -87,7 +87,7 @@ Built with **Next.js 16** (App Router), **Tailwind v4**, **Framer Motion**, depl
 - The original 12 hard-coded library entries now seed server-side on schema initialization via stable `legacy-*` keys
 - Saved cover letters live in the existing `RESUME_S3_BUCKET` under the `coverletter/letters/` prefix as JSON documents that preserve both editor HTML and plain text
 - Reference resumes live in the same bucket under the `coverletter/reference-resumes/` prefix as uploaded PDFs that can later be passed into Gemini review/generation flows
-- The workbench UI now exposes a second Gemini action that scores the current draft against the rubric and returns per-criterion feedback plus a weakest-paragraph rewrite
+- The workbench UI now exposes a second Gemini action that scores the current draft against the rubric, grounding the review with up to the three most recent uploaded reference resume PDFs, and returns per-criterion feedback plus a weakest-paragraph rewrite
 - `homepage/scripts/seed-coverletter-library.mjs` is the bootstrap and verification script for seeding the live Jobs Turso library, smoke-testing block/tag CRUD, and confirming Gemini matching with DB-backed blocks
 - `homepage/tmp/coverletter-library-report.json` is the local verification artifact written by that script
 

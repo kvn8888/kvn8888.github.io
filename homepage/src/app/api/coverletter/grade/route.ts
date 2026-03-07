@@ -1,4 +1,5 @@
 import { auth } from '@/auth'
+import { listStoredReferenceResumes, readStoredReferenceResume } from '@/lib/coverLetterStorage'
 import { COVER_LETTER_REVIEW_RUBRIC } from '@/lib/coverLetterRubric'
 import { getSecret } from '@/lib/secrets'
 import { NextRequest, NextResponse } from 'next/server'
@@ -45,11 +46,38 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    let referenceResumeNames: string[] = []
+    let referenceResumeParts: Array<{ inlineData: { mimeType: string; data: string } }> = []
+
+    try {
+      const referenceResumes = (await listStoredReferenceResumes()).slice(0, 3)
+      referenceResumeNames = referenceResumes.map((resume) => resume.name)
+      referenceResumeParts = await Promise.all(
+        referenceResumes.map(async (resume) => {
+          const pdf = await readStoredReferenceResume(resume.id)
+          return {
+            inlineData: {
+              mimeType: pdf.contentType,
+              data: pdf.bytes.toString('base64'),
+            },
+          }
+        })
+      )
+    } catch (error) {
+      console.warn('Could not load reference resumes for cover letter grading', error)
+      referenceResumeNames = []
+      referenceResumeParts = []
+    }
+
     const prompt = `You are reviewing a software-engineering cover letter draft.
 
 Use the rubric below exactly as written. Do not invent new criteria, do not rename the scores, and do not skip any criterion.
 
 ${COVER_LETTER_REVIEW_RUBRIC}
+
+${referenceResumeNames.length > 0
+  ? `Reference resume PDFs are attached for factual grounding. Use them to verify claims, notice missing differentiators, and call out resume/letter redundancy. Attached resumes: ${referenceResumeNames.join(', ')}.`
+  : 'No reference resume PDFs are attached for this review.'}
 
 Job Posting:
 ${jobPosting}
@@ -71,6 +99,7 @@ Return JSON only. Each criterion must include a concrete explanation tied to the
                 {
                   text: prompt,
                 },
+                ...referenceResumeParts,
               ],
             },
           ],
@@ -125,6 +154,7 @@ Return JSON only. Each criterion must include a concrete explanation tied to the
     const review = {
       overallAssessment: String(parsed.overallAssessment ?? '').trim(),
       highestImpactChange: String(parsed.highestImpactChange ?? '').trim(),
+      referenceResumesUsed: referenceResumeNames,
       criteria: Array.isArray(parsed.criteria)
         ? parsed.criteria.map((criterion) => ({
             name: String(criterion.name ?? '').trim(),

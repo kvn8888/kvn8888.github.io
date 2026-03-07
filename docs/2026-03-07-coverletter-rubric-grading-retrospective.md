@@ -62,11 +62,17 @@ The workbench now has two Gemini actions in the job-posting panel:
 
 `Grade Letter` only runs when both the job posting and draft content exist. When it completes, the review panel appears directly in the workbench instead of sending the result to a console, toast, or modal.
 
-## What I intentionally did not do
+## Resume-aware grounding
 
-I did **not** try to parse the uploaded resume PDFs into the prompt yet.
+The final version does not stop at rubric-only grading. The route now loads up to the three most recent uploaded reference resume PDFs from S3 and attaches them directly to Gemini as multimodal `application/pdf` parts.
 
-That would have required an additional extraction step, and doing it halfway would have produced a misleading "resume-aware" review that wasn't actually grounded in resume content. The correct move was to ship the rubric reviewer cleanly first, using the new S3 resume storage as future input for a later extraction pass.
+That matters because it lets the reviewer do more than judge tone and structure. It can also:
+
+- verify whether the letter is actually supported by the resume material
+- notice missing differentiators that exist in the resumes but not the draft
+- call out resume/letter redundancy with the resume PDFs as source context
+
+This was the right follow-up because the S3 storage feature already established a clean place to keep those PDFs. The grading route could then consume them without inventing a new upload path.
 
 ## Validation
 
@@ -83,7 +89,7 @@ The workbench now has a real loop:
 1. match reusable blocks to a job post
 2. assemble a draft
 3. save it to S3 if needed
-4. grade the current draft against a durable rubric
+4. grade the current draft against a durable rubric plus the most recent uploaded resume PDFs
 5. revise the weakest paragraph, not just the easiest paragraph
 
 That closes a meaningful product gap. The tool no longer just helps write a cover letter. It now helps judge whether the letter is actually worth sending.

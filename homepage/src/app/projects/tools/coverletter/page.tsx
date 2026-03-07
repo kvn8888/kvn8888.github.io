@@ -58,6 +58,7 @@ interface CoverLetterReviewCriterion {
 interface CoverLetterReviewResult {
   overallAssessment: string
   highestImpactChange: string
+  referenceResumesUsed: string[]
   criteria: CoverLetterReviewCriterion[]
   weakestParagraph: {
     original: string
@@ -740,6 +741,17 @@ export default function CoverLetterWorkbench() {
 
               {reviewResult && (
                 <>
+                  {reviewResult.referenceResumesUsed.length > 0 && (
+                    <div className="rounded-xl border border-glass-border bg-foreground/5 p-3">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-foreground/35 font-mono">
+                        Resume Context Used
+                      </p>
+                      <p className="text-sm text-foreground/65 mt-2 leading-relaxed">
+                        {reviewResult.referenceResumesUsed.join(', ')}
+                      </p>
+                    </div>
+                  )}
+
                   <div className="grid gap-3 lg:grid-cols-2">
                     <div className="rounded-xl border border-glass-border bg-foreground/5 p-3">
                       <p className="text-[10px] font-bold uppercase tracking-wider text-foreground/35 font-mono">
@@ -913,7 +925,7 @@ export default function CoverLetterWorkbench() {
                   <div>
                     <p className="text-xs font-medium text-foreground/60">Reference Resumes — {referenceResumes.length}</p>
                     <p className="text-[11px] text-foreground/35 mt-1">
-                      Upload the PDFs you want Gemini to use as source resume context later.
+                      The rubric review automatically uses up to the 3 most recent uploaded PDFs as resume context.
                     </p>
                   </div>
 
