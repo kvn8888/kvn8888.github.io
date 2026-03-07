@@ -24,6 +24,49 @@ const EMPTY_BLOCK_FORM: BlockDraft = {
   tagIds: [],
 }
 
+interface StoredReferenceResumeSummary {
+  id: string
+  name: string
+  size: number
+  uploadedAt: string | null
+  href: string
+}
+
+interface StoredCoverLetterSummary {
+  id: string
+  title: string
+  size: number
+  updatedAt: string | null
+}
+
+interface StoredCoverLetterDocument {
+  id: string
+  title: string
+  html: string
+  plainText: string
+  jobPosting: string
+}
+
+function formatStorageSize(bytes: number) {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${bytes} B`
+}
+
+function formatStorageTimestamp(value: string | null) {
+  if (!value) return 'Unknown'
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'Unknown'
+
+  return date.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
 // ─── Main Page Component ────────────────────────────────────────────────────
 
 export default function CoverLetterWorkbench() {
@@ -33,6 +76,7 @@ export default function CoverLetterWorkbench() {
 
   // Ref to the HighlightEditor — used to insert blocks via click
   const editorRef = useRef<HighlightEditorHandle>(null)
+  const referenceResumeInputRef = useRef<HTMLInputElement>(null)
 
   // ── Core state ──
   const [libraryBlocks, setLibraryBlocks] = useState<Block[]>([])
@@ -41,6 +85,19 @@ export default function CoverLetterWorkbench() {
   const [libraryError, setLibraryError] = useState<string | null>(null)
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+
+  // ── S3-backed draft + resume storage ──
+  const [referenceResumes, setReferenceResumes] = useState<StoredReferenceResumeSummary[]>([])
+  const [savedLetters, setSavedLetters] = useState<StoredCoverLetterSummary[]>([])
+  const [storageLoading, setStorageLoading] = useState(true)
+  const [storageError, setStorageError] = useState<string | null>(null)
+  const [draftTitle, setDraftTitle] = useState('')
+  const [activeLetterId, setActiveLetterId] = useState<string | null>(null)
+  const [isUploadingResume, setIsUploadingResume] = useState(false)
+  const [isSavingLetter, setIsSavingLetter] = useState(false)
+  const [loadingLetterId, setLoadingLetterId] = useState<string | null>(null)
+  const [deletingLetterId, setDeletingLetterId] = useState<string | null>(null)
+  const [deletingResumeId, setDeletingResumeId] = useState<string | null>(null)
 
   // ── Job posting & AI matching ──
   const [jobPosting, setJobPosting] = useState('')
@@ -91,6 +148,33 @@ export default function CoverLetterWorkbench() {
   useEffect(() => {
     void fetchLibrary()
   }, [fetchLibrary])
+
+  const fetchStorage = useCallback(async (showLoading = true) => {
+    if (showLoading) setStorageLoading(true)
+    setStorageError(null)
+
+    try {
+      const [resumeRes, letterRes] = await Promise.all([
+        fetch('/api/coverletter/reference-resumes', { cache: 'no-store' }),
+        fetch('/api/coverletter/letters', { cache: 'no-store' }),
+      ])
+      const [resumeData, letterData] = await Promise.all([resumeRes.json(), letterRes.json()])
+
+      if (!resumeRes.ok) throw new Error(resumeData.error || 'Failed to load reference resumes')
+      if (!letterRes.ok) throw new Error(letterData.error || 'Failed to load saved cover letters')
+
+      setReferenceResumes(resumeData.resumes ?? [])
+      setSavedLetters(letterData.letters ?? [])
+    } catch (error) {
+      setStorageError(error instanceof Error ? error.message : 'Failed to load S3-backed cover letter assets')
+    } finally {
+      setStorageLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void fetchStorage()
+  }, [fetchStorage])
 
   useEffect(() => {
     if (!statusMessage) return
@@ -286,6 +370,150 @@ export default function CoverLetterWorkbench() {
     }
   }, [fetchLibrary])
 
+  const resetDraft = useCallback((message = 'Started a fresh cover letter draft') => {
+    editorRef.current?.clear()
+    setDraftTitle('')
+    setActiveLetterId(null)
+    setJobPosting('')
+    setMatches({})
+    setStatusMessage(message)
+  }, [])
+
+  const handleReferenceResumeSelected = useCallback(async (file: File | null) => {
+    if (!file) return
+
+    setIsUploadingResume(true)
+    setStorageError(null)
+
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+
+      const res = await fetch('/api/coverletter/reference-resumes', {
+        method: 'POST',
+        body: formData,
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to upload reference resume')
+
+      await fetchStorage(false)
+      setStatusMessage(`${data.resume?.name ?? 'Reference resume'} uploaded to S3`)
+    } catch (error) {
+      setStorageError(error instanceof Error ? error.message : 'Failed to upload reference resume')
+    } finally {
+      setIsUploadingResume(false)
+      if (referenceResumeInputRef.current) {
+        referenceResumeInputRef.current.value = ''
+      }
+    }
+  }, [fetchStorage])
+
+  const deleteReferenceResume = useCallback(async (resume: StoredReferenceResumeSummary) => {
+    if (!window.confirm(`Delete ${resume.name} from S3?`)) return
+
+    setDeletingResumeId(resume.id)
+    setStorageError(null)
+
+    try {
+      const res = await fetch(`/api/coverletter/reference-resumes/${resume.id}`, { method: 'DELETE' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to delete reference resume')
+
+      await fetchStorage(false)
+      setStatusMessage(`${resume.name} deleted from S3`)
+    } catch (error) {
+      setStorageError(error instanceof Error ? error.message : 'Failed to delete reference resume')
+    } finally {
+      setDeletingResumeId(null)
+    }
+  }, [fetchStorage])
+
+  const saveCurrentLetter = useCallback(async () => {
+    const html = editorRef.current?.getHtml() ?? ''
+    const plainText = editorRef.current?.getPlainText() ?? ''
+
+    if (!plainText.trim()) {
+      setStorageError('Add some cover letter content before saving to S3')
+      return
+    }
+
+    setIsSavingLetter(true)
+    setStorageError(null)
+
+    try {
+      const isUpdating = Boolean(activeLetterId)
+      const res = await fetch(isUpdating ? `/api/coverletter/letters/${activeLetterId}` : '/api/coverletter/letters', {
+        method: isUpdating ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: draftTitle.trim() || 'Untitled Draft',
+          html,
+          plainText,
+          jobPosting,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to save cover letter')
+
+      const letter = data.letter as StoredCoverLetterDocument
+      setActiveLetterId(letter.id)
+      setDraftTitle(letter.title)
+      await fetchStorage(false)
+      setStatusMessage(isUpdating ? 'Cover letter draft updated in S3' : 'Cover letter draft saved to S3')
+    } catch (error) {
+      setStorageError(error instanceof Error ? error.message : 'Failed to save cover letter')
+    } finally {
+      setIsSavingLetter(false)
+    }
+  }, [activeLetterId, draftTitle, fetchStorage, jobPosting])
+
+  const loadSavedLetter = useCallback(async (letterId: string) => {
+    setLoadingLetterId(letterId)
+    setStorageError(null)
+
+    try {
+      const res = await fetch(`/api/coverletter/letters/${letterId}`, { cache: 'no-store' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to load saved cover letter')
+
+      const letter = data.letter as StoredCoverLetterDocument
+      editorRef.current?.loadHtml(letter.html)
+      setDraftTitle(letter.title)
+      setActiveLetterId(letter.id)
+      setJobPosting(letter.jobPosting ?? '')
+      setMatches({})
+      setStatusMessage(`Loaded ${letter.title}`)
+    } catch (error) {
+      setStorageError(error instanceof Error ? error.message : 'Failed to load saved cover letter')
+    } finally {
+      setLoadingLetterId(null)
+    }
+  }, [])
+
+  const deleteSavedLetter = useCallback(async (letter: StoredCoverLetterSummary) => {
+    if (!window.confirm(`Delete ${letter.title} from S3?`)) return
+
+    setDeletingLetterId(letter.id)
+    setStorageError(null)
+
+    try {
+      const res = await fetch(`/api/coverletter/letters/${letter.id}`, { method: 'DELETE' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to delete saved cover letter')
+
+      await fetchStorage(false)
+      if (activeLetterId === letter.id) {
+        resetDraft('Deleted the active S3 draft')
+      } else {
+        setStatusMessage(`${letter.title} deleted from S3`)
+      }
+    } catch (error) {
+      setStorageError(error instanceof Error ? error.message : 'Failed to delete saved cover letter')
+    } finally {
+      setDeletingLetterId(null)
+    }
+  }, [activeLetterId, fetchStorage, resetDraft])
+
   // ── AI matching ──
   // Calls the server-side Gemini proxy to find the best blocks for a job posting
   const matchBlocks = async () => {
@@ -385,6 +613,191 @@ export default function CoverLetterWorkbench() {
               placeholder="Paste a job posting here, then click Match Blocks to find the best sentences from your library…"
               className="w-full h-20 p-3 rounded-xl bg-foreground/5 border border-glass-border text-sm text-foreground placeholder:text-foreground/30 resize-none outline-none focus:border-glass-border-hover transition-colors"
             />
+          </div>
+
+          <div className="rounded-2xl bg-glass backdrop-blur-sm border border-glass-border p-4 space-y-4">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-foreground/40 font-mono">
+                  S3 Drafts & Resumes
+                </p>
+                <p className="text-sm text-foreground/50 mt-1">
+                  Save full cover letter drafts and keep reference resumes attached to this workbench.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => resetDraft()}
+                  className="px-3 py-1.5 rounded-full text-xs font-medium border border-glass-border hover:bg-foreground/5 text-foreground/55 hover:text-foreground/75 transition-all cursor-pointer"
+                >
+                  New Draft
+                </button>
+                <button
+                  onClick={() => void saveCurrentLetter()}
+                  disabled={isSavingLetter}
+                  className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${
+                    isSavingLetter
+                      ? 'bg-foreground/5 text-foreground/30 cursor-not-allowed'
+                      : 'bg-foreground text-background hover:opacity-90 cursor-pointer'
+                  }`}
+                >
+                  {isSavingLetter ? 'Saving…' : activeLetterId ? 'Update Draft' : 'Save Draft'}
+                </button>
+              </div>
+            </div>
+
+            <div className="grid gap-4 xl:grid-cols-2">
+              <div className="space-y-3">
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-foreground/35 font-mono">
+                    Draft Title
+                  </label>
+                  <input
+                    value={draftTitle}
+                    onChange={(e) => setDraftTitle(e.target.value)}
+                    placeholder="Summer 2026 SWE Internship"
+                    className="mt-1.5 w-full px-3 py-2 rounded-xl bg-foreground/5 border border-glass-border text-sm text-foreground placeholder:text-foreground/30 outline-none focus:border-glass-border-hover transition-colors"
+                  />
+                </div>
+
+                <div className="rounded-xl bg-foreground/5 border border-glass-border p-3 space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-xs font-medium text-foreground/60">Saved Letters — {savedLetters.length}</p>
+                    {activeLetterId && (
+                      <span className="text-[10px] font-medium text-foreground/35">Loaded from S3</span>
+                    )}
+                  </div>
+
+                  {storageLoading ? (
+                    <p className="text-xs text-foreground/35">Loading saved drafts…</p>
+                  ) : savedLetters.length === 0 ? (
+                    <p className="text-xs text-foreground/35">No S3 drafts yet. Save the current editor state to create one.</p>
+                  ) : (
+                    <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                      {savedLetters.map((letter) => (
+                        <div
+                          key={letter.id}
+                          className={`rounded-xl border px-3 py-2 transition-colors ${
+                            activeLetterId === letter.id
+                              ? 'border-foreground/20 bg-foreground/8'
+                              : 'border-glass-border bg-glass'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <button
+                              onClick={() => void loadSavedLetter(letter.id)}
+                              className="min-w-0 text-left cursor-pointer"
+                              disabled={loadingLetterId === letter.id}
+                            >
+                              <p className="text-sm text-foreground/80 truncate">
+                                {loadingLetterId === letter.id ? 'Loading…' : letter.title}
+                              </p>
+                              <p className="text-[11px] text-foreground/35 mt-1">
+                                {formatStorageTimestamp(letter.updatedAt)} · {formatStorageSize(letter.size)}
+                              </p>
+                            </button>
+
+                            <button
+                              onClick={() => void deleteSavedLetter(letter)}
+                              disabled={deletingLetterId === letter.id}
+                              className="text-foreground/30 hover:text-red-500 transition-colors cursor-pointer disabled:text-foreground/15"
+                              title="Delete saved draft"
+                            >
+                              <span className="material-symbols-outlined text-base">
+                                {deletingLetterId === letter.id ? 'progress_activity' : 'delete'}
+                              </span>
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-medium text-foreground/60">Reference Resumes — {referenceResumes.length}</p>
+                    <p className="text-[11px] text-foreground/35 mt-1">
+                      Upload the PDFs you want Gemini to use as source resume context later.
+                    </p>
+                  </div>
+
+                  <>
+                    <input
+                      ref={referenceResumeInputRef}
+                      type="file"
+                      accept="application/pdf"
+                      className="hidden"
+                      onChange={(e) => {
+                        void handleReferenceResumeSelected(e.target.files?.[0] ?? null)
+                      }}
+                    />
+                    <button
+                      onClick={() => referenceResumeInputRef.current?.click()}
+                      disabled={isUploadingResume}
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+                        isUploadingResume
+                          ? 'bg-foreground/5 text-foreground/30 cursor-not-allowed'
+                          : 'border border-glass-border hover:bg-foreground/5 text-foreground/55 hover:text-foreground/75 cursor-pointer'
+                      }`}
+                    >
+                      {isUploadingResume ? 'Uploading…' : 'Upload PDF'}
+                    </button>
+                  </>
+                </div>
+
+                <div className="rounded-xl bg-foreground/5 border border-glass-border p-3">
+                  {storageLoading ? (
+                    <p className="text-xs text-foreground/35">Loading reference resumes…</p>
+                  ) : referenceResumes.length === 0 ? (
+                    <p className="text-xs text-foreground/35">No reference resumes in S3 yet.</p>
+                  ) : (
+                    <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                      {referenceResumes.map((resume) => (
+                        <div key={resume.id} className="rounded-xl border border-glass-border bg-glass px-3 py-2">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-sm text-foreground/80 truncate">{resume.name}</p>
+                              <p className="text-[11px] text-foreground/35 mt-1">
+                                {formatStorageTimestamp(resume.uploadedAt)} · {formatStorageSize(resume.size)}
+                              </p>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                              <a
+                                href={resume.href}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[11px] text-foreground/45 hover:text-foreground/70 transition-colors"
+                              >
+                                Open
+                              </a>
+                              <button
+                                onClick={() => void deleteReferenceResume(resume)}
+                                disabled={deletingResumeId === resume.id}
+                                className="text-foreground/30 hover:text-red-500 transition-colors cursor-pointer disabled:text-foreground/15"
+                                title="Delete reference resume"
+                              >
+                                <span className="material-symbols-outlined text-base">
+                                  {deletingResumeId === resume.id ? 'progress_activity' : 'delete'}
+                                </span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {storageError && (
+              <p className="text-sm text-red-500">{storageError}</p>
+            )}
           </div>
 
           {/* ── Cover Letter Editor ── */}

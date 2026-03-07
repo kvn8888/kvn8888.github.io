@@ -31,6 +31,10 @@ import { Block, CATEGORIES, nextPaletteColor } from './types'
 
 export interface HighlightEditorHandle {
   insertBlock: (block: Block) => void
+  getHtml: () => string
+  getPlainText: () => string
+  loadHtml: (html: string) => void
+  clear: () => void
 }
 
 interface HighlightEditorProps {
@@ -225,6 +229,22 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
     })
   }, [recount, saveContent, positionXBtn])
 
+  // ── Replace the full editor HTML and re-bind all highlight interactions ──
+  const loadHtmlContent = useCallback((html: string) => {
+    if (!editorRef.current) return
+
+    editorRef.current.innerHTML = html
+    editorRef.current.querySelectorAll('.hl-card').forEach((card) => {
+      attachCardEvents(card as HTMLSpanElement)
+    })
+
+    setSelectedCard(null)
+    setXBtnPos(null)
+    setPopup(null)
+    recount()
+    saveContent()
+  }, [attachCardEvents, recount, saveContent])
+
   // ── Create a highlighted span element ──
   // Used when inserting library blocks or creating cards from selection.
   // The span uses box-decoration-break: clone for seamless multi-line wrapping.
@@ -305,7 +325,13 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
   }, [createHighlightSpan, recount, saveContent, pushUndo])
 
   // ── Expose insertBlock to the parent component ──
-  useImperativeHandle(ref, () => ({ insertBlock }), [insertBlock])
+  useImperativeHandle(ref, () => ({
+    insertBlock,
+    getHtml: () => editorRef.current?.innerHTML ?? '',
+    getPlainText: () => editorRef.current?.innerText?.trim() ?? '',
+    loadHtml: (html: string) => loadHtmlContent(html),
+    clear: () => loadHtmlContent(''),
+  }), [insertBlock, loadHtmlContent])
 
   // ── Load saved content on mount ──
   useEffect(() => {
@@ -314,13 +340,11 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
     localStorage.removeItem('cl-editor')
     const saved = localStorage.getItem('cl-editor-html')
     if (saved) {
-      editorRef.current.innerHTML = saved
+      loadHtmlContent(saved)
+      return
     }
+
     recount()
-    // Re-attach hover handlers to any saved highlight cards
-    editorRef.current.querySelectorAll('.hl-card').forEach((card) => {
-      attachCardEvents(card as HTMLSpanElement)
-    })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 

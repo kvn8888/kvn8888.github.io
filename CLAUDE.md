@@ -40,7 +40,7 @@ Built with **Next.js 16** (App Router), **Tailwind v4**, **Framer Motion**, depl
 
 - `/projects` — Project hub with card-based navigation
 - `/projects/usage` — API usage monitor dashboard (Tavily, Vercel, Render)
-- `/projects/tools/coverletter` — Cover letter workbench with a Jobs Turso-backed reusable block and tag library
+- `/projects/tools/coverletter` — Cover letter workbench with a Jobs Turso-backed reusable block/tag library plus S3-backed saved drafts and reference resumes
 - `/tools` — Internal tools hub (notes, project dashboard, runtime secrets, sign-in manager)
 - `/tools/sign-in-manager` — Admin UI for login approvals and page-level grant management
 
@@ -50,9 +50,13 @@ Built with **Next.js 16** (App Router), **Tailwind v4**, **Framer Motion**, depl
 - `/api/coverletter/library` — Loads the full reusable cover-letter block/tag library from Jobs Turso
 - `/api/coverletter/blocks` — Creates and lists reusable cover-letter blocks
 - `/api/coverletter/blocks/[id]` — Updates and deletes reusable cover-letter blocks
+- `/api/coverletter/letters` — Lists S3-backed saved cover-letter drafts and creates new draft documents
+- `/api/coverletter/letters/[id]` — Loads, updates, and deletes individual S3-backed cover-letter drafts
 - `/api/coverletter/tags` — Creates and lists reusable cover-letter tags
 - `/api/coverletter/tags/[id]` — Updates and deletes reusable cover-letter tags
 - `/api/coverletter/match` — Gemini-powered block matcher for a pasted job posting
+- `/api/coverletter/reference-resumes` — Lists S3-backed reference resume PDFs and uploads new ones
+- `/api/coverletter/reference-resumes/[id]` — Streams or deletes individual reference resume PDFs from S3
 - `/api/cron/usage-snapshots` — Vercel cron target that captures daily usage snapshots without requiring a dashboard visit
 - `/api/secrets` — Runtime secret override management (encrypted, Turso-backed)
 - `/api/usage/github` — GitHub personal billing usage (Codespaces + Copilot premium requests)
@@ -76,8 +80,11 @@ Built with **Next.js 16** (App Router), **Tailwind v4**, **Framer Motion**, depl
 
 - The reusable cover-letter library is stored in the Jobs Turso database, not in client-side `localStorage`
 - Schema and CRUD helpers live in `homepage/src/lib/coverLetterDb.ts`
+- S3-backed draft and resume helpers live in `homepage/src/lib/coverLetterStorage.ts`
 - Tables: `cover_letter_blocks`, `cover_letter_tags`, `cover_letter_block_tags`
 - The original 12 hard-coded library entries now seed server-side on schema initialization via stable `legacy-*` keys
+- Saved cover letters live in the existing `RESUME_S3_BUCKET` under the `coverletter/letters/` prefix as JSON documents that preserve both editor HTML and plain text
+- Reference resumes live in the same bucket under the `coverletter/reference-resumes/` prefix as uploaded PDFs that can later be passed into Gemini review/generation flows
 - `homepage/scripts/seed-coverletter-library.mjs` is the bootstrap and verification script for seeding the live Jobs Turso library, smoke-testing block/tag CRUD, and confirming Gemini matching with DB-backed blocks
 - `homepage/tmp/coverletter-library-report.json` is the local verification artifact written by that script
 
