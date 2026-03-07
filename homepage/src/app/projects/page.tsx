@@ -35,6 +35,14 @@ const projectLinks = [
   },
 ]
 
+function getProjectRevealClass(href: string, index: number) {
+  if (href === "/tools") {
+    return 'blur-reveal-7'
+  }
+
+  return `blur-reveal-${Math.min(index + 2, 6)}`
+}
+
 export default async function ProjectPage() {
   const session = await auth()
   const grantKeys = session?.user?.email
@@ -58,7 +66,7 @@ export default async function ProjectPage() {
           <a
             key={link.href}
             href={link.href}
-            className={`group block p-6 rounded-2xl bg-glass backdrop-blur-sm border border-glass-border hover:border-glass-border-hover hover:bg-glass-hover transition-all blur-reveal-${Math.min(i + 2, 5)}`}
+            className={`group block p-6 rounded-2xl bg-glass backdrop-blur-sm border border-glass-border hover:border-glass-border-hover hover:bg-glass-hover transition-all ${getProjectRevealClass(link.href, i)}`}
           >
             <span className="material-symbols-outlined text-foreground/40 group-hover:text-foreground/70 transition-colors text-3xl">
               {link.icon}
