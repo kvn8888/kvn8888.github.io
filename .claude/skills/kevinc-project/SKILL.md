@@ -111,7 +111,7 @@ export async function GET() {
 Services with on-track/burn-rate logic on the dashboard:
 - **Tavily** — monthly credits with plan limit
 - **GitHub** — Codespaces usage + Copilot premium requests via personal billing endpoints
-- **Usage snapshots** — daily cumulative totals persisted to Turso and read back through `/api/usage/history`
+- **Usage snapshots** — daily cumulative totals persisted to Turso with cycle metadata (`cycle_key`, `cycle_start`, `cycle_end`, `window_source`)
 - **Usage collectors** — shared fetch/normalize modules in `src/lib/usageCollectors/*` that feed both the authenticated `/api/usage/*` routes and the daily cron route
 - **Turso** — rows read/written against Starter plan limits
 - **Odds API** — request count against monthly limit
@@ -121,6 +121,10 @@ Services with on-track/burn-rate logic on the dashboard:
 - **Render** — service inventory plus month-to-date bandwidth via `/v1/metrics/bandwidth`
 
 The daily cron capture lives at `/api/cron/usage-snapshots` and should be protected with `CRON_SECRET`. Live usage routes still upsert snapshots during interactive refreshes, but the cron route is what makes the snapshot cadence reliable even when the dashboard is not opened.
+
+`/api/usage/history` no longer just returns the current month bucket. It now returns a recent snapshot window plus an `activeCycles` map so `src/app/projects/usage/page.tsx` can filter each metric to its active cycle and render `Last 7d vs prev 7d` comparisons without assuming month boundaries.
+
+The current cycle resolver lives in `src/lib/usageCycles.ts`. Today the registry defaults tracked metrics to calendar-month fallback, but this is also where provider-reported or configured anchor-day cycle rules should be added as billing APIs improve.
 
 Add `next: { revalidate: 60 }` to fetch options for caching.
 

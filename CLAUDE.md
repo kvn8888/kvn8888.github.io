@@ -84,11 +84,13 @@ Built with **Next.js 16** (App Router), **Tailwind v4**, **Framer Motion**, depl
 ## Usage Snapshots
 
 - `src/lib/usageSnapshots.ts` stores one cumulative total per service/metric/day in Turso
+- Snapshots now carry cycle metadata (`cycle_key`, `cycle_start`, `cycle_end`, `window_source`) so history can stop assuming every provider resets on the first of the month
+- `src/lib/usageCycles.ts` is the registry-backed resolver that decides the active cycle window for each tracked metric
 - `src/lib/usageCollectors/*` centralizes the snapshot-capable provider fetchers so the live routes and cron route share the same normalization logic
 - `/api/cron/usage-snapshots` runs the snapshot collectors on a daily Vercel cron schedule secured by `CRON_SECRET`
-- `/api/usage/history` returns the current billing period's snapshots to the dashboard
+- `/api/usage/history` now returns a recent snapshot range plus an `activeCycles` map so the dashboard can project against the correct cycle window per metric
 - Live `/api/usage/*` routes still upsert snapshots on demand, but the daily cron keeps the cadence from depending on dashboard traffic
-- Burn-rate cards now prefer snapshot-backed daily averages when history exists, and fall back to month-to-date/day-of-month math until enough history accumulates
+- Burn-rate cards now prefer cycle-aware snapshot averages when history exists, and the main usage panels also show a `Last 7d vs prev 7d` comparison row
 
 ## Environment Variables
 

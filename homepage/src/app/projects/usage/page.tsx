@@ -197,13 +197,28 @@ interface UsageMetricSnapshot {
   metric: string
   snapshotDate: string
   periodKey: string
+  cycleKey: string
+  cycleStart: string
+  cycleEnd: string | null
+  windowSource: 'provider-reported' | 'configured-anchor-day' | 'calendar-month-fallback'
   totalValue: number
   capturedAt: number
   updatedAt: number
 }
 
+interface ActiveUsageCycle {
+  cycleKey: string
+  cycleStart: string
+  cycleEnd: string | null
+  windowSource: UsageMetricSnapshot['windowSource']
+}
+
 interface UsageHistory {
   periodKey: string
+  rangeStart: string
+  rangeEnd: string
+  days: number
+  activeCycles: Record<string, ActiveUsageCycle>
   snapshots: UsageMetricSnapshot[]
 }
 
@@ -217,14 +232,37 @@ function getUtcDayDifference(startDate: string, endDate: string): number {
   return Math.max(Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)), 0)
 }
 
+function getUtcShiftedDateString(dateString: string, days: number): string {
+  const date = new Date(`${dateString}T00:00:00.000Z`)
+  date.setUTCDate(date.getUTCDate() + days)
+  return getUtcSnapshotDate(date)
+}
+
+function getMetricHistoryKey(service: string, metric: string) {
+  return `${service}:${metric}`
+}
+
+function getMetricActiveCycle(
+  usageHistory: UsageHistory | null,
+  service: string,
+  metric: string,
+) {
+  return usageHistory?.activeCycles?.[getMetricHistoryKey(service, metric)] ?? null
+}
+
 function getMetricSnapshotSeries(
   usageHistory: UsageHistory | null,
   service: string,
   metric: string,
 ): UsageMetricSnapshot[] {
-  return usageHistory?.snapshots.filter(
+  const snapshots = usageHistory?.snapshots.filter(
     (snapshot) => snapshot.service === service && snapshot.metric === metric,
   ) ?? []
+
+  const activeCycle = getMetricActiveCycle(usageHistory, service, metric)
+  if (!activeCycle) return snapshots
+
+  return snapshots.filter((snapshot) => snapshot.cycleKey === activeCycle.cycleKey)
 }
 
 function computeBurnProjection({
@@ -238,13 +276,19 @@ function computeBurnProjection({
   snapshots?: UsageMetricSnapshot[]
   now?: Date
 }) {
-  const dayOfMonth = now.getDate()
+  const today = getUtcSnapshotDate(now)
+  const latestSnapshot = snapshots?.[snapshots.length - 1]
+  const cycleStart = latestSnapshot?.cycleStart ?? getUtcSnapshotDate(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)))
+  const cycleEnd = latestSnapshot?.cycleEnd
+  const dayOfCycle = Math.max(getUtcDayDifference(cycleStart, today) + 1, 1)
   const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
-  const daysRemaining = daysInMonth - dayOfMonth
+  const daysRemaining = cycleEnd
+    ? getUtcDayDifference(today, cycleEnd)
+    : daysInMonth - now.getDate()
 
-  if (dayOfMonth === 0 || limit <= 0) return null
+  if (dayOfCycle === 0 || limit <= 0) return null
 
-  let dailyRate = used / dayOfMonth
+  let dailyRate = used / dayOfCycle
   let source: 'snapshots' | 'estimated' = 'estimated'
 
   if (snapshots && snapshots.length > 0) {
@@ -286,7 +330,112 @@ function computeBurnProjection({
     burnOutDate,
     daysRemaining,
     source,
+    cycleStart,
+    cycleEnd,
   }
+}
+
+interface UsageTrendComparisonResult {
+  currentWindowTotal: number
+  previousWindowTotal: number
+  delta: number
+  percentChange: number | null
+  direction: 'up' | 'down' | 'flat'
+}
+
+function getSnapshotTotalOnOrBefore(points: Array<[string, number]>, date: string) {
+  let total = 0
+
+  for (const [pointDate, pointTotal] of points) {
+    if (pointDate > date) break
+    total = pointTotal
+  }
+
+  return total
+}
+
+function computeUsageTrendComparison({
+  used,
+  snapshots,
+  now = new Date(),
+}: {
+  used: number
+  snapshots?: UsageMetricSnapshot[]
+  now?: Date
+}): UsageTrendComparisonResult | null {
+  const points = new Map<string, number>()
+
+  for (const snapshot of snapshots ?? []) {
+    points.set(snapshot.snapshotDate, snapshot.totalValue)
+  }
+
+  const today = getUtcSnapshotDate(now)
+  points.set(today, used)
+
+  const ordered = [...points.entries()].sort(([left], [right]) => left.localeCompare(right))
+  if (ordered.length < 2) return null
+
+  const currentStart = getUtcShiftedDateString(today, -6)
+  const previousStart = getUtcShiftedDateString(today, -13)
+  const previousEnd = getUtcShiftedDateString(today, -7)
+
+  const currentWindowTotal = Math.max(
+    0,
+    getSnapshotTotalOnOrBefore(ordered, today) -
+      getSnapshotTotalOnOrBefore(ordered, getUtcShiftedDateString(currentStart, -1)),
+  )
+  const previousWindowTotal = Math.max(
+    0,
+    getSnapshotTotalOnOrBefore(ordered, previousEnd) -
+      getSnapshotTotalOnOrBefore(ordered, getUtcShiftedDateString(previousStart, -1)),
+  )
+  const delta = currentWindowTotal - previousWindowTotal
+  const percentChange =
+    previousWindowTotal > 0 ? (delta / previousWindowTotal) * 100 : null
+
+  return {
+    currentWindowTotal,
+    previousWindowTotal,
+    delta,
+    percentChange,
+    direction: delta > 0 ? 'up' : delta < 0 ? 'down' : 'flat',
+  }
+}
+
+function UsageTrendComparisonRow({
+  comparison,
+  formatValue,
+}: {
+  comparison: UsageTrendComparisonResult | null
+  formatValue: (value: number) => string
+}) {
+  if (!comparison) return null
+
+  const tone =
+    comparison.direction === 'up'
+      ? 'text-amber-700'
+      : comparison.direction === 'down'
+        ? 'text-emerald-700'
+        : 'text-foreground/45'
+
+  const deltaLabel =
+    comparison.percentChange !== null
+      ? `${comparison.delta >= 0 ? '+' : ''}${comparison.percentChange.toFixed(0)}%`
+      : comparison.currentWindowTotal > 0
+        ? 'new activity'
+        : 'flat'
+
+  return (
+    <div className="flex items-start justify-between gap-3 text-sm">
+      <span className="text-foreground/50">Last 7d vs prev 7d</span>
+      <div className="text-right">
+        <div className="tabular-nums text-foreground/60">
+          {formatValue(comparison.currentWindowTotal)} / {formatValue(comparison.previousWindowTotal)}
+        </div>
+        <div className={`text-xs ${tone}`}>{deltaLabel}</div>
+      </div>
+    </div>
+  )
 }
 
 function UsageMeter({
@@ -591,8 +740,15 @@ export default function UsagePage() {
                       ~{Math.round(burn.dailyRate).toLocaleString()} credits/day
                     </span>
                   </div>
+                  <UsageTrendComparisonRow
+                    comparison={computeUsageTrendComparison({
+                      used: tavily.account.plan_usage,
+                      snapshots: getMetricSnapshotSeries(usageHistory, 'tavily', 'plan_usage'),
+                    })}
+                    formatValue={(value) => `${Math.round(value).toLocaleString()} credits`}
+                  />
                   <div className="flex items-baseline justify-between text-sm">
-                    <span className="text-foreground/50">Projected This Month</span>
+                    <span className="text-foreground/50">Projected This Cycle</span>
                     <span className={`tabular-nums font-medium ${burn.willBurnOut ? 'text-red-600' : 'text-foreground/60'}`}>
                       {Math.round(burn.projected).toLocaleString()} / {tavily.account.plan_limit.toLocaleString()}
                     </span>
@@ -610,7 +766,7 @@ export default function UsagePage() {
                         At current pace, credits will run out
                         {burn.burnOutDate
                           ? ` on ${burn.burnOutDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
-                          : ' before month end'}
+                          : ' before cycle end'}
                         . {burn.daysRemaining} days remaining.
                       </span>
                     </div>
@@ -619,7 +775,7 @@ export default function UsagePage() {
                     <div className="mt-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-2">
                       <span className="material-symbols-outlined text-emerald-500 text-lg">check_circle</span>
                       <span className="text-sm text-emerald-700">
-                        On track — projected to use {((burn.projected / tavily.account.plan_limit) * 100).toFixed(0)}% by month end.
+                        On track — projected to use {((burn.projected / tavily.account.plan_limit) * 100).toFixed(0)}% by cycle end.
                       </span>
                     </div>
                   )}
@@ -853,8 +1009,15 @@ export default function UsagePage() {
                             ~{Math.round(burn.dailyRate).toLocaleString()} min/day
                           </span>
                         </div>
+                        <UsageTrendComparisonRow
+                          comparison={computeUsageTrendComparison({
+                            used: totalMinutes,
+                            snapshots: getMetricSnapshotSeries(usageHistory, 'github', 'codespaces_minutes'),
+                          })}
+                          formatValue={(value) => `${Math.round(value).toLocaleString()} min`}
+                        />
                         <div className="flex items-baseline justify-between text-sm">
-                          <span className="text-foreground/50">Projected This Month</span>
+                          <span className="text-foreground/50">Projected This Cycle</span>
                           <span
                             className={`tabular-nums font-medium ${
                               burn.willBurnOut ? 'text-red-600' : 'text-foreground/60'
@@ -870,7 +1033,7 @@ export default function UsagePage() {
                               At current pace, Codespaces minutes will run out
                               {burn.burnOutDate
                                 ? ` on ${burn.burnOutDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
-                                : ' before month end'}. {burn.daysRemaining} days remaining.
+                                : ' before cycle end'}. {burn.daysRemaining} days remaining.
                             </span>
                           </div>
                         )}
@@ -879,7 +1042,7 @@ export default function UsagePage() {
                             <span className="material-symbols-outlined text-emerald-500 text-lg">check_circle</span>
                             <span className="text-sm text-emerald-700">
                               On track — projected to use{' '}
-                              {((burn.projected / includedMinutes) * 100).toFixed(0)}% by month end.
+                              {((burn.projected / includedMinutes) * 100).toFixed(0)}% by cycle end.
                             </span>
                           </div>
                         )}
@@ -888,7 +1051,7 @@ export default function UsagePage() {
                   })()}
                 </>
               ) : (
-                <p className="text-sm text-foreground/40">No Codespaces usage this month.</p>
+                <p className="text-sm text-foreground/40">No Codespaces usage in the active cycle.</p>
               )}
             </div>
 
@@ -932,8 +1095,15 @@ export default function UsagePage() {
                             ~{Math.round(burn.dailyRate).toLocaleString()} req/day
                           </span>
                         </div>
+                        <UsageTrendComparisonRow
+                          comparison={computeUsageTrendComparison({
+                            used: totalRequests,
+                            snapshots: getMetricSnapshotSeries(usageHistory, 'github', 'copilot_premium_requests'),
+                          })}
+                          formatValue={(value) => `${Math.round(value).toLocaleString()} req`}
+                        />
                         <div className="flex items-baseline justify-between text-sm">
-                          <span className="text-foreground/50">Projected This Month</span>
+                          <span className="text-foreground/50">Projected This Cycle</span>
                           <span className={`tabular-nums font-medium ${burn.willBurnOut ? 'text-red-600' : 'text-foreground/60'}`}>
                             {Math.round(burn.projected).toLocaleString()} / {github.copilot.includedPremiumRequests.toLocaleString()}
                           </span>
@@ -945,7 +1115,7 @@ export default function UsagePage() {
                               At current pace, premium requests will run out
                               {burn.burnOutDate
                                 ? ` on ${burn.burnOutDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
-                                : ' before month end'}. {burn.daysRemaining} days remaining.
+                                : ' before cycle end'}. {burn.daysRemaining} days remaining.
                             </span>
                           </div>
                         )}
@@ -953,7 +1123,7 @@ export default function UsagePage() {
                           <div className="mt-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-2">
                             <span className="material-symbols-outlined text-emerald-500 text-lg">check_circle</span>
                             <span className="text-sm text-emerald-700">
-                              On track — projected to use {((burn.projected / github.copilot.includedPremiumRequests) * 100).toFixed(0)}% by month end.
+                              On track — projected to use {((burn.projected / github.copilot.includedPremiumRequests) * 100).toFixed(0)}% by cycle end.
                             </span>
                           </div>
                         )}
@@ -983,7 +1153,7 @@ export default function UsagePage() {
                   ))}
                 </div>
               ) : (
-                <p className="text-sm text-foreground/40">No premium usage this month.</p>
+                <p className="text-sm text-foreground/40">No premium usage in the active cycle.</p>
               )}
 
               <p className="text-xs text-foreground/30 italic">Free with Copilot Pro (Student).</p>
@@ -1188,7 +1358,7 @@ export default function UsagePage() {
                         </span>
                       </div>
                       <div className="flex items-baseline justify-between text-sm">
-                        <span className="text-foreground/50">Projected This Month</span>
+                        <span className="text-foreground/50">Projected This Cycle</span>
                         <span className={`tabular-nums font-medium ${burn.willBurnOut ? 'text-red-600' : 'text-foreground/60'}`}>
                           ${burn.projected.toFixed(2)} / ${total.toFixed(2)}
                         </span>
@@ -1197,7 +1367,7 @@ export default function UsagePage() {
                         <div className="mt-2 px-3 py-2 rounded-xl bg-red-50 border border-red-200 flex items-center gap-2">
                           <span className="material-symbols-outlined text-red-500 text-lg">warning</span>
                           <span className="text-sm text-red-700">
-                            Credits projected to run out this month. {burn.daysRemaining} days remaining.
+                            Credits projected to run out this cycle. {burn.daysRemaining} days remaining.
                           </span>
                         </div>
                       )}
@@ -1205,7 +1375,7 @@ export default function UsagePage() {
                         <div className="mt-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-2">
                           <span className="material-symbols-outlined text-emerald-500 text-lg">check_circle</span>
                           <span className="text-sm text-emerald-700">
-                            On track — projected to use {((burn.projected / total) * 100).toFixed(0)}% by month end.
+                            On track — projected to use {((burn.projected / total) * 100).toFixed(0)}% by cycle end.
                           </span>
                         </div>
                       )}
@@ -1262,8 +1432,15 @@ export default function UsagePage() {
                           ~${burn.dailyRate.toFixed(2)}/day
                         </span>
                       </div>
+                      <UsageTrendComparisonRow
+                        comparison={computeUsageTrendComparison({
+                          used,
+                          snapshots: getMetricSnapshotSeries(usageHistory, 'azure', 'student_credit_used_usd'),
+                        })}
+                        formatValue={(value) => `$${value.toFixed(2)}`}
+                      />
                       <div className="flex items-baseline justify-between text-sm">
-                        <span className="text-foreground/50">Projected This Month</span>
+                        <span className="text-foreground/50">Projected This Cycle</span>
                         <span className={`tabular-nums font-medium ${burn.willBurnOut ? 'text-red-600' : 'text-foreground/60'}`}>
                           ${burn.projected.toFixed(2)} / ${limit.toFixed(2)}
                         </span>
@@ -1272,7 +1449,7 @@ export default function UsagePage() {
                         <div className="mt-2 px-3 py-2 rounded-xl bg-red-50 border border-red-200 flex items-center gap-2">
                           <span className="material-symbols-outlined text-red-500 text-lg">warning</span>
                           <span className="text-sm text-red-700">
-                            Credits projected to run out this month. {burn.daysRemaining} days remaining.
+                            Credits projected to run out this cycle. {burn.daysRemaining} days remaining.
                           </span>
                         </div>
                       )}
@@ -1280,7 +1457,7 @@ export default function UsagePage() {
                         <div className="mt-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-2">
                           <span className="material-symbols-outlined text-emerald-500 text-lg">check_circle</span>
                           <span className="text-sm text-emerald-700">
-                            On track — projected to use {((burn.projected / limit) * 100).toFixed(0)}% by month end.
+                            On track — projected to use {((burn.projected / limit) * 100).toFixed(0)}% by cycle end.
                           </span>
                         </div>
                       )}
@@ -1366,8 +1543,15 @@ export default function UsagePage() {
                       ~{Math.round(burn.dailyRate).toLocaleString()} rows/day
                     </span>
                   </div>
+                  <UsageTrendComparisonRow
+                    comparison={computeUsageTrendComparison({
+                      used,
+                      snapshots: getMetricSnapshotSeries(usageHistory, 'turso', 'rows_read'),
+                    })}
+                    formatValue={(value) => `${Math.round(value).toLocaleString()} rows`}
+                  />
                   <div className="flex items-baseline justify-between text-sm">
-                    <span className="text-foreground/50">Projected This Month</span>
+                    <span className="text-foreground/50">Projected This Cycle</span>
                     <span className={`tabular-nums font-medium ${burn.willBurnOut ? 'text-red-600' : 'text-foreground/60'}`}>
                       {Math.round(burn.projected).toLocaleString()} / {limit.toLocaleString()}
                     </span>
@@ -1384,7 +1568,7 @@ export default function UsagePage() {
                     <div className="mt-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-2">
                       <span className="material-symbols-outlined text-emerald-500 text-lg">check_circle</span>
                       <span className="text-sm text-emerald-700">
-                        On track — projected to use {((burn.projected / limit) * 100).toFixed(0)}% by month end.
+                        On track — projected to use {((burn.projected / limit) * 100).toFixed(0)}% by cycle end.
                       </span>
                     </div>
                   )}
@@ -1440,8 +1624,15 @@ export default function UsagePage() {
                       ~{Math.round(burn.dailyRate).toLocaleString()} req/day
                     </span>
                   </div>
+                  <UsageTrendComparisonRow
+                    comparison={computeUsageTrendComparison({
+                      used: odds.requestsUsed,
+                      snapshots: getMetricSnapshotSeries(usageHistory, 'odds', 'requests_used'),
+                    })}
+                    formatValue={(value) => `${Math.round(value).toLocaleString()} req`}
+                  />
                   <div className="flex items-baseline justify-between text-sm">
-                    <span className="text-foreground/50">Projected This Month</span>
+                    <span className="text-foreground/50">Projected This Cycle</span>
                     <span className={`tabular-nums font-medium ${burn.willBurnOut ? 'text-red-600' : 'text-foreground/60'}`}>
                       {Math.round(burn.projected).toLocaleString()} / {odds.requestsLimit.toLocaleString()}
                     </span>
@@ -1458,7 +1649,7 @@ export default function UsagePage() {
                     <div className="mt-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-2">
                       <span className="material-symbols-outlined text-emerald-500 text-lg">check_circle</span>
                       <span className="text-sm text-emerald-700">
-                        On track — projected to use {((burn.projected / odds.requestsLimit) * 100).toFixed(0)}% by month end.
+                        On track — projected to use {((burn.projected / odds.requestsLimit) * 100).toFixed(0)}% by cycle end.
                       </span>
                     </div>
                   )}
@@ -1532,8 +1723,15 @@ export default function UsagePage() {
                       ~{burn.dailyRate.toFixed(2)} DIEM/day
                     </span>
                   </div>
+                  <UsageTrendComparisonRow
+                    comparison={computeUsageTrendComparison({
+                      used,
+                      snapshots: getMetricSnapshotSeries(usageHistory, 'venice', 'diem_used'),
+                    })}
+                    formatValue={(value) => `${value.toFixed(2)} DIEM`}
+                  />
                   <div className="flex items-baseline justify-between text-sm">
-                    <span className="text-foreground/50">Projected This Month</span>
+                    <span className="text-foreground/50">Projected This Cycle</span>
                     <span className={`tabular-nums font-medium ${burn.willBurnOut ? 'text-red-600' : 'text-foreground/60'}`}>
                       {burn.projected.toFixed(2)} / {allocation.toFixed(2)}
                     </span>
@@ -1542,7 +1740,7 @@ export default function UsagePage() {
                     <div className="mt-2 px-3 py-2 rounded-xl bg-red-50 border border-red-200 flex items-center gap-2">
                       <span className="material-symbols-outlined text-red-500 text-lg">warning</span>
                       <span className="text-sm text-red-700">
-                        DIEM projected to run out this month. {burn.daysRemaining} days remaining.
+                        DIEM projected to run out this cycle. {burn.daysRemaining} days remaining.
                       </span>
                     </div>
                   )}
@@ -1550,7 +1748,7 @@ export default function UsagePage() {
                     <div className="mt-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-2">
                       <span className="material-symbols-outlined text-emerald-500 text-lg">check_circle</span>
                       <span className="text-sm text-emerald-700">
-                        On track — projected to use {((burn.projected / allocation) * 100).toFixed(0)}% by month end.
+                        On track — projected to use {((burn.projected / allocation) * 100).toFixed(0)}% by cycle end.
                       </span>
                     </div>
                   )}

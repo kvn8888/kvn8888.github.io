@@ -1,6 +1,7 @@
+import { type UsageCycleOverride } from '@/lib/usageCycles'
 import { recordUsageMetricSnapshot } from '@/lib/usageSnapshots'
 
-export interface UsageSnapshotWrite {
+export interface UsageSnapshotWrite extends UsageCycleOverride {
   service: string
   metric: string
   totalValue: number
