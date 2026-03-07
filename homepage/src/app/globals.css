@@ -459,6 +459,10 @@ html {
   filter: brightness(1.03);
   box-shadow: 0 2px 12px rgba(0,0,0,0.1) !important;
 }
+.hl-card.hl-editing {
+  opacity: 0.18;
+  pointer-events: none;
+}
 .hl-card:active {
   cursor: grabbing !important;
 }

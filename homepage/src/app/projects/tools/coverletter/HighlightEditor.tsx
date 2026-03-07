@@ -67,6 +67,16 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
     card: HTMLSpanElement
   } | null>(null)
 
+  const editingCardRef = useRef<HTMLSpanElement | null>(null)
+  const editingOriginalTextRef = useRef('')
+  const editingTextareaRef = useRef<HTMLTextAreaElement>(null)
+  const [editingCard, setEditingCard] = useState<{
+    x: number
+    y: number
+    width: number
+  } | null>(null)
+  const [editingText, setEditingText] = useState('')
+
   // Selected block: the currently clicked/active highlight card.
   // Used for visual selection ring, persistent X button, and keyboard delete.
   const [selectedCard, setSelectedCard] = useState<HTMLSpanElement | null>(null)
@@ -138,6 +148,75 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
     return normalizedText
   }, [])
 
+  const closeCardEditor = useCallback((nextText: string, shouldSave: boolean) => {
+    const span = editingCardRef.current
+    if (!span) return
+
+    const normalizedText = nextText.replace(/\r/g, '')
+    span.classList.remove('hl-editing')
+
+    if (shouldSave && normalizedText !== editingOriginalTextRef.current) {
+      pushUndo()
+    }
+
+    if (shouldSave) {
+      span.textContent = normalizedText
+      if (!normalizedText.trim()) {
+        span.parentNode?.removeChild(span)
+      }
+    } else {
+      span.textContent = editingOriginalTextRef.current
+    }
+
+    editingCardRef.current = null
+    editingOriginalTextRef.current = ''
+    setEditingCard(null)
+    setEditingText('')
+    setSelectedCard(null)
+    setXBtnPos(null)
+    recount()
+    saveContent()
+  }, [pushUndo, recount, saveContent])
+
+  const openCardEditor = useCallback((span: HTMLSpanElement) => {
+    const wrapperRect = wrapperRef.current?.getBoundingClientRect()
+    const spanRect = span.getBoundingClientRect()
+    if (!wrapperRect) return
+
+    const originalText = normalizeCardText(span)
+    const availableWidth = Math.max(wrapperRect.width - (spanRect.left - wrapperRect.left), 280)
+
+    editingCardRef.current = span
+    editingOriginalTextRef.current = originalText
+    setEditingText(originalText)
+    setEditingCard({
+      x: Math.max(0, spanRect.left - wrapperRect.left),
+      y: spanRect.bottom - wrapperRect.top + 8,
+      width: Math.min(Math.max(spanRect.width, 320), availableWidth),
+    })
+
+    span.classList.add('hl-editing')
+    setSelectedCard(null)
+    setXBtnPos(null)
+  }, [normalizeCardText])
+
+  useEffect(() => {
+    if (!editingCard || !editingTextareaRef.current) return
+
+    const textarea = editingTextareaRef.current
+    textarea.style.height = 'auto'
+    textarea.style.height = `${textarea.scrollHeight}px`
+    textarea.focus()
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length)
+  }, [editingCard])
+
+  useEffect(() => {
+    if (!editingTextareaRef.current) return
+    const textarea = editingTextareaRef.current
+    textarea.style.height = 'auto'
+    textarea.style.height = `${textarea.scrollHeight}px`
+  }, [editingText])
+
   const attachCardEvents = useCallback((span: HTMLSpanElement) => {
     // Make the span a discrete draggable element, not editable inline text
     span.draggable = true
@@ -205,67 +284,9 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
     span.addEventListener('dblclick', (e: MouseEvent) => {
       e.preventDefault()
       e.stopPropagation()
-      // Remove selection state while editing
-      span.classList.remove('hl-selected')
-      setSelectedCard(null)
-      setXBtnPos(null)
-
-      span.draggable = false
-      span.style.cursor = 'text'
-      const originalText = normalizeCardText(span)
-      const textarea = document.createElement('textarea')
-      textarea.className = 'hl-card-editor'
-      textarea.value = originalText
-      textarea.spellcheck = true
-      textarea.rows = Math.max(3, originalText.split('\n').length + 1)
-
-      const autoSize = () => {
-        textarea.style.height = 'auto'
-        textarea.style.height = `${textarea.scrollHeight}px`
-      }
-
-      const finishEditing = (nextText: string) => {
-        span.draggable = true
-        span.style.cursor = 'grab'
-        span.replaceChildren()
-        span.textContent = nextText
-
-        if (nextText !== originalText) {
-          pushUndo()
-        }
-
-        if (!nextText.trim()) {
-          span.parentNode?.removeChild(span)
-          recount()
-          saveContent()
-          return
-        }
-
-        recount()
-        saveContent()
-      }
-
-      textarea.addEventListener('input', autoSize)
-      textarea.addEventListener('keydown', (event: KeyboardEvent) => {
-        if (event.key === 'Escape') {
-          event.preventDefault()
-          event.stopPropagation()
-          textarea.value = originalText
-          textarea.blur()
-        }
-      })
-      textarea.addEventListener('blur', () => {
-        finishEditing(textarea.value.replace(/\r/g, ''))
-      }, { once: true })
-
-      span.replaceChildren(textarea)
-      requestAnimationFrame(() => {
-        autoSize()
-        textarea.focus()
-        textarea.setSelectionRange(textarea.value.length, textarea.value.length)
-      })
+      openCardEditor(span)
     })
-  }, [normalizeCardText, recount, saveContent, positionXBtn, pushUndo])
+  }, [openCardEditor, positionXBtn])
 
   // ── Replace the full editor HTML and re-bind all highlight interactions ──
   const loadHtmlContent = useCallback((html: string) => {
@@ -277,6 +298,10 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
       attachCardEvents(card as HTMLSpanElement)
     })
 
+    editingCardRef.current = null
+    editingOriginalTextRef.current = ''
+    setEditingCard(null)
+    setEditingText('')
     setSelectedCard(null)
     setXBtnPos(null)
     setPopup(null)
@@ -791,6 +816,54 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
 
       {/* Editor surface — wrapper div provides positioning context */}
       <div ref={wrapperRef} className="relative flex-1">
+
+        {editingCard && (
+          <div
+            className="absolute z-50 rounded-2xl border border-glass-border bg-background/95 p-3 shadow-xl shadow-black/10"
+            style={{
+              left: editingCard.x,
+              top: editingCard.y,
+              width: editingCard.width,
+              maxWidth: 'min(32rem, calc(100% - 1rem))',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-[10px] font-bold uppercase tracking-wider text-foreground/35 font-mono mb-2">
+              Edit Block
+            </p>
+            <textarea
+              ref={editingTextareaRef}
+              value={editingText}
+              onChange={(e) => setEditingText(e.target.value)}
+              onKeyDown={(e) => {
+                if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                  e.preventDefault()
+                  closeCardEditor(editingText, true)
+                }
+
+                if (e.key === 'Escape') {
+                  e.preventDefault()
+                  closeCardEditor(editingOriginalTextRef.current, false)
+                }
+              }}
+              className="hl-card-editor"
+            />
+            <div className="mt-3 flex items-center justify-end gap-2">
+              <button
+                onClick={() => closeCardEditor(editingOriginalTextRef.current, false)}
+                className="px-3 py-1.5 rounded-full text-xs font-medium border border-glass-border hover:bg-foreground/5 text-foreground/55 hover:text-foreground/75 transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => closeCardEditor(editingText, true)}
+                className="px-3 py-1.5 rounded-full text-xs font-medium bg-foreground text-background hover:opacity-90 transition-all cursor-pointer"
+              >
+                Save Block
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* ── Floating squircle X button ──
             Rendered as a React element positioned absolutely at the
