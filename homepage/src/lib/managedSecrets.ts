@@ -169,6 +169,12 @@ export const MANAGED_SECRET_GROUPS: ManagedSecretGroup[] = [
       { key: 'VERCEL_PROJECT_NAME', description: 'Vercel project name or slug for env sync (fallback)' },
       { key: 'VERCEL_TEAM_ID', description: 'Vercel team ID for env sync (optional)' },
       { key: 'VERCEL_TEAM_SLUG', description: 'Vercel team slug for env sync (optional)' },
+      {
+        key: 'CRON_SECRET',
+        description: 'Shared bearer secret that secures Vercel cron routes',
+        strategy: 'env-sync-only',
+        note: 'Bootstrap-only. Vercel injects this into Authorization headers for cron invocations after redeploy.',
+      },
       { key: 'ODDS_API_KEY', description: 'The Odds API usage' },
       { key: 'VENICE_API_KEY', description: 'Venice AI usage' },
     ],

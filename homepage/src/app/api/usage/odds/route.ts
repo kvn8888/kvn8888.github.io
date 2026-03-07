@@ -1,7 +1,10 @@
 import { auth } from '@/auth'
 import { NextResponse } from 'next/server'
-import { getSecret } from '@/lib/secrets'
-import { recordUsageMetricSnapshot } from '@/lib/usageSnapshots'
+import {
+  collectOddsUsage,
+  getUsageCollectorErrorResponse,
+  persistUsageSnapshots,
+} from '@/lib/usageCollectors'
 
 export async function GET() {
   const session = await auth()
@@ -9,39 +12,19 @@ export async function GET() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const apiKey = await getSecret('ODDS_API_KEY')
-  if (!apiKey) {
-    return NextResponse.json({ error: 'ODDS_API_KEY not configured' }, { status: 500 })
-  }
-
   try {
-    // Lightweight call — /v4/sports returns usage info in headers
-    const res = await fetch(
-      `https://api.the-odds-api.com/v4/sports/?apiKey=${apiKey}`,
-      { cache: 'no-store' }
-    )
-
-    const requestsUsed = parseInt(res.headers.get('x-requests-used') || '0', 10)
-    const requestsRemaining = parseInt(res.headers.get('x-requests-remaining') || '0', 10)
+    const result = await collectOddsUsage()
 
     try {
-      await recordUsageMetricSnapshot({
-        service: 'odds',
-        metric: 'requests_used',
-        totalValue: requestsUsed,
-      })
+      await persistUsageSnapshots(result.snapshots)
     } catch {
       // Snapshot failures should not block the live usage response.
     }
 
-    return NextResponse.json({
-      requestsUsed,
-      requestsRemaining,
-      requestsLimit: requestsUsed + requestsRemaining,
-      dashboardUrl: 'https://the-odds-api.com/account/',
-    })
+    return NextResponse.json(result.payload)
   } catch (error) {
     console.error('Odds API error:', error)
-    return NextResponse.json({ error: 'Failed to fetch Odds API usage' }, { status: 500 })
+    const response = getUsageCollectorErrorResponse(error, 'Failed to fetch Odds API usage')
+    return NextResponse.json(response.body, { status: response.status })
   }
 }

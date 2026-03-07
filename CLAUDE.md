@@ -53,6 +53,7 @@ Built with **Next.js 16** (App Router), **Tailwind v4**, **Framer Motion**, depl
 - `/api/coverletter/tags` — Creates and lists reusable cover-letter tags
 - `/api/coverletter/tags/[id]` — Updates and deletes reusable cover-letter tags
 - `/api/coverletter/match` — Gemini-powered block matcher for a pasted job posting
+- `/api/cron/usage-snapshots` — Vercel cron target that captures daily usage snapshots without requiring a dashboard visit
 - `/api/secrets` — Runtime secret override management (encrypted, Turso-backed)
 - `/api/usage/github` — GitHub personal billing usage (Codespaces + Copilot premium requests)
 - `/api/usage/history` — Turso-backed daily usage snapshots for burn-rate projections
@@ -83,7 +84,10 @@ Built with **Next.js 16** (App Router), **Tailwind v4**, **Framer Motion**, depl
 ## Usage Snapshots
 
 - `src/lib/usageSnapshots.ts` stores one cumulative total per service/metric/day in Turso
+- `src/lib/usageCollectors/*` centralizes the snapshot-capable provider fetchers so the live routes and cron route share the same normalization logic
+- `/api/cron/usage-snapshots` runs the snapshot collectors on a daily Vercel cron schedule secured by `CRON_SECRET`
 - `/api/usage/history` returns the current billing period's snapshots to the dashboard
+- Live `/api/usage/*` routes still upsert snapshots on demand, but the daily cron keeps the cadence from depending on dashboard traffic
 - Burn-rate cards now prefer snapshot-backed daily averages when history exists, and fall back to month-to-date/day-of-month math until enough history accumulates
 
 ## Environment Variables
@@ -100,7 +104,7 @@ Common optional groups:
 - Google / Gemini / GCP: `GEMINI_API_KEY`, `GCP_SERVICE_ACCOUNT_KEY`, `GCP_BILLING_EXPORT_PROJECT_ID`, `GCP_BILLING_EXPORT_DATASET`
 - Azure speech / billing: `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`, `AZURE_OPENAI_*`, `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_SUBSCRIPTION_ID`, `AZURE_BILLING_ACCOUNT_ID`, `AZURE_BILLING_PROFILE_ID`
 - Usage monitoring: `TAVILY_API_KEY`, `GITHUB_PAT`, `GITHUB_USERNAME`, `OPENROUTER_API_KEY`, `ODDS_API_KEY`, `RENDER_API_KEY`, `REPLICATE_API_TOKEN`, `VENICE_API_KEY`
-- Vercel sync: `VERCEL_API_TOKEN`, `VERCEL_PROJECT_ID`, `VERCEL_PROJECT_NAME`, `VERCEL_TEAM_ID`, `VERCEL_TEAM_SLUG`
+- Vercel sync / cron: `VERCEL_API_TOKEN`, `VERCEL_PROJECT_ID`, `VERCEL_PROJECT_NAME`, `VERCEL_TEAM_ID`, `VERCEL_TEAM_SLUG`, `CRON_SECRET`
 - Turso: `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `JOBS_TURSO_DATABASE_URL`, `JOBS_TURSO_AUTH_TOKEN`, `TURSO_API_TOKEN`, `TURSO_ORG_SLUG`
 - Job tracker automation: `SHEETS_WEBHOOK_URL`
 - AWS / S3: `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `RESUME_S3_BUCKET`, `RESUME_S3_KEY`, `RESUME_S3_PUBLIC_URL`, `SPEECH_S3_BUCKET`

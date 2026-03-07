@@ -73,6 +73,7 @@ API keys can be overridden at runtime via `/tools/secrets` without a redeploy.
 - `/api/secrets` manages the overrides for authenticated users
 - After a successful save, `/api/secrets` can also upsert the same key into Vercel project envs when `VERCEL_API_TOKEN` and `VERCEL_PROJECT_ID` (or `VERCEL_PROJECT_NAME`) are configured
 - `JOBS_TURSO_DATABASE_URL` and `JOBS_TURSO_AUTH_TOKEN` are fetched through `getSecret()` in `src/lib/jobsDb.ts`, so they can now be rotated through the secrets UI without a redeploy
+- `CRON_SECRET` is an env-sync-only secret used to secure Vercel cron routes such as `/api/cron/usage-snapshots`
 - Use `getSecret("KEY_NAME")` in API routes instead of reading `process.env.KEY_NAME` directly when the value may be rotated via the UI
 
 ## API Routes
@@ -111,12 +112,15 @@ Services with on-track/burn-rate logic on the dashboard:
 - **Tavily** — monthly credits with plan limit
 - **GitHub** — Codespaces usage + Copilot premium requests via personal billing endpoints
 - **Usage snapshots** — daily cumulative totals persisted to Turso and read back through `/api/usage/history`
+- **Usage collectors** — shared fetch/normalize modules in `src/lib/usageCollectors/*` that feed both the authenticated `/api/usage/*` routes and the daily cron route
 - **Turso** — rows read/written against Starter plan limits
 - **Odds API** — request count against monthly limit
 - **Venice AI** — DIEM epoch allocation vs remaining balance
 - **Azure** — student credit balance with cost projection
 - **OpenRouter** — prepaid credits usage
 - **Render** — service inventory plus month-to-date bandwidth via `/v1/metrics/bandwidth`
+
+The daily cron capture lives at `/api/cron/usage-snapshots` and should be protected with `CRON_SECRET`. Live usage routes still upsert snapshots during interactive refreshes, but the cron route is what makes the snapshot cadence reliable even when the dashboard is not opened.
 
 Add `next: { revalidate: 60 }` to fetch options for caching.
 
@@ -149,7 +153,7 @@ Required: `AUTH_SECRET`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, `AUTH_TRUST_HOS
 
 Optional (usage dashboard):
 - `TAVILY_API_KEY`, `VERCEL_API_TOKEN`, `RENDER_API_KEY`, `REPLICATE_API_TOKEN`
-- `VERCEL_PROJECT_ID`, `VERCEL_PROJECT_NAME`, `VERCEL_TEAM_ID`, `VERCEL_TEAM_SLUG`
+- `VERCEL_PROJECT_ID`, `VERCEL_PROJECT_NAME`, `VERCEL_TEAM_ID`, `VERCEL_TEAM_SLUG`, `CRON_SECRET`
 - `GITHUB_PAT`, `GITHUB_USERNAME`
 - `GCP_BILLING_EXPORT_PROJECT_ID`, `GCP_BILLING_EXPORT_DATASET`
 - `OPENROUTER_API_KEY`, `ODDS_API_KEY`, `VENICE_API_KEY`
