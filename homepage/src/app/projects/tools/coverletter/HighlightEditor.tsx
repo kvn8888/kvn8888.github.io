@@ -200,7 +200,8 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
     })
 
     // Double-click: enter inline edit mode
-    // Switches span from draggable → editable text temporarily
+    // We use a textarea inside the block instead of contentEditable on the
+    // span itself so Enter/Enter behaves like plain text paragraphs.
     span.addEventListener('dblclick', (e: MouseEvent) => {
       e.preventDefault()
       e.stopPropagation()
@@ -209,66 +210,62 @@ const HighlightEditor = forwardRef<HighlightEditorHandle, HighlightEditorProps>(
       setSelectedCard(null)
       setXBtnPos(null)
 
-      span.contentEditable = 'true'
       span.draggable = false
       span.style.cursor = 'text'
-      span.focus()
+      const originalText = normalizeCardText(span)
+      const textarea = document.createElement('textarea')
+      textarea.className = 'hl-card-editor'
+      textarea.value = originalText
+      textarea.spellcheck = true
+      textarea.rows = Math.max(3, originalText.split('\n').length + 1)
 
-      // Select all text for easy replacement
-      const sel = window.getSelection()
-      const range = document.createRange()
-      range.selectNodeContents(span)
-      sel?.removeAllRanges()
-      sel?.addRange(range)
-    })
-
-    // Handle Enter manually so the block behaves like a custom inline object
-    // editor instead of letting the browser inject nested div/br structures.
-    span.addEventListener('keydown', (e: KeyboardEvent) => {
-      if (span.contentEditable !== 'true') return
-
-      if (e.key === 'Enter') {
-        e.preventDefault()
-        e.stopPropagation()
-
-        const selection = window.getSelection()
-        if (!selection || selection.rangeCount === 0) return
-
-        const range = selection.getRangeAt(0)
-        if (!span.contains(range.startContainer)) return
-
-        range.deleteContents()
-        const textNode = document.createTextNode('\n')
-        range.insertNode(textNode)
-
-        const nextRange = document.createRange()
-        nextRange.setStart(textNode, textNode.textContent?.length ?? 1)
-        nextRange.collapse(true)
-        selection.removeAllRanges()
-        selection.addRange(nextRange)
-        return
+      const autoSize = () => {
+        textarea.style.height = 'auto'
+        textarea.style.height = `${textarea.scrollHeight}px`
       }
 
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        e.stopPropagation()
-        span.blur()
-      }
-    })
+      const finishEditing = (nextText: string) => {
+        span.draggable = true
+        span.style.cursor = 'grab'
+        span.replaceChildren()
+        span.textContent = nextText
 
-    // Blur: exit edit mode, restore draggable behavior
-    span.addEventListener('blur', () => {
-      span.contentEditable = 'false'
-      span.draggable = true
-      span.style.cursor = 'grab'
-      const normalizedText = normalizeCardText(span)
-      if (!normalizedText.trim()) {
-        span.parentNode?.removeChild(span)
+        if (nextText !== originalText) {
+          pushUndo()
+        }
+
+        if (!nextText.trim()) {
+          span.parentNode?.removeChild(span)
+          recount()
+          saveContent()
+          return
+        }
+
         recount()
+        saveContent()
       }
-      saveContent()
+
+      textarea.addEventListener('input', autoSize)
+      textarea.addEventListener('keydown', (event: KeyboardEvent) => {
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          event.stopPropagation()
+          textarea.value = originalText
+          textarea.blur()
+        }
+      })
+      textarea.addEventListener('blur', () => {
+        finishEditing(textarea.value.replace(/\r/g, ''))
+      }, { once: true })
+
+      span.replaceChildren(textarea)
+      requestAnimationFrame(() => {
+        autoSize()
+        textarea.focus()
+        textarea.setSelectionRange(textarea.value.length, textarea.value.length)
+      })
     })
-  }, [normalizeCardText, recount, saveContent, positionXBtn])
+  }, [normalizeCardText, recount, saveContent, positionXBtn, pushUndo])
 
   // ── Replace the full editor HTML and re-bind all highlight interactions ──
   const loadHtmlContent = useCallback((html: string) => {

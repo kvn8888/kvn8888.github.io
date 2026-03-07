@@ -430,11 +430,20 @@ html {
   vertical-align: top;
   transition: opacity 0.25s ease, filter 0.2s, box-shadow 0.2s;
 }
-/* When in edit mode (double-clicked), re-enable text selection */
-.hl-card[contenteditable="true"] {
-  cursor: text;
-  user-select: text;
-  -webkit-user-select: text;
+.hl-card-editor {
+  display: block;
+  width: min(32rem, 100%);
+  min-width: 14rem;
+  min-height: 4.5rem;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  color: inherit;
+  font: inherit;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow: hidden;
 }
 /* Selected state: visual ring to show the block is active/focused */
 .hl-card.hl-selected {
