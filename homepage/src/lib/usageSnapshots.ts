@@ -99,12 +99,14 @@ async function initUsageSnapshotSchema() {
 
     CREATE INDEX IF NOT EXISTS idx_usage_metric_snapshots_period
       ON usage_metric_snapshots (period_key, service, metric, snapshot_date DESC);
-
-    CREATE INDEX IF NOT EXISTS idx_usage_metric_snapshots_cycle
-      ON usage_metric_snapshots (cycle_key, service, metric, snapshot_date DESC);
   `)
 
   await ensureUsageSnapshotColumns()
+
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_usage_metric_snapshots_cycle
+      ON usage_metric_snapshots (cycle_key, service, metric, snapshot_date DESC)
+  `)
 
   usageSnapshotSchemaInitialized = true
 }
