@@ -38,6 +38,13 @@ export const ACCESS_GRANT_OPTIONS = [
     pathPrefixes: ['/projects/job-tracker', '/projects/tools/resume-tool', '/api/jobs'],
   },
   {
+    key: 'ocr',
+    label: 'Document OCR',
+    description: 'Mistral Document AI OCR page and its backing API.',
+    hubPaths: ['/projects'],
+    pathPrefixes: ['/projects/ocr', '/api/ocr'],
+  },
+  {
     key: 'sign-in-manager',
     label: 'Sign-In Manager',
     description: 'Approval queue UI, legacy logins page, and the login-admin API.',

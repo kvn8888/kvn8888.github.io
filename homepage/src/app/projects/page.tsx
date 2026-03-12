@@ -28,6 +28,12 @@ const projectLinks = [
     icon: "work",
   },
   {
+    title: "Document OCR",
+    description: "Extract text and structure from PDFs and images with Mistral Document AI",
+    href: "/projects/ocr",
+    icon: "document_scanner",
+  },
+  {
     title: "Tools",
     description: "Sign-in manager, notes, and project dashboard",
     href: "/tools",
