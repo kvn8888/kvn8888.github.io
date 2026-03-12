@@ -72,6 +72,8 @@ export const MANAGED_SECRET_GROUPS: ManagedSecretGroup[] = [
     icon: 'wind_power',
     keys: [
       { key: 'MISTRAL_API_KEY', description: 'Voxtral STT transcription and Mistral usage monitoring' },
+      { key: 'AZURE_MISTRAL_DOC_AI_ENDPOINT', description: 'Azure AI Foundry base endpoint for Mistral Document AI OCR (e.g. https://<resource>.services.ai.azure.com)', inputType: 'text' as const },
+      { key: 'AZURE_MISTRAL_DOC_AI_KEY', description: 'API key for the Azure Mistral Document AI deployment' },
     ],
   },
   {
