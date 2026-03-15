@@ -47,6 +47,7 @@ export interface MatchResult {
 // Colors are intentionally muted to work on both light and dark glass surfaces.
 
 export const CATEGORIES: Record<string, { dot: string; bg: string; darkBg: string }> = {
+  'Intro':         { dot: '#3bf65d', bg: 'rgba(131, 246, 59, 0.08)',  darkBg: 'rgba(59, 246, 143, 0.15)' },
   'Client-Facing': { dot: '#3b82f6', bg: 'rgba(59,130,246,0.08)',  darkBg: 'rgba(59,130,246,0.15)' },
   'Full-Stack':    { dot: '#10b981', bg: 'rgba(16,185,129,0.08)',  darkBg: 'rgba(16,185,129,0.15)' },
   'AI/ML':         { dot: '#8b5cf6', bg: 'rgba(139,92,246,0.08)',  darkBg: 'rgba(139,92,246,0.15)' },
