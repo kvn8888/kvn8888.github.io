@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
             {
               parts: [
                 {
-                  text: `Extract the following fields from this job posting. Return ONLY valid JSON with these exact keys: company, role, type, description.\n\n- company: the company name\n- role: the job title/role\n- type: the primary technical domain (e.g. Cloud, AI Engineering, Frontend, Backend, Full Stack, Embedded, IoT, DevOps, General)\n- description: a concise summary of the job (2-4 sentences)\n\nJob posting:\n${text}`,
+                  text: `Extract the following fields from this job posting. Return ONLY valid JSON with these exact keys: company, role, type, description.\n\n- company: the company name\n- role: the job title/role\n- type: the primary technical domain (e.g. Cloud, AI Engineering, Frontend, Backend, Full Stack, Embedded, IoT, DevOps, General)\n- description: verbatim posting of the job\n\nJob posting:\n${text}`,
                 },
               ],
             },
