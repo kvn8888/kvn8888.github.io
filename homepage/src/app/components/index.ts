@@ -5,4 +5,5 @@ export { ProjectCard } from './ProjectCard';
 export { ProjectModal } from './ProjectModal';
 export { ThemeProvider, useTheme } from './ThemeProvider';
 export { ThemeToggle } from './ThemeToggle';
+export { UpdateToast } from './UpdateToast';
 export type { Project, ProjectCategory } from './types';
