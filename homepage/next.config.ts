@@ -16,10 +16,6 @@ const nextConfig: NextConfig = {
   async rewrites() {
     return [
       {
-        source: "/api/:path*",
-        destination: "https://polymarket-ev-bot-docker.onrender.com/api/:path*",
-      },
-      {
         source: "/polymarket",
         destination: "https://polymarket-ev-bot-docker.onrender.com/polymarket",
       },
