@@ -1,70 +1,10 @@
 import { type Client, type Transaction } from '@libsql/client'
 import { getJobsDb } from './jobsDb'
 
-// These are the original hard-coded blocks from the first cover letter tool.
-// They now live server-side so we can seed the database once and remove them from the client bundle.
-const LEGACY_SEED_BLOCKS = [
-  {
-    seedKey: 'legacy-1',
-    category: 'Client-Facing',
-    text: 'As a Customer Application Engineer at Ivalua, I work directly with enterprise clients like T-Mobile on technical implementations, platform upgrades, and production support — bridging the gap between client needs and engineering execution.',
-  },
-  {
-    seedKey: 'legacy-2',
-    category: 'Full-Stack',
-    text: "I build full-stack applications using Next.js, Node, and React, deploying with Docker on AWS infrastructure managed through Terraform — I'm comfortable owning a feature from database schema to production deployment.",
-  },
-  {
-    seedKey: 'legacy-3',
-    category: 'AI/ML',
-    text: "I've built practical AI tooling including DepScope, a repository due diligence tool that analyzes codebases for technical risk, and ClaimGraph, an AI-powered fact-checking system with trust graph visualization.",
-  },
-  {
-    seedKey: 'legacy-4',
-    category: 'Embedded',
-    text: 'My embedded systems experience with STM32 microcontrollers and bare-metal C gives me a strong foundation in resource-constrained programming, hardware-software interfaces, and systems-level thinking.',
-  },
-  {
-    seedKey: 'legacy-5',
-    category: 'Hackathons',
-    text: "I've placed in multiple competitive hackathons including second place at AWS Builder Loft and the Before the Ballot civic tech hackathon — I thrive under time pressure and ship working software fast.",
-  },
-  {
-    seedKey: 'legacy-6',
-    category: 'Soft Skills',
-    text: 'Working with enterprise clients has taught me to translate complex technical constraints into language stakeholders understand, and to scope work realistically when requirements are ambiguous.',
-  },
-  {
-    seedKey: 'legacy-7',
-    category: 'Closer',
-    text: "I'd welcome the chance to discuss how my experience building production tools and working with enterprise clients could contribute to your team. I'm available for a conversation at your convenience.",
-  },
-  {
-    seedKey: 'legacy-8',
-    category: 'Full-Stack',
-    text: 'I have hands-on experience with the MERN stack, building and maintaining REST APIs, implementing authentication flows, and managing CI/CD pipelines for team projects.',
-  },
-  {
-    seedKey: 'legacy-9',
-    category: 'AI/ML',
-    text: "I've worked with MCP servers and multi-agent frameworks, and I stay current with developments in transformer architectures and model optimization — I understand both the application layer and the infrastructure underneath.",
-  },
-  {
-    seedKey: 'legacy-10',
-    category: 'Hackathons',
-    text: 'At hackathons I typically lead the system architecture decisions and own the backend integration work, coordinating a team of 3-4 to deliver a polished demo within 24-48 hours.',
-  },
-  {
-    seedKey: 'legacy-11',
-    category: 'Soft Skills',
-    text: "I'm drawn to teams that value clean engineering over flashy tooling — I'd rather ship a well-tested feature with clear documentation than a brittle prototype that demos well.",
-  },
-  {
-    seedKey: 'legacy-12',
-    category: 'Closer',
-    text: "I'm currently based in the Bay Area and available to start immediately. I'd love to learn more about the technical challenges your team is tackling.",
-  },
-] as const
+// In-process cache: set to true once schema is verified in this container lifetime.
+// Warm serverless containers reuse this flag across requests — zero overhead.
+// Cold starts reset it, so we fall through to the DB sentinel check below.
+let coverLetterSchemaInitialized = false
 
 export interface CoverLetterTagRecord {
   id: string
@@ -153,18 +93,31 @@ async function syncBlockTags(db: SqlExecutor, blockId: number, tagIds: readonly 
   }
 }
 
-async function seedLegacyBlocks(db: Client) {
-  for (const block of LEGACY_SEED_BLOCKS) {
-    await db.execute({
-      sql: `INSERT INTO cover_letter_blocks (seed_key, category, text)
-            VALUES (?, ?, ?)
-            ON CONFLICT(seed_key) DO NOTHING`,
-      args: [block.seedKey, block.category, block.text],
-    })
-  }
-}
+// Sentinel key stored in _schema_meta to mark that schema has been fully applied.
+// Incrementing this version (e.g. 'cover_letter_v2') forces re-initialization on all containers.
+const SCHEMA_SENTINEL_KEY = 'cover_letter_v1'
 
 export async function ensureCoverLetterSchema(db: Client) {
+  // Hot path: already verified in this warm container — no DB round-trip at all.
+  if (coverLetterSchemaInitialized) return
+
+  // Cold-start fast path: check the sentinel row in _schema_meta.
+  // A single SELECT replaces ~14 round-trips (DDL + 12 legacy seed inserts).
+  // If _schema_meta doesn't exist yet (fresh DB), the query throws — we catch and fall through.
+  try {
+    const result = await db.execute({
+      sql: 'SELECT 1 FROM _schema_meta WHERE key = ?',
+      args: [SCHEMA_SENTINEL_KEY],
+    })
+    if (result.rows.length > 0) {
+      coverLetterSchemaInitialized = true
+      return
+    }
+  } catch {
+    // _schema_meta table does not exist yet — this is a fresh DB, fall through to full init.
+  }
+
+  // Full initialization: create all tables plus the sentinel tracker.
   await db.executeMultiple(`
     CREATE TABLE IF NOT EXISTS cover_letter_blocks (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -195,9 +148,20 @@ export async function ensureCoverLetterSchema(db: Client) {
 
     CREATE INDEX IF NOT EXISTS idx_cover_letter_block_tags_tag_id
       ON cover_letter_block_tags(tag_id);
+
+    CREATE TABLE IF NOT EXISTS _schema_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    );
   `)
 
-  await seedLegacyBlocks(db)
+  // Write the sentinel row so future cold starts can skip full init.
+  await db.execute({
+    sql: 'INSERT INTO _schema_meta (key) VALUES (?) ON CONFLICT DO NOTHING',
+    args: [SCHEMA_SENTINEL_KEY],
+  })
+
+  coverLetterSchemaInitialized = true
 }
 
 export async function getCoverLetterDb() {
