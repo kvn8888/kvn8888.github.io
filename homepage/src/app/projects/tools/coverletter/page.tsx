@@ -218,9 +218,12 @@ export default function CoverLetterWorkbench() {
 
   const openCreateForm = useCallback(() => {
     setEditingBlockId(null)
-    setBlockForm(EMPTY_BLOCK_FORM)
+    setBlockForm({
+      ...EMPTY_BLOCK_FORM,
+      category: filterCategory !== 'All' ? filterCategory : EMPTY_BLOCK_FORM.category,
+    })
     setShowAddForm(true)
-  }, [])
+  }, [filterCategory])
 
   const closeBlockForm = useCallback(() => {
     setEditingBlockId(null)
