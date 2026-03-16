@@ -174,14 +174,9 @@ export default function OcrPage() {
 
             {isProcessing ? (
               <>
-                <div className="relative">
-                  <span className="material-symbols-outlined text-5xl text-foreground/30 animate-pulse">
-                    document_scanner
-                  </span>
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="w-14 h-14 border-2 border-foreground/20 border-t-foreground/60 rounded-full animate-spin" />
-                  </div>
-                </div>
+                <span className="material-symbols-outlined text-5xl text-foreground/40 animate-spin">
+                  progress_activity
+                </span>
                 <div className="text-center">
                   <p className="text-foreground font-medium">
                     Processing{file ? ` "${file.name}"` : ''}…
