@@ -78,7 +78,7 @@ export async function POST(req: NextRequest) {
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'mistral-ocr-2503',
+        model: 'mistral-document-ai-2512',
         document: documentPayload,
         include_image_base64: false,
       }),
