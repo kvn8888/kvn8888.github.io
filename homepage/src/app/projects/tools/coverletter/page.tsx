@@ -32,7 +32,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 //   Tag            — a label attached to blocks: { id, name, slug }
 //   CATEGORIES     — Record<string, { dot, bg, darkBg }> — color tokens per category name
 //   DEFAULT_BLOCK_CATEGORY — 'Soft Skills' — safe default when no filter is active
-import { Block, BlockDraft, MatchResult, Tag, CATEGORIES, DEFAULT_BLOCK_CATEGORY } from './types'
+import { Block, BlockDraft, MatchResult, AISuggestionBlock, Tag, CATEGORIES, DEFAULT_BLOCK_CATEGORY } from './types'
 
 // BlockCard — renders one library block as a draggable card in the right panel
 import BlockCard from './BlockCard'
@@ -289,6 +289,11 @@ export default function CoverLetterWorkbench() {
   // Empty object {} means no matching has been run yet (or it returned zero matches).
   const [matches, setMatches] = useState<Record<string, string>>({})
 
+  // Ephemeral AI-generated blocks for structural paragraphs missing from the current editor.
+  // Returned by the same /api/coverletter/match call alongside existing block matches.
+  // Never persisted — reset to [] on each new match run or on error.
+  const [aiSuggestions, setAiSuggestions] = useState<AISuggestionBlock[]>([])
+
   // true while "Match Blocks" is loading. Disables the button and shows a spinner icon.
   const [isMatching, setIsMatching] = useState(false)
 
@@ -400,7 +405,7 @@ export default function CoverLetterWorkbench() {
   }, [])
 
   // Trigger the initial library load once on component mount.
-  // void tells TypeScript we intentionally aren’t awaiting this Promise here.
+  // void tells TypeScript we intentionally aren't awaiting this Promise here.
   useEffect(() => {
     void fetchLibrary()
   }, [fetchLibrary])
@@ -940,7 +945,7 @@ export default function CoverLetterWorkbench() {
   // stored in `matches` state. Each BlockCard checks matches[block.id] to decide
   // whether to render its gold "AI match" highlight and reason tooltip.
   //
-  // Note: plain async function (not useCallback) because it’s only called from one
+  // Note: plain async function (not useCallback) because it's only called from one
   // button click handler — no need to memoize it.
   const matchBlocks = async () => {
     if (!jobPosting.trim() || libraryBlocks.length === 0) return  // guard: need both inputs
@@ -950,8 +955,13 @@ export default function CoverLetterWorkbench() {
       const res = await fetch('/api/coverletter/match', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // Send the full block list so Gemini can read their text, category, and tags
-        body: JSON.stringify({ jobPosting, blocks: libraryBlocks }),
+        // Send the full block list so Gemini can read their text, category, and tags.
+        // editorContent lets Gemini identify which structural paragraphs are missing.
+        body: JSON.stringify({
+          jobPosting,
+          blocks: libraryBlocks,
+          editorContent: editorRef.current?.getPlainText() ?? '',
+        }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Match failed')
@@ -959,9 +969,14 @@ export default function CoverLetterWorkbench() {
       const matchMap: Record<string, string> = {}
       data.matches?.forEach((m: MatchResult) => { matchMap[m.id] = m.reason })
       setMatches(matchMap)
+      // Stamp each suggestion with a stable temp id for React key prop
+      setAiSuggestions(
+        (data.suggestions ?? []).map((s: AISuggestionBlock, i: number) => ({ ...s, id: `ai-suggestion-${i}` }))
+      )
     } catch (err) {
       console.error('Match error:', err)
-      setMatches({})  // reset to empty so stale highlights don’t persist on error
+      setMatches({})       // reset so stale highlights don't persist on error
+      setAiSuggestions([]) // reset suggestions too
       setLibraryError(err instanceof Error ? err.message : 'Block matching failed')
     }
     setIsMatching(false)
@@ -1039,6 +1054,12 @@ export default function CoverLetterWorkbench() {
   //   • CATEGORIES (the built-in set defined in types.ts)
   //   • Any custom categories that exist on blocks already in the database
   // Set() deduplicates so a custom name that matches a built-in only appears once.
+  // Ephemeral AI suggestion blocks filtered by the active category pill.
+  // Always shown above sortedLibrary in the block list panel.
+  const filteredSuggestions = aiSuggestions.filter(
+    (s) => filterCategory === 'All' || s.category === filterCategory
+  )
+
   const categoryNames = [
     'All',
     ...Array.from(new Set([
@@ -1523,7 +1544,7 @@ export default function CoverLetterWorkbench() {
         {/* ═══ RIGHT PANEL: Block Library ══════════════════════════════════════════
             Fixed width (lg:w-[420px]) so the editor always has primary space.
             max-h-[calc(100vh-180px)] caps the panel height at viewport minus some
-            breathing room so the scrollable block list doesn’t overflow the viewport.
+            breathing room so the scrollable block list doesn't overflow the viewport.
         ═══════════════════════════════════════════════════════════════════════ */}
         <div className="lg:w-[420px] flex flex-col gap-4">
           <div className="rounded-2xl bg-glass backdrop-blur-sm border border-glass-border p-4 flex flex-col max-h-[calc(100vh-180px)]">
@@ -1567,7 +1588,7 @@ export default function CoverLetterWorkbench() {
                 categoryNames is the derived array from above: ['All', ...CATEGORIES keys,
                 ...any custom categories found in libraryBlocks].
                 The active pill gets filled/inverted; inactive pills get a ghost border style.
-                e.stopPropagation() prevents the root div’s onClick from clearing selectedId. */}
+                e.stopPropagation() prevents the root div's onClick from clearing selectedId. */}
             <div className="flex flex-wrap gap-1.5 mb-3">
               {categoryNames.map((cat) => (
                 <button
@@ -1637,7 +1658,7 @@ export default function CoverLetterWorkbench() {
                   "..." → "Edit block" mode (PATCH update), form pre-filled with existing values
 
                 Inputs write to blockForm via setBlockForm(prev => ({...prev, field: val})) —
-                React’s pattern for updating one field of an object state without losing others.
+                React's pattern for updating one field of an object state without losing others.
 
                 Tag toggle pills call toggleBlockTag(tag.id) to add/remove from blockForm.tagIds.
                 "Save changes" / "Add to Library" calls saveBlock().
@@ -1877,25 +1898,43 @@ export default function CoverLetterWorkbench() {
                 <div className="py-10 text-center text-sm text-foreground/35">
                   Loading library…
                 </div>
-              ) : sortedLibrary.map((block) => (
-                <BlockCard
-                  key={block.id}
-                  block={block}
-                  isInEditor={false}
-                  isSelected={selectedId === block.id}
-                  matchReason={matches[block.id]}
-                  onSelect={setSelectedId}
-                  onInsert={(b) => editorRef.current?.insertBlock(b)}
-                  onManage={startEditingBlock}
-                  onRemove={(blockId) => void deleteBlock(blockId)}
-                />
-              ))}
-              {!libraryLoading && sortedLibrary.length === 0 && (
-                <p className="text-sm text-foreground/30 text-center py-8">
-                  {libraryBlocks.length === 0
-                    ? 'No blocks in the library yet'
-                    : 'No blocks match the current filters'}
-                </p>
+              ) : (
+                <>
+                  {/* AI suggestion blocks — ephemeral, purple, always pinned to top */}
+                  {filteredSuggestions.map((s) => (
+                    <BlockCard
+                      key={s.id}
+                      block={{ id: s.id, category: s.paragraphLabel, text: s.text, tags: [] }}
+                      isInEditor={false}
+                      isSelected={false}
+                      isAISuggestion={true}
+                      matchReason={s.reason}
+                      onSelect={() => {}}
+                      onInsert={(b) => editorRef.current?.insertBlock(b)}
+                    />
+                  ))}
+                  {/* Existing library blocks, matched ones floating to the top */}
+                  {sortedLibrary.map((block) => (
+                    <BlockCard
+                      key={block.id}
+                      block={block}
+                      isInEditor={false}
+                      isSelected={selectedId === block.id}
+                      matchReason={matches[block.id]}
+                      onSelect={setSelectedId}
+                      onInsert={(b) => editorRef.current?.insertBlock(b)}
+                      onManage={startEditingBlock}
+                      onRemove={(blockId) => void deleteBlock(blockId)}
+                    />
+                  ))}
+                  {sortedLibrary.length === 0 && filteredSuggestions.length === 0 && (
+                    <p className="text-sm text-foreground/30 text-center py-8">
+                      {libraryBlocks.length === 0
+                        ? 'No blocks in the library yet'
+                        : 'No blocks match the current filters'}
+                    </p>
+                  )}
+                </>
               )}
             </div>
           </div>

@@ -29,6 +29,7 @@ interface BlockCardProps {
   isInEditor: boolean                // true = this card lives inside the HighlightEditor
   isSelected: boolean                // true = render blue border highlight ring
   matchReason?: string               // When present, Gemini matched this block to the job posting
+  isAISuggestion?: boolean           // true = ephemeral AI-generated block, purple visual variant
   onSelect: (id: string) => void     // Called when user clicks to select the card
   onInsert?: (block: Block) => void  // Library-only: inserts this block into the editor
   onManage?: (block: Block) => void  // Library-only: opens the Edit Block form in the right panel
@@ -43,6 +44,7 @@ export default function BlockCard({
   isInEditor,
   isSelected,
   matchReason,
+  isAISuggestion = false,
   onSelect,
   onInsert,
   onManage,
@@ -51,7 +53,7 @@ export default function BlockCard({
 }: BlockCardProps) {
   // isEditing: true when the user has double-clicked a card in the editor to edit its text.
   // When true, the block text <p> is swapped for a resizable <textarea>.
-  // Only meaningful in editor mode (isInEditor=true); library cards don’t support inline editing.
+  // Only meaningful in editor mode (isInEditor=true); library cards don't support inline editing.
   const [isEditing, setIsEditing] = useState(false)
 
   // editText: the live value of the inline edit textarea.
@@ -65,7 +67,7 @@ export default function BlockCard({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   // Resolve this block's category color tokens from the CATEGORIES map.
-  // Falls back to 'Closer' (gray) if the category name isn’t in the map.
+  // Falls back to 'Closer' (gray) if the category name isn't in the map.
   // cat.dot = accent color for the indicator circle and text labels
   // cat.bg / cat.darkBg = background tint for the card
   const cat = CATEGORIES[block.category] || CATEGORIES['Closer']
@@ -102,7 +104,7 @@ export default function BlockCard({
   //     1st click → onSelect(block.id): highlights the card with a blue ring
   //     2nd click (while selected, not yet editing) → setIsEditing(true): opens inline textarea
   //
-  // e.stopPropagation() prevents the click from bubbling up to the page root’s onClick handler,
+  // e.stopPropagation() prevents the click from bubbling up to the page root's onClick handler,
   // which would clear selectedId and undo the selection immediately.
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -147,8 +149,8 @@ export default function BlockCard({
       // Disabled while isEditing so text selection doesn't fight with drag.
       draggable={!isEditing}
       onDragStart={(e) => {
-        // Serialize the full Block object as JSON into the drag event’s data store.
-        // The editor’s onDrop handler reads this with e.dataTransfer.getData()
+        // Serialize the full Block object as JSON into the drag event's data store.
+        // The editor's onDrop handler reads this with e.dataTransfer.getData()
         // and calls editorRef.current.insertBlock() with the reconstructed block.
         e.dataTransfer.setData('application/json', JSON.stringify(block))
         // 'copyMove' advertises that both copy and move are valid drop actions.
@@ -158,9 +160,11 @@ export default function BlockCard({
       onClick={handleClick}
       className={`
         group relative p-3 rounded-xl border transition-all cursor-pointer
-        ${isSelected
-          ? 'border-blue-400 dark:border-blue-500 shadow-sm'
-          : 'border-glass-border hover:border-glass-border-hover'
+        ${isAISuggestion
+          ? 'border-purple-400/30 hover:border-purple-400/50'
+          : isSelected
+            ? 'border-blue-400 dark:border-blue-500 shadow-sm'
+            : 'border-glass-border hover:border-glass-border-hover'
         }
         ${isInEditor
           ? 'bg-glass backdrop-blur-sm'
@@ -168,76 +172,97 @@ export default function BlockCard({
         }
         ${matchReason ? 'opacity-100' : ''}
       `}
+      style={isAISuggestion ? {
+        background: 'linear-gradient(135deg, rgba(139,92,246,0.10), rgba(167,139,250,0.04))',
+      } : undefined}
     >
       {/* ── Category row: color dot + label + AI match badge + action buttons ── */}
       <div className="flex items-center gap-2 mb-2">
-        {/* Small filled circle in the category’s accent color */}
-        <span
-          className="w-2 h-2 rounded-full flex-shrink-0"
-          style={{ backgroundColor: cat.dot }}
-        />
-        {/* Category name in small caps monospace, same accent color */}
-        <span
-          className="text-[10px] font-bold uppercase tracking-wider font-mono"
-          style={{ color: cat.dot }}
-        >
-          {block.category}
-        </span>
-
-        {/* Right-side controls: AI match badge + edit/delete/remove buttons */}
-        <div className="ml-auto flex items-center gap-1">
-          {/* AI match badge: rendered only when Gemini matched this block to the job posting.
-              title={matchReason} means hovering shows the full reason as a browser tooltip. */}
-          {matchReason && (
-            <span
-              className="text-[10px] font-bold text-white rounded-full px-2 py-0.5 font-mono"
-              style={{ backgroundColor: cat.dot }}
-              title={matchReason}
-            >
-              MATCH
+        {isAISuggestion ? (
+          /* AI suggestion header: sparkle icon + paragraph label + "AI SUGGESTION" chip */
+          <>
+            <span className="material-symbols-outlined text-sm text-purple-400" style={{ fontSize: '14px' }}>
+              auto_awesome
             </span>
-          )}
-
-          {/* Library-only: pencil icon opens the Edit Block form in the right panel.
-              opacity-0 group-hover:opacity-100 = hidden until hovering the card. */}
-          {!isInEditor && onManage && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation()  // don’t trigger the card’s onClick (which would insert)
-                onManage(block)
-              }}
-              className="text-foreground/30 hover:text-foreground/70 transition-colors opacity-0 group-hover:opacity-100"
-              title="Edit block"
+            <span className="text-[10px] font-bold uppercase tracking-wider font-mono text-purple-400">
+              {block.category}
+            </span>
+            <span className="ml-auto text-[10px] font-bold text-purple-300 bg-purple-500/20 rounded-full px-2 py-0.5 font-mono">
+              AI SUGGESTION
+            </span>
+          </>
+        ) : (
+          /* Standard header: color dot + category name + match badge + action buttons */
+          <>
+            {/* Small filled circle in the category's accent color */}
+            <span
+              className="w-2 h-2 rounded-full flex-shrink-0"
+              style={{ backgroundColor: cat.dot }}
+            />
+            {/* Category name in small caps monospace, same accent color */}
+            <span
+              className="text-[10px] font-bold uppercase tracking-wider font-mono"
+              style={{ color: cat.dot }}
             >
-              <span className="material-symbols-outlined text-base">edit</span>
-            </button>
-          )}
+              {block.category}
+            </span>
 
-          {/* Library-only: trash icon deletes the block from the database. */}
-          {!isInEditor && onRemove && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation()  // don’t trigger insert
-                onRemove(block.id)
-              }}
-              className="text-foreground/30 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
-              title="Delete block"
-            >
-              <span className="material-symbols-outlined text-base">delete</span>
-            </button>
-          )}
+            {/* Right-side controls: AI match badge + edit/delete/remove buttons */}
+            <div className="ml-auto flex items-center gap-1">
+              {/* AI match badge: rendered only when Gemini matched this block to the job posting.
+                  title={matchReason} means hovering shows the full reason as a browser tooltip. */}
+              {matchReason && (
+                <span
+                  className="text-[10px] font-bold text-white rounded-full px-2 py-0.5 font-mono"
+                  style={{ backgroundColor: cat.dot }}
+                  title={matchReason}
+                >
+                  MATCH
+                </span>
+              )}
 
-          {/* Editor-only: X icon removes this block instance from the cover letter editor. */}
-          {isInEditor && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onRemove?.(block.id) }}
-              className="text-foreground/30 hover:text-foreground/70 transition-colors opacity-0 group-hover:opacity-100"
-              title="Remove from editor"
-            >
-              <span className="material-symbols-outlined text-base">close</span>
-            </button>
-          )}
-        </div>
+              {/* Library-only: pencil icon opens the Edit Block form in the right panel.
+                  opacity-0 group-hover:opacity-100 = hidden until hovering the card. */}
+              {!isInEditor && onManage && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()  // don't trigger the card's onClick (which would insert)
+                    onManage(block)
+                  }}
+                  className="text-foreground/30 hover:text-foreground/70 transition-colors opacity-0 group-hover:opacity-100"
+                  title="Edit block"
+                >
+                  <span className="material-symbols-outlined text-base">edit</span>
+                </button>
+              )}
+
+              {/* Library-only: trash icon deletes the block from the database. */}
+              {!isInEditor && onRemove && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()  // don't trigger insert
+                    onRemove(block.id)
+                  }}
+                  className="text-foreground/30 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                  title="Delete block"
+                >
+                  <span className="material-symbols-outlined text-base">delete</span>
+                </button>
+              )}
+
+              {/* Editor-only: X icon removes this block instance from the cover letter editor. */}
+              {isInEditor && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onRemove?.(block.id) }}
+                  className="text-foreground/30 hover:text-foreground/70 transition-colors opacity-0 group-hover:opacity-100"
+                  title="Remove from editor"
+                >
+                  <span className="material-symbols-outlined text-base">close</span>
+                </button>
+              )}
+            </div>
+          </>
+        )}
       </div>
 
       {/* ── Block text: editable textarea in edit mode, read-only paragraph otherwise ── */}
@@ -279,8 +304,8 @@ export default function BlockCard({
       )}
 
       {/* ── AI match reason (library view only) ──
-          Shows Gemini’s brief explanation of why this block matches the job posting.
-          Hidden in editor mode (blocks in the editor don’t need the reason shown). */}
+          Shows Gemini's brief explanation of why this block matches the job posting.
+          Hidden in editor mode (blocks in the editor don't need the reason shown). */}
       {matchReason && !isInEditor && (
         <p className="text-xs text-foreground/40 mt-2 italic">
           {matchReason}

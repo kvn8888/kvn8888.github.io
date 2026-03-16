@@ -39,6 +39,16 @@ export interface MatchResult {
   reason: string
 }
 
+/** An ephemeral AI-generated block for a missing structural paragraph.
+ *  Never persisted to the database — lives only in component state. */
+export interface AISuggestionBlock {
+  id: string             // temporary, e.g. "ai-suggestion-0"
+  paragraphLabel: string // e.g. "Hook + Why This Company"
+  category: string       // e.g. "Intro" — used for category filter matching
+  text: string           // Gemini-generated draft text for this paragraph
+  reason: string         // why this paragraph is missing
+}
+
 // ─── Category Definitions ───────────────────────────────────────────────────
 // Each category gets a color triple:
 //   dot    — the small indicator circle and accent color
