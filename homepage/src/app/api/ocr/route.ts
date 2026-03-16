@@ -66,7 +66,9 @@ export async function POST(req: NextRequest) {
       : { type: 'image_url', image_url: dataUrl }
 
     const baseUrl = endpoint.replace(/\/+$/, '')
-    const ocrUrl = `${baseUrl}/v1/ocr`
+    // Azure AI Foundry endpoints already include the full path (e.g. .../azure/ocr)
+    // Native Mistral API base URLs need /v1/ocr appended
+    const ocrUrl = baseUrl.endsWith('/ocr') ? baseUrl : `${baseUrl}/v1/ocr`
 
     const res = await fetch(ocrUrl, {
       method: 'POST',
