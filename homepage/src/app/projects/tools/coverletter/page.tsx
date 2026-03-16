@@ -1047,10 +1047,29 @@ export default function CoverLetterWorkbench() {
     ])),
   ]
 
-  // ── Render ──
+  // ── Render ─────────────────────────────────────────────────────────────────
+  // The JSX below builds the full two-panel workbench layout:
+  //   - LEFT:  Job posting textarea + AI buttons + Gemini review panel +
+  //            S3 drafts/resumes panel + the main cover letter editor
+  //   - RIGHT: Block library panel with filters, add/edit form, tag manager,
+  //            and the scrollable list of BlockCard components
+  // ─────────────────────────────────────────────────────────────────────────────
   return (
+    // Root div: clicking anywhere on the page background (outside a card) deselects
+    // the currently selected block and collapses the blue highlight ring.
+    // The onClick on individual interactive elements calls e.stopPropagation() to
+    // prevent this from firing when the user intends to click a button or card.
     <div onClick={() => setSelectedId(null)}>
-      {/* ── Page Header ── */}
+      {/* ── Page Header ─────────────────────────────────────────────────────────
+          blur-reveal / blur-reveal-1 are CSS animation classes defined in globals.css.
+          They animate opacity + blur from 0 to normal. We apply them ONLY after
+          `mounted` becomes true (set in the first useEffect), so the animation
+          plays on entry rather than being skipped on the initial server-rendered HTML.
+
+          statusMessage (green) — short confirmation toast from any successful mutation
+          libraryError  (red)   — error from any library fetch, create, update, or delete
+          Both are set in the hook functions above and shown here.
+      ─────────────────────────────────────────────────────────────────────────── */}
       <div className="mb-6">
         <h1 className={`text-3xl font-medium text-foreground ${mounted ? 'blur-reveal' : 'opacity-0'}`}>
           Cover Letter Workbench
@@ -1058,21 +1077,31 @@ export default function CoverLetterWorkbench() {
         <p className={`text-foreground/60 mt-2 ${mounted ? 'blur-reveal-1' : 'opacity-0'}`}>
           Assemble tailored cover letters from reusable building blocks
         </p>
+        {/* Green toast — auto-dismisses after 2.5 s via the statusMessage useEffect */}
         {statusMessage && (
           <p className="text-sm text-emerald-600 mt-2">{statusMessage}</p>
         )}
+        {/* Red error from library operations — cleared before each new API call */}
         {libraryError && (
           <p className="text-sm text-red-500 mt-2">{libraryError}</p>
         )}
       </div>
 
-      {/* ── Two-Panel Layout ── */}
+      {/* ── Two-Panel Layout ─────────────────────────────────────────────────────
+          flex-col on small screens (panels stack vertically)
+          lg:flex-row on large screens (panels sit side-by-side)
+          blur-reveal-2 adds staggered entry animation after mount
+      ─────────────────────────────────────────────────────────────────────────── */}
       <div className={`flex flex-col lg:flex-row gap-4 ${mounted ? 'blur-reveal-2' : 'opacity-0'}`}>
 
         {/* ═══ LEFT PANEL: Job Posting + Cover Letter Editor ═══ */}
         <div className="flex-1 flex flex-col gap-4 min-w-0">
 
-          {/* ── Job Posting Input ── */}
+          {/* ── Job Posting Input ──────────────────────────────────────────────────────
+              The user pastes a job posting here. Two AI buttons sit in the header row:
+                • Match Blocks: fires matchBlocks() — Gemini finds relevant library cards
+                • Grade Letter: fires gradeCurrentLetter() — Gemini scores the current draft
+          ─────────────────────────────────────────────────────────────────────────── */}
           <div className="rounded-2xl bg-glass backdrop-blur-sm border border-glass-border p-4">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-bold uppercase tracking-wider text-foreground/40 font-mono">
@@ -1081,6 +1110,10 @@ export default function CoverLetterWorkbench() {
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   onClick={matchBlocks}
+                  // Button is disabled (greyed-out, cursor-not-allowed) when:
+                  //   isMatching         — a match call is already in flight
+                  //   !jobPosting.trim() — no job posting has been pasted yet
+                  //   libraryBlocks.length === 0 — there are no blocks to match against
                   disabled={isMatching || !jobPosting.trim() || libraryBlocks.length === 0}
                   className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${
                     isMatching || !jobPosting.trim() || libraryBlocks.length === 0
@@ -1102,7 +1135,14 @@ export default function CoverLetterWorkbench() {
                 </button>
 
                 <button
+                  // void prefix: TypeScript requires `void` when calling an async function
+                  // inside an event handler that doesn't expect a Promise return value.
+                  // It tells TypeScript "I know this is async, I'm intentionally not awaiting it."
                   onClick={() => void gradeCurrentLetter()}
+                  // Disabled when:
+                  //   isGrading            — a grade call is already in flight
+                  //   !jobPosting.trim()   — no job posting (required context for Gemini)
+                  //   editorBlockCount === 0 — the editor is empty; nothing to grade
                   disabled={isGrading || !jobPosting.trim() || editorBlockCount === 0}
                   className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${
                     isGrading || !jobPosting.trim() || editorBlockCount === 0
@@ -1128,6 +1168,9 @@ export default function CoverLetterWorkbench() {
               value={jobPosting}
               onChange={(e) => {
                 setJobPosting(e.target.value)
+                // Changing the job posting invalidates the existing Gemini review —
+                // clear both result and any error so a stale review isn't shown.
+                // The user must click "Grade Letter" again to re-score with the new posting.
                 setReviewResult(null)
                 setReviewError(null)
               }}
@@ -1136,6 +1179,13 @@ export default function CoverLetterWorkbench() {
             />
           </div>
 
+          {/* ── Gemini Rubric Review Panel ──────────────────────────────────────────────
+              This panel only renders when there is something to show:
+                isGrading    — show the "Scoring…" placeholder while waiting
+                reviewResult — show the full structured feedback once it arrives
+                reviewError  — show the error message if the grade API call failed
+              It stays hidden (no DOM element) until one of those is truthy.
+          ─────────────────────────────────────────────────────────────────────── */}
           {(isGrading || reviewResult || reviewError) && (
             <div className="rounded-2xl bg-glass backdrop-blur-sm border border-glass-border p-4 space-y-4">
               <div className="flex items-center justify-between gap-3">
@@ -1159,6 +1209,10 @@ export default function CoverLetterWorkbench() {
 
               {reviewResult && (
                 <>
+                  {/* Reference resumes Gemini actually loaded and read:
+                      The API passes up to 3 most-recent S3 PDFs to the Gemini call.
+                      This sub-panel lists which ones were used, so the user knows
+                      what resume context was grounding the review. */}
                   {reviewResult.referenceResumesUsed.length > 0 && (
                     <div className="rounded-xl border border-glass-border bg-foreground/5 p-3">
                       <p className="text-[10px] font-bold uppercase tracking-wider text-foreground/35 font-mono">
@@ -1215,6 +1269,9 @@ export default function CoverLetterWorkbench() {
                     </div>
                   </div>
 
+                  {/* Per-criterion cards: one card per rubric entry.
+                      Each card shows the criterion name, a color-coded score badge
+                      (Strong/Adequate/Weak via getReviewScoreClasses()), and Gemini's feedback. */}
                   <div className="grid gap-3 lg:grid-cols-2">
                     {reviewResult.criteria.map((criterion) => (
                       <div key={criterion.name} className="rounded-xl border border-glass-border bg-foreground/5 p-3">
@@ -1237,6 +1294,11 @@ export default function CoverLetterWorkbench() {
             </div>
           )}
 
+          {/* ── S3 Drafts & Reference Resumes Panel ───────────────────────────────────
+              Two sub-panels in a responsive xl:grid-cols-2 layout:
+                LEFT:  Draft Title input + scrollable Saved Letters list
+                RIGHT: Reference Resumes list with Upload PDF button
+          ─────────────────────────────────────────────────────────────────────── */}
           <div className="rounded-2xl bg-glass backdrop-blur-sm border border-glass-border p-4 space-y-4">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div>
@@ -1249,12 +1311,17 @@ export default function CoverLetterWorkbench() {
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
+                {/* New Draft: calls resetDraft() to wipe the editor + detach from any S3 draft */}
                 <button
                   onClick={() => resetDraft()}
                   className="px-3 py-1.5 rounded-full text-xs font-medium border border-glass-border hover:bg-foreground/5 text-foreground/55 hover:text-foreground/75 transition-all cursor-pointer"
                 >
                   New Draft
                 </button>
+                {/* Save / Update Draft:
+                    activeLetterId = null  → "Save Draft"   → POST creates a new S3 document
+                    activeLetterId is set  → "Update Draft" → PUT overwrites the existing document
+                    The label and HTTP method both flip automatically based on activeLetterId. */}
                 <button
                   onClick={() => void saveCurrentLetter()}
                   disabled={isSavingLetter}
@@ -1297,13 +1364,14 @@ export default function CoverLetterWorkbench() {
                     <p className="text-xs text-foreground/35">No S3 drafts yet. Save the current editor state to create one.</p>
                   ) : (
                     <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                      {/* Each row highlights when its id matches the currently loaded draft */}
                       {savedLetters.map((letter) => (
                         <div
                           key={letter.id}
                           className={`rounded-xl border px-3 py-2 transition-colors ${
                             activeLetterId === letter.id
-                              ? 'border-foreground/20 bg-foreground/8'
-                              : 'border-glass-border bg-glass'
+                              ? 'border-foreground/20 bg-foreground/8'  // active: loaded in editor
+                              : 'border-glass-border bg-glass'           // passive: not loaded
                           }`}
                         >
                           <div className="flex items-start justify-between gap-3">
@@ -1422,7 +1490,26 @@ export default function CoverLetterWorkbench() {
             )}
           </div>
 
-          {/* ── Cover Letter Editor ── */}
+          {/* ── Cover Letter Editor ─────────────────────────────────────────────────────
+              HighlightEditor is a ContentEditable-based rich text editor where users
+              assemble their cover letter from dragged/inserted library blocks.
+
+              Props explained:
+                ref={editorRef}                   — gives this component imperative access
+                                                     to editor methods: .insertBlock(),
+                                                     .clear(), .getHtml(), .getPlainText(),
+                                                     .loadHtml()
+                onBlockCountChange={setEditorBlockCount}
+                                                  — the editor reports back how many highlight
+                                                     blocks are inside; stored in editorBlockCount
+                                                     to gate the "Grade Letter" button
+                onCopy={handleCopy}               — called after the editor writes to clipboard;
+                                                     this parent shows the green toast
+                onCreateCard={handleCreateCard}    — called when user selects text and clicks
+                                                     "Save as block"; POSTs to /api/coverletter/blocks
+                isDragOver={isDragOver}            — tells the editor to show a drop-zone glow border
+                setIsDragOver={setIsDragOver}      — the editor calls this on onDragOver/onDragLeave
+          ─────────────────────────────────────────────────────────────────────── */}
           <HighlightEditor
             ref={editorRef}
             onBlockCountChange={setEditorBlockCount}
@@ -1433,22 +1520,37 @@ export default function CoverLetterWorkbench() {
           />
         </div>
 
-        {/* ═══ RIGHT PANEL: Block Library ═══ */}
+        {/* ═══ RIGHT PANEL: Block Library ══════════════════════════════════════════
+            Fixed width (lg:w-[420px]) so the editor always has primary space.
+            max-h-[calc(100vh-180px)] caps the panel height at viewport minus some
+            breathing room so the scrollable block list doesn’t overflow the viewport.
+        ═══════════════════════════════════════════════════════════════════════ */}
         <div className="lg:w-[420px] flex flex-col gap-4">
           <div className="rounded-2xl bg-glass backdrop-blur-sm border border-glass-border p-4 flex flex-col max-h-[calc(100vh-180px)]">
 
-            {/* ── Library header with add button ── */}
+            {/* ── Library header: block count + Add Block toggle ──────────────────────
+                The "+ Add Block" button is a toggle:
+                  - When the form is closed:          shows "+ Add Block", calls openCreateForm()
+                  - When the form is open for CREATE: shows "Cancel",      calls closeBlockForm()
+                  - When the form is open for EDIT:   button stays as "+ Add Block"
+                    (the edit form has its own Cancel link inside it)
+                sortedLibrary.length shows the count AFTER filters are applied. */}
             <div className="flex items-center justify-between mb-3">
               <span className="text-xs font-bold uppercase tracking-wider text-foreground/40 font-mono">
                 Block Library — {sortedLibrary.length}
               </span>
+              {/* Toggle logic:
+                  showAddForm && !editingBlockId = the CREATE form is open
+                    → clicking the button cancels the opened form
+                  Otherwise (form closed, or EDIT form open)
+                    → clicking the button opens a fresh create form */}
               <button
                 onClick={(e) => {
                   e.stopPropagation()
                   if (showAddForm && !editingBlockId) {
-                    closeBlockForm()
+                    closeBlockForm()  // cancel the open create form
                   } else {
-                    openCreateForm()
+                    openCreateForm()  // open a new create form
                   }
                 }}
                 className={`px-3 py-1 rounded-full text-xs font-medium transition-all cursor-pointer ${
@@ -1461,7 +1563,11 @@ export default function CoverLetterWorkbench() {
               </button>
             </div>
 
-            {/* ── Category filter pills ── */}
+            {/* ── Category filter pills ─────────────────────────────────────────────
+                categoryNames is the derived array from above: ['All', ...CATEGORIES keys,
+                ...any custom categories found in libraryBlocks].
+                The active pill gets filled/inverted; inactive pills get a ghost border style.
+                e.stopPropagation() prevents the root div’s onClick from clearing selectedId. */}
             <div className="flex flex-wrap gap-1.5 mb-3">
               {categoryNames.map((cat) => (
                 <button
@@ -1481,6 +1587,10 @@ export default function CoverLetterWorkbench() {
               ))}
             </div>
 
+            {/* ── Tag filter pills (only rendered when at least one tag exists) ──────────
+                Hidden until the user creates at least one tag (libraryTags.length > 0).
+                "All tags" always appears first and resets filterTagId to 'All'.
+                Each tag pill sets filterTagId = tag.id to narrow the visible block list. */}
             {libraryTags.length > 0 && (
               <div className="mb-3">
                 <p className="text-[10px] font-bold uppercase tracking-wider text-foreground/35 font-mono mb-1.5">
@@ -1520,7 +1630,18 @@ export default function CoverLetterWorkbench() {
               </div>
             )}
 
-            {/* ── Add block form (collapsible) ── */}
+            {/* ── Add / Edit Block Form (collapsible) ──────────────────────────────────
+                showAddForm=true makes the panel slide in.
+                editingBlockId determines mode:
+                  null  → "Add block" mode (POST create)
+                  "..." → "Edit block" mode (PATCH update), form pre-filled with existing values
+
+                Inputs write to blockForm via setBlockForm(prev => ({...prev, field: val})) —
+                React’s pattern for updating one field of an object state without losing others.
+
+                Tag toggle pills call toggleBlockTag(tag.id) to add/remove from blockForm.tagIds.
+                "Save changes" / "Add to Library" calls saveBlock().
+                "Delete block" (edit mode only) calls deleteBlock(editingBlockId). */}
             {showAddForm && (
               <div className="mb-3 p-3 rounded-xl bg-foreground/5 border border-glass-border space-y-3">
                 <div className="flex items-center justify-between gap-2">
@@ -1615,12 +1736,19 @@ export default function CoverLetterWorkbench() {
             )}
 
             <div className="mb-3 p-3 rounded-xl bg-foreground/5 border border-glass-border space-y-3">
+              {/* Tag Manager header: tag count + expand/collapse toggle.
+                  showTagManager is toggled by the "Manage Tags" / "Hide" link.
+                  When expanded:
+                    - Input + "Add Tag" button: creates a tag via createTag()
+                    - Each existing tag row has two sub-modes:
+                        view mode:  tag name + pencil edit + delete buttons
+                        edit mode:  inline input with Enter=save, Escape=cancel */}
               <div className="flex items-center justify-between gap-2">
                 <p className="text-xs font-medium text-foreground/60">Tags — {libraryTags.length}</p>
                 <button
                   onClick={(e) => {
                     e.stopPropagation()
-                    setShowTagManager((prev) => !prev)
+                    setShowTagManager((prev) => !prev)  // toggle expand/collapse
                   }}
                   className="text-xs text-foreground/40 hover:text-foreground/70 transition-colors cursor-pointer"
                 >
@@ -1660,18 +1788,19 @@ export default function CoverLetterWorkbench() {
                       {libraryTags.map((tag) => (
                         <div key={tag.id} className="flex items-center gap-2 rounded-lg border border-glass-border bg-glass px-3 py-2">
                           {editingTagId === tag.id ? (
+                            // ── Inline edit mode: input + checkmark + delete ──
                             <>
                               <input
-                                autoFocus
+                                autoFocus  // focus the input immediately on render
                                 value={editingTagName}
                                 onChange={(e) => setEditingTagName(e.target.value)}
                                 onKeyDown={(e) => {
                                   if (e.key === 'Enter') {
                                     e.preventDefault()
-                                    void saveTag()
+                                    void saveTag()  // commit the rename
                                   }
                                   if (e.key === 'Escape') {
-                                    setEditingTagId(null)
+                                    setEditingTagId(null)    // exit edit mode without saving
                                     setEditingTagName('')
                                   }
                                 }}
@@ -1690,13 +1819,15 @@ export default function CoverLetterWorkbench() {
                               </button>
                             </>
                           ) : (
+                            // ── View mode: tag name + pencil + delete ──
+                            // Clicking the pencil button enters edit mode by setting editingTagId = tag.id
                             <>
                               <span className="flex-1 text-sm text-foreground/75">#{tag.name}</span>
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation()
-                                  setEditingTagId(tag.id)
-                                  setEditingTagName(tag.name)
+                                  setEditingTagId(tag.id)      // enter edit mode for this tag
+                                  setEditingTagName(tag.name)  // pre-fill the input with current name
                                 }}
                                 className="text-foreground/30 hover:text-foreground/70 transition-colors cursor-pointer"
                                 title="Edit tag"
@@ -1724,7 +1855,23 @@ export default function CoverLetterWorkbench() {
               )}
             </div>
 
-            {/* ── Scrollable block list ── */}
+            {/* ── Scrollable block list ────────────────────────────────────────────────
+                flex-1 lets this div expand to fill remaining vertical space in the panel.
+                overflow-y-auto shows a scrollbar when blocks overflow (not always visible).
+                sortedLibrary is the filtered + AI-sorted array from derived data above.
+
+                Each BlockCard receives:
+                  isInEditor=false     — library panel (not the editor)
+                  isSelected           — true when block.id === selectedId (shows blue ring)
+                  matchReason          — AI reason string from Gemini, or undefined
+                  onSelect             — first click: setSelectedId(block.id)
+                  onInsert             — inserts block into editor via editorRef.current?.insertBlock(b)
+                  onManage             — pencil icon: opens edit form via startEditingBlock(block)
+                  onRemove             — trash icon: deletes block via deleteBlock(blockId)
+
+                Empty state:
+                  libraryBlocks.length === 0   — nothing in the DB yet
+                  sortedLibrary.length === 0   — DB has blocks but none pass the active filters */}
             <div className="flex-1 overflow-y-auto space-y-2 pr-1">
               {libraryLoading ? (
                 <div className="py-10 text-center text-sm text-foreground/35">
