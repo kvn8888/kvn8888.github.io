@@ -18,11 +18,53 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Audio file is required' }, { status: 400 })
     }
 
+    const isInterfazeModel = model === 'interfaze'
     const isAzureOpenAiModel = model.startsWith('gpt-4o') || model.startsWith('gpt-realtime')
     const mistralApiKey = await getSecret('MISTRAL_API_KEY')
     const azureOpenAiApiKey = await getSecret('AZURE_OPENAI_API_KEY')
     const azureOpenAiEndpoint = (await getSecret('AZURE_OPENAI_ENDPOINT'))?.replace(/\/+$/, '')
     const azureOpenAiApiVersion = (await getSecret('AZURE_OPENAI_API_VERSION')) || '2025-03-01-preview'
+    const interfazeApiKey = await getSecret('INTERFAZE_API_KEY')
+
+    if (isInterfazeModel) {
+      if (!interfazeApiKey) {
+        return NextResponse.json({ error: 'INTERFAZE_API_KEY not configured' }, { status: 500 })
+      }
+      const arrayBuffer = await audioFile.arrayBuffer()
+      const base64 = Buffer.from(arrayBuffer).toString('base64')
+      const mimeType = audioFile.type || 'audio/wav'
+      const fileDataUri = `data:${mimeType};base64,${base64}`
+
+      const interfazeRes = await fetch('https://api.interfaze.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${interfazeApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'interfaze-beta',
+          messages: [
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: 'Transcribe this audio file' },
+                { type: 'file', file: { filename: audioFile.name, file_data: fileDataUri } },
+              ],
+            },
+          ],
+        }),
+      })
+
+      if (!interfazeRes.ok) {
+        const err = await interfazeRes.text()
+        console.error('Interfaze STT error:', { status: interfazeRes.status, body: err, userEmail })
+        return NextResponse.json({ error: 'Transcription failed', details: err }, { status: interfazeRes.status })
+      }
+
+      const interfazeData = await interfazeRes.json()
+      const text = interfazeData.choices?.[0]?.message?.content || ''
+      return NextResponse.json({ text })
+    }
 
     if (!isAzureOpenAiModel && !mistralApiKey) {
       console.error('STT request missing Mistral API key', {

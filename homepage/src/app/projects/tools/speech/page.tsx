@@ -12,7 +12,7 @@ const _intlSegmenter = createIntlSegmenter()
 
 type Tab = 'tts' | 'stt' | 'pronunciation'
 type SpeechModality = Tab | 'all'
-type SttModel = 'voxtral-mini-transcribe-2507' | 'voxtral-mini-latest' | 'gpt-4o-transcribe' | 'gpt-4o-transcribe-diarize'
+type SttModel = 'voxtral-mini-transcribe-2507' | 'voxtral-mini-latest' | 'gpt-4o-transcribe' | 'gpt-4o-transcribe-diarize' | 'interfaze'
 
 interface HistoryItem {
   id: string
@@ -739,6 +739,7 @@ const STT_DURATION_LIMIT_SECONDS: Record<SttModel, number> = {
   'voxtral-mini-latest': 3 * 60 * 60,
   'gpt-4o-transcribe': 2 * 60 * 60,
   'gpt-4o-transcribe-diarize': 2 * 60 * 60,
+  'interfaze': 2 * 60 * 60,
 }
 
 function formatBytes(bytes: number): string {
@@ -766,6 +767,10 @@ function getFileExtension(fileName: string): string {
 
 function isAzureOpenAiSttModel(model: SttModel): boolean {
   return model.startsWith('gpt-4o')
+}
+
+function isInterfazeSttModel(model: SttModel): boolean {
+  return model === 'interfaze'
 }
 
 function isLikelyAudioFile(file: File): boolean {
@@ -912,7 +917,7 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
       return
     }
 
-    if (!isAzureOpenAiSttModel(model) && !isLikelyMistralCompatibleAudio(file)) {
+    if (!isAzureOpenAiSttModel(model) && !isInterfazeSttModel(model) && !isLikelyMistralCompatibleAudio(file)) {
       try {
         const wavBlob = await convertRecordedBlobToWav(file)
         await handleTranscribe(wavBlob, `${fileNameWithoutExtension(file.name)}.wav`)
@@ -998,8 +1003,8 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
       <div className="flex items-center gap-3 mb-1">
         <span className="material-symbols-outlined text-foreground/40">mic</span>
         <div>
-          <h3 className="font-medium text-foreground">Voxtral Transcription</h3>
-          <p className="text-xs text-foreground/40">Powered by Mistral + Azure OpenAI (GPT‑4o transcription + diarization)</p>
+          <h3 className="font-medium text-foreground">Transcription</h3>
+          <p className="text-xs text-foreground/40">Mistral Voxtral · Azure OpenAI GPT‑4o · Interfaze</p>
         </div>
       </div>
 
@@ -1050,6 +1055,17 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
           >
             <div>GPT‑4o Diarize</div>
             <div className="text-xs opacity-60 mt-0.5">Azure OpenAI with speaker separation</div>
+          </button>
+          <button
+            onClick={() => setModel('interfaze')}
+            className={`flex-1 px-4 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer ${
+              model === 'interfaze'
+                ? 'bg-foreground text-background'
+                : 'bg-foreground/5 text-foreground/50 hover:bg-foreground/10'
+            }`}
+          >
+            <div>Interfaze</div>
+            <div className="text-xs opacity-60 mt-0.5">Interfaze AI multimodal</div>
           </button>
         </div>
       </div>
@@ -1482,6 +1498,7 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
             <option value="gpt-4o-transcribe-diarize">GPT‑4o Transcribe Diarize</option>
             <option value="voxtral-mini-transcribe-2507">Mistral Voxtral Transcribe (2507)</option>
             <option value="voxtral-mini-latest">Mistral Voxtral Mini Latest</option>
+            <option value="interfaze">Interfaze</option>
           </select>
         </div>
       )}
