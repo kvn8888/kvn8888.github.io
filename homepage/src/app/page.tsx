@@ -1,5 +1,7 @@
 'use client';
 
+export const dynamic = 'force-static';
+
 import { SpeedInsights } from "@vercel/speed-insights/next"
 import { Analytics } from "@vercel/analytics/next"
 import { useState, useEffect } from 'react';
@@ -78,22 +80,6 @@ const categoryOrder: ProjectCategory[] = ['personal', 'academic', 'hackathon', '
 
 export default function Home() {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
-  const [mounted, setMounted] = useState(false);
-
-  // Trigger animations after mount (fixes Safari refresh caching)
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  // Preload all project screenshots on mount
-  useEffect(() => {
-    projects.forEach((project) => {
-      if (project.screenshot) {
-        const img = new window.Image();
-        img.src = project.screenshot;
-      }
-    });
-  }, []);
 
   // Handle ESC key
   useEffect(() => {
@@ -126,22 +112,22 @@ export default function Home() {
 
       {/* Content with staggered blur reveal animation */}
       <div className="text-center max-w-4xl mx-auto relative z-10">
-        {/* Small tagline */}
-        <p className={`text-sm text-foreground/50 mb-4 tracking-wide ${mounted ? 'blur-reveal' : 'opacity-0'}`}>Software Engineering Student, Spring 2027</p>
+        {/* Small tagline — visible immediately, no opacity:0 animation */}
+        <p className="text-sm text-foreground/50 mb-4 tracking-wide">Software Engineering Student, Spring 2027</p>
 
-        {/* Main headline */}
-        <h1 className={`text-5xl sm:text-6xl md:text-7xl font-medium tracking-tight mb-8 text-foreground ${mounted ? 'blur-reveal-1' : 'opacity-0'}`}>
+        {/* Main headline — LCP element, must be immediately visible */}
+        <h1 className="text-5xl sm:text-6xl md:text-7xl font-medium tracking-tight mb-8 text-foreground">
           Welcome to KevinC.dev
         </h1>
 
         {/* Bio text */}
-        <p className={`text-lg text-foreground/60 max-w-xl mx-auto mb-6 leading-relaxed ${mounted ? 'blur-reveal-2' : 'opacity-0'}`}>
+        <p className="text-lg text-foreground/60 max-w-xl mx-auto mb-6 leading-relaxed blur-reveal-2">
           I&apos;m a software engineering student at the Rochester Institute of Technology.
           Currently on an internship at Ivalua, Inc.
         </p>
 
         {/* Social Links */}
-        <div className={`flex flex-wrap items-center justify-center gap-2 sm:gap-3 mb-8 ${mounted ? 'blur-reveal-3' : 'opacity-0'}`}>
+        <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3 mb-8 blur-reveal-3">
           <a
             href="https://github.com/kvn8888"
             target="_blank"
@@ -172,13 +158,13 @@ export default function Home() {
         </div>
 
         {/* Status Badge */}
-        <div className={`inline-flex items-center gap-2 px-4 py-2 bg-foreground/5 border border-foreground/10 rounded-full ${mounted ? 'blur-reveal-4' : 'opacity-0'}`}>
+        <div className="inline-flex items-center gap-2 px-4 py-2 bg-foreground/5 border border-foreground/10 rounded-full blur-reveal-4">
           <span className="text-sm font-medium text-foreground/70">Open to Summer 2026 Opportunities</span>
         </div>
 
         {/* Projects Section */}
         <div id="projects" className="mt-20 w-full max-w-xl mx-auto">
-          <h2 className={`text-2xl font-medium text-foreground mb-8 ${mounted ? 'blur-reveal-5' : 'opacity-0'}`}>Featured Projects</h2>
+          <h2 className="text-2xl font-medium text-foreground mb-8 blur-reveal-5">Featured Projects</h2>
 
           {/* Project List by Category */}
           <div className="space-y-8">
@@ -189,7 +175,7 @@ export default function Home() {
                 if (categoryProjects.length === 0) return null;
                 const blurIndex = 6 + renderedIndex++;
                 return (
-                  <div key={category} className={mounted ? `blur-reveal-${blurIndex}` : 'opacity-0'}>
+                  <div key={category} className={`blur-reveal-${blurIndex}`}>
                     <h3 className="text-sm font-medium text-foreground/50 uppercase tracking-wider mb-3 text-left">
                       {categoryLabels[category]}
                     </h3>
