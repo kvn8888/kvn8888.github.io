@@ -177,16 +177,16 @@ export default function Home() {
         </div>
 
         {/* Projects Section */}
-        <div id="projects" className={`mt-20 w-full max-w-xl mx-auto ${mounted ? 'blur-reveal-5' : 'opacity-0'}`}>
-          <h2 className="text-2xl font-medium text-foreground mb-8">Featured Projects</h2>
+        <div id="projects" className="mt-20 w-full max-w-xl mx-auto">
+          <h2 className={`text-2xl font-medium text-foreground mb-8 ${mounted ? 'blur-reveal-5' : 'opacity-0'}`}>Featured Projects</h2>
 
           {/* Project List by Category */}
           <div className="space-y-8">
-            {categoryOrder.map((category) => {
+            {categoryOrder.map((category, index) => {
               const categoryProjects = projects.filter((p) => p.category === category);
               if (categoryProjects.length === 0) return null;
               return (
-                <div key={category}>
+                <div key={category} className={mounted ? `blur-reveal-${6 + index}` : 'opacity-0'}>
                   <h3 className="text-sm font-medium text-foreground/50 uppercase tracking-wider mb-3 text-left">
                     {categoryLabels[category]}
                   </h3>
