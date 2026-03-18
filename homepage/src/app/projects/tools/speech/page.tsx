@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { FFmpeg } from '@ffmpeg/ffmpeg'
+import { fetchFile, toBlobURL } from '@ffmpeg/util'
 import { buildTtsBatches, textSize, createIntlSegmenter } from '@/lib/tts/sentenceSplitter'
 
 // The segmenter instance is created once at module load time (browser-safe).
@@ -781,87 +783,36 @@ function isLikelyMistralCompatibleAudio(file: File): boolean {
   return MISTRAL_COMPATIBLE_AUDIO_TYPES.includes(file.type) || MISTRAL_COMPATIBLE_AUDIO_EXTENSIONS.includes(ext)
 }
 
-function isLikelyAzureVideoCompatible(file: File): boolean {
-  const ext = getFileExtension(file.name)
-  return file.type === 'video/mp4' || file.type === 'video/webm' || ext === 'mp4' || ext === 'm4v' || ext === 'webm'
-}
-
 function fileNameWithoutExtension(fileName: string): string {
   const dotIndex = fileName.lastIndexOf('.')
   if (dotIndex <= 0) return fileName
   return fileName.slice(0, dotIndex)
 }
 
-function extractAudioFromVideo(videoFile: File): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    const video = document.createElement('video')
-    video.muted = true
-    video.playsInline = true
-    const url = URL.createObjectURL(videoFile)
-    video.src = url
+let _ffmpeg: FFmpeg | null = null
 
-    video.onloadedmetadata = () => {
-      const audioCtx = new AudioContext({ sampleRate: 16000 })
-      const dest = audioCtx.createMediaStreamDestination()
-      const source = audioCtx.createMediaElementSource(video)
-      source.connect(dest)
-
-      const preferredRecorderMimeTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
-      const selectedRecorderMimeType = preferredRecorderMimeTypes.find((value) => MediaRecorder.isTypeSupported(value))
-
-      if (!selectedRecorderMimeType) {
-        URL.revokeObjectURL(url)
-        void audioCtx.close()
-        reject(new Error('This browser cannot extract audio from video. Use GPT-4o Transcribe for direct MP4 upload.'))
-        return
-      }
-
-      const recorder = new MediaRecorder(dest.stream, { mimeType: selectedRecorderMimeType })
-      const chunks: Blob[] = []
-
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunks.push(e.data)
-      }
-
-      recorder.onstop = () => {
-        URL.revokeObjectURL(url)
-        void audioCtx.close()
-        const blobType = selectedRecorderMimeType.includes('mp4') ? 'audio/mp4' : 'audio/webm'
-        resolve(new Blob(chunks, { type: blobType }))
-      }
-
-      recorder.onerror = () => {
-        URL.revokeObjectURL(url)
-        void audioCtx.close()
-        reject(new Error('Audio extraction failed'))
-      }
-
-      recorder.start()
-
-      video.onended = () => {
-        recorder.stop()
-      }
-
-      video.play().catch((err) => {
-        URL.revokeObjectURL(url)
-        void audioCtx.close()
-        reject(new Error(`Video playback failed: ${err instanceof Error ? err.message : 'unsupported codec or format'}`))
-      })
-
-      // Safety timeout: stop recording after 10 minutes max
-      const MAX_VIDEO_DURATION_MS = 10 * 60 * 1000
-      setTimeout(() => {
-        if (recorder.state === 'recording') {
-          recorder.stop()
-        }
-      }, MAX_VIDEO_DURATION_MS)
-    }
-
-    video.onerror = () => {
-      URL.revokeObjectURL(url)
-      reject(new Error('Failed to load video file'))
-    }
+async function getFFmpeg(): Promise<FFmpeg> {
+  if (_ffmpeg?.loaded) return _ffmpeg
+  const ffmpeg = new FFmpeg()
+  const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd'
+  await ffmpeg.load({
+    coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+    wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
   })
+  _ffmpeg = ffmpeg
+  return ffmpeg
+}
+
+async function extractAudioFromVideo(videoFile: File): Promise<Blob> {
+  const ffmpeg = await getFFmpeg()
+  const ext = getFileExtension(videoFile.name) || 'mp4'
+  const inputName = `input.${ext}`
+  await ffmpeg.writeFile(inputName, await fetchFile(videoFile))
+  await ffmpeg.exec(['-i', inputName, '-vn', '-acodec', 'libmp3lame', '-q:a', '4', 'output.mp3'])
+  const data = await ffmpeg.readFile('output.mp3')
+  await ffmpeg.deleteFile(inputName)
+  await ffmpeg.deleteFile('output.mp3')
+  return new Blob([data as Uint8Array], { type: 'audio/mpeg' })
 }
 
 function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
@@ -951,18 +902,10 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
       setConvertingVideo(true)
       setError(null)
       try {
-        // GPT-4o deployments can handle MP4/WebM video directly, which is faster
-        // than browser-side extraction for long recordings.
-        if (isAzureOpenAiSttModel(model) && isLikelyAzureVideoCompatible(file)) {
-          await handleTranscribe(file, file.name)
-          return
-        }
-
         const audioBlob = await extractAudioFromVideo(file)
-        const outputExt = audioBlob.type.includes('mp4') ? 'm4a' : 'webm'
-        await handleTranscribe(audioBlob, `${fileNameWithoutExtension(file.name)}-audio.${outputExt}`)
+        await handleTranscribe(audioBlob, `${fileNameWithoutExtension(file.name)}.mp3`)
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Video conversion failed')
+        setError(err instanceof Error ? err.message : 'Video audio extraction failed')
       } finally {
         setConvertingVideo(false)
       }
