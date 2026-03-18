@@ -34,6 +34,12 @@ const projectLinks = [
     icon: "document_scanner",
   },
   {
+    title: "Vision",
+    description: "Upload an image and ask anything — OCR, object detection, and more via Interfaze",
+    href: "/projects/vision",
+    icon: "image_search",
+  },
+  {
     title: "Tools",
     description: "Sign-in manager, notes, and project dashboard",
     href: "/tools",
@@ -43,10 +49,10 @@ const projectLinks = [
 
 function getProjectRevealClass(href: string, index: number) {
   if (href === "/tools") {
-    return 'blur-reveal-7'
+    return 'blur-reveal-8'
   }
 
-  return `blur-reveal-${Math.min(index + 2, 6)}`
+  return `blur-reveal-${Math.min(index + 2, 7)}`
 }
 
 export default async function ProjectPage() {

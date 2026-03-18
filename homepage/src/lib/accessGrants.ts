@@ -45,6 +45,13 @@ export const ACCESS_GRANT_OPTIONS = [
     pathPrefixes: ['/projects/ocr', '/api/ocr'],
   },
   {
+    key: 'vision',
+    label: 'Vision',
+    description: 'Interfaze vision page for image OCR and object detection.',
+    hubPaths: ['/projects'],
+    pathPrefixes: ['/projects/vision', '/api/vision'],
+  },
+  {
     key: 'sign-in-manager',
     label: 'Sign-In Manager',
     description: 'Approval queue UI, legacy logins page, and the login-admin API.',
