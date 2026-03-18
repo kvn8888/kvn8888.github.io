@@ -812,7 +812,7 @@ async function extractAudioFromVideo(videoFile: File): Promise<Blob> {
   const data = await ffmpeg.readFile('output.mp3')
   await ffmpeg.deleteFile(inputName)
   await ffmpeg.deleteFile('output.mp3')
-  return new Blob([data as Uint8Array], { type: 'audio/mpeg' })
+  return new Blob([(data as Uint8Array).slice()], { type: 'audio/mpeg' })
 }
 
 function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
