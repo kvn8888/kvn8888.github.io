@@ -9,38 +9,49 @@ import { AuroraBackground, ProjectCard, ProjectModal, ThemeToggle, type Project,
 const projects: Project[] = [
   // Personal Projects
   {
-    id: 'password-entropy',
-    title: 'Password Entropy Checker',
-    shortDesc: 'Security tool for analyzing password strength',
-    tags: ['React', 'TypeScript', 'Cryptography'],
-    fullDesc: 'A web application that calculates password entropy and provides real-time feedback on password strength using Shannon entropy calculations.',
-    demoUrl: '#',
-    githubUrl: '#',
+    id: 'kevinc-dashboard',
+    title: 'Personal Dashboard',
+    shortDesc: 'Authenticated ops hub built into this site',
+    tags: ['Next.js', 'Auth.js', 'Turso', 'AWS S3'],
+    fullDesc: 'The protected half of this site — a self-hosted ops dashboard behind Google OAuth. Includes an API usage monitor with daily snapshot history and burn-rate projections across Tavily, Vercel, Render, GitHub, and more; a cover letter workbench with a Turso-backed reusable block/tag library, Gemini-powered block matching and rubric grading, and S3-backed draft + reference resume storage; a runtime secrets manager that overrides env vars without a redeploy and optionally syncs them to Vercel; and a sign-in manager for approving invited users with per-page access grants.',
+    demoUrl: '/projects',
+    githubUrl: 'https://github.com/kvn8888/kvn8888.github.io',
     category: 'personal',
-    screenshot: '/screenshots/placeholder.svg',
+    screenshot: '/screenshots/homepage.png',
   },
   {
-    id: 'google-tts',
-    title: 'Google TTS UI',
-    shortDesc: 'Text-to-speech interface with voice selection',
-    tags: ['Next.js', 'API', 'Audio'],
-    fullDesc: 'A polished UI for Google Cloud Text-to-Speech API with voice preview, speed control, and batch processing capabilities.',
-    demoUrl: '#',
-    githubUrl: '#',
+    id: 'polymarket-ev-bot',
+    title: 'Polymarket +EV Trading Bot',
+    shortDesc: 'Sports betting arbitrage bot for Polymarket prediction markets',
+    tags: ['TypeScript', 'Docker', 'React', 'Turso'],
+    fullDesc: 'A sports betting arbitrage bot that finds positive expected value (EV) opportunities between sportsbook odds and Polymarket prediction markets. Fetches odds from The Odds API (NFL, NBA, NHL), de-vigs to find true probability, and identifies mispriced Polymarket contracts. Sizes bets using Kelly Criterion (1/4 Kelly, 5% max position) and supports both paper trading and live execution via the Polymarket CLOB API. Includes a full web dashboard with portfolio overview, live opportunities, position tracking, per-user secrets management, and a pooled Odds API usage monitor.',
+    demoUrl: 'https://kevinc.dev/polymarket/',
+    githubUrl: 'https://github.com/kvn8888/polymarket-ev-bot',
     category: 'personal',
-    screenshot: '/screenshots/example.png',
+    screenshot: '/screenshots/polymarket.png',
   },
   // Academic Projects
   {
-    id: 'receipt-automator',
-    title: 'Receipt Automator',
-    shortDesc: 'Automated receipt processing with OCR',
-    tags: ['Python', 'OCR', 'Automation'],
-    fullDesc: 'An intelligent system that extracts data from receipt images using OCR and automatically populates expense tracking spreadsheets.',
+    id: 'ta-portal',
+    title: 'TA Portal',
+    shortDesc: 'DevOps & infrastructure lead for a 4-service course project',
+    tags: ['GitHub Actions', 'Docker', 'nginx', 'Next.js', 'Prisma'],
+    fullDesc: 'Led DevOps and infrastructure for a course-built TA portal. Designed a GitHub Actions CI/CD pipeline with Nx monorepo tooling for parallel lint/test and branch-convention-triggered deployments. Containerized a 4-service stack (MariaDB, Workflow API, Express.js, Next.js) with Docker Compose health checks and persistent volumes. Configured nginx as a reverse proxy with SSL termination, set up SSH key-based passwordless deployment from GitHub Actions to the production VM, and hardened the server with UFW firewall rules. Fixed Prisma ORM client generation in Docker and resolved Next.js basePath routing behind the proxy.',
     demoUrl: '#',
     githubUrl: '#',
     category: 'academic',
-    screenshot: '/screenshots/placeholder.svg',
+  },
+  // In Progress
+  {
+    id: 'codegym',
+    title: 'CodeGym',
+    shortDesc: 'Interactive coding practice platform with real execution',
+    tags: ['Go', 'React', 'Docker', 'PostgreSQL'],
+    fullDesc: 'A full-stack coding practice platform with a Go backend, React frontend, and Dockerized code execution. Features filesystem-backed problem packs (language, category, problem), a sqlc/goose data layer, and a Storybook component library. Problems define skeleton files, canonical solutions, and test suites in a structured YAML manifest.',
+    demoUrl: '#',
+    githubUrl: '#',
+    category: 'in-progress',
+    screenshot: '/screenshots/codegym.png',
   },
   // Hackathon Projects (placeholder)
 ];
@@ -49,9 +60,10 @@ const categoryLabels: Record<ProjectCategory, string> = {
   personal: 'Personal Projects',
   academic: 'Academic Projects',
   hackathon: 'Hackathon Projects',
+  'in-progress': 'In Progress',
 };
 
-const categoryOrder: ProjectCategory[] = ['personal', 'academic', 'hackathon'];
+const categoryOrder: ProjectCategory[] = ['personal', 'academic', 'hackathon', 'in-progress'];
 
 export default function Home() {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);

@@ -1,4 +1,4 @@
-export type ProjectCategory = 'personal' | 'academic' | 'hackathon';
+export type ProjectCategory = 'personal' | 'academic' | 'hackathon' | 'in-progress';
 
 export interface Project {
   id: string;
