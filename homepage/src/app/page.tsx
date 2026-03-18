@@ -25,7 +25,7 @@ const projects: Project[] = [
     shortDesc: 'Sports betting arbitrage bot for Polymarket prediction markets',
     tags: ['TypeScript', 'Docker', 'React', 'Turso'],
     fullDesc: 'A sports betting arbitrage bot that finds positive expected value (EV) opportunities between sportsbook odds and Polymarket prediction markets. Fetches odds from The Odds API (NFL, NBA, NHL), de-vigs to find true probability, and identifies mispriced Polymarket contracts. Sizes bets using Kelly Criterion (1/4 Kelly, 5% max position) and supports both paper trading and live execution via the Polymarket CLOB API. Includes a full web dashboard with portfolio overview, live opportunities, position tracking, per-user secrets management, and a pooled Odds API usage monitor.',
-    demoUrl: 'https://kevinc.dev/polymarket/',
+    demoUrl: 'https://polymarket-ev-bot-docker.onrender.com/polymarket/',
     githubUrl: 'https://github.com/kvn8888/polymarket-ev-bot',
     category: 'personal',
     screenshot: '/screenshots/polymarket.png',
@@ -49,10 +49,21 @@ const projects: Project[] = [
     tags: ['Go', 'React', 'Docker', 'PostgreSQL'],
     fullDesc: 'A full-stack coding practice platform with a Go backend, React frontend, and Dockerized code execution. Features filesystem-backed problem packs (language, category, problem), a sqlc/goose data layer, and a Storybook component library. Problems define skeleton files, canonical solutions, and test suites in a structured YAML manifest.',
     demoUrl: '#',
-    githubUrl: '#',
+    githubUrl: 'https://github.com/kvn8888/CodeGym',
     category: 'in-progress',
     screenshot: '/screenshots/codegym.png',
   },
+  {
+    id: 'openfoodjournal',
+    title: 'OpenFoodJournal',
+    shortDesc: 'Open source self hosted myfitnesspal alternative with SwiftUI',
+    tags: ['TBD'],
+    fullDesc: 'TBD, planning',
+    demoUrl: '#',
+    githubUrl: 'https://github.com/kvn8888/OpenFoodJournal',
+    category: 'in-progress',
+  },
+
   // Hackathon Projects (placeholder)
 ];
 
