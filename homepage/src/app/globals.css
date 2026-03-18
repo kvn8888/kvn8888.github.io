@@ -274,6 +274,7 @@ body {
 
 html {
   overflow-x: hidden;
+  background: var(--background);
 }
 
 /* Material Symbols styling */

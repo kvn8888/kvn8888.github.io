@@ -34,7 +34,12 @@ export default function RootLayout({
           (function() {
             var t = localStorage.getItem('theme');
             var dark = t === 'dark' || (!t && window.matchMedia('(prefers-color-scheme: dark)').matches);
-            if (dark) document.documentElement.classList.add('dark');
+            if (dark) {
+              document.documentElement.classList.add('dark');
+              document.documentElement.style.backgroundColor = '#0d0a08';
+            } else {
+              document.documentElement.style.backgroundColor = '#ffffff';
+            }
           })();
         `}} />
       </head>
