@@ -182,26 +182,30 @@ export default function Home() {
 
           {/* Project List by Category */}
           <div className="space-y-8">
-            {categoryOrder.map((category, index) => {
-              const categoryProjects = projects.filter((p) => p.category === category);
-              if (categoryProjects.length === 0) return null;
-              return (
-                <div key={category} className={mounted ? `blur-reveal-${6 + index}` : 'opacity-0'}>
-                  <h3 className="text-sm font-medium text-foreground/50 uppercase tracking-wider mb-3 text-left">
-                    {categoryLabels[category]}
-                  </h3>
-                  <div className="space-y-3">
-                    {categoryProjects.map((project) => (
-                      <ProjectCard
-                        key={project.id}
-                        project={project}
-                        onClick={() => setSelectedProject(project)}
-                      />
-                    ))}
+            {(() => {
+              let renderedIndex = 0;
+              return categoryOrder.map((category) => {
+                const categoryProjects = projects.filter((p) => p.category === category);
+                if (categoryProjects.length === 0) return null;
+                const blurIndex = 6 + renderedIndex++;
+                return (
+                  <div key={category} className={mounted ? `blur-reveal-${blurIndex}` : 'opacity-0'}>
+                    <h3 className="text-sm font-medium text-foreground/50 uppercase tracking-wider mb-3 text-left">
+                      {categoryLabels[category]}
+                    </h3>
+                    <div className="space-y-3">
+                      {categoryProjects.map((project) => (
+                        <ProjectCard
+                          key={project.id}
+                          project={project}
+                          onClick={() => setSelectedProject(project)}
+                        />
+                      ))}
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              });
+            })()}
           </div>
         </div>
       </div>

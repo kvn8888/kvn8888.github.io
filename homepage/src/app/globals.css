@@ -400,6 +400,16 @@ html {
   animation: blurReveal 0.2s ease-out 0.8s forwards;
 }
 
+.blur-reveal-9 {
+  -webkit-filter: blur(10px);
+  filter: blur(10px);
+  opacity: 0;
+  will-change: filter, opacity;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  animation: blurReveal 0.2s ease-out 0.9s forwards;
+}
+
 @keyframes profilePopoverIn {
   0% {
     -webkit-filter: blur(16px);
