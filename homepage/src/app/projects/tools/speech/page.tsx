@@ -733,7 +733,15 @@ const ACCEPTED_AUDIO_EXTENSIONS = ['wav', 'webm', 'mp3', 'mpeg', 'mpga', 'ogg', 
 const ACCEPTED_VIDEO_EXTENSIONS = ['mp4', 'm4v', 'mov', 'avi', 'mkv', 'webm', 'ogv']
 const MISTRAL_COMPATIBLE_AUDIO_EXTENSIONS = ['wav', 'webm', 'mp3', 'mpeg', 'mpga', 'ogg', 'flac']
 const MISTRAL_COMPATIBLE_AUDIO_TYPES = ['audio/wav', 'audio/webm', 'audio/mp3', 'audio/mpeg', 'audio/ogg', 'audio/flac']
-const MAX_FILE_SIZE_MB = 25
+// Per-provider audio file size limits for STT APIs
+// Voxtral: 1 GB (Mistral docs), GPT-4o: 25 MB (Azure OpenAI limit), Interfaze: 25 MB (conservative, unconfirmed)
+const STT_FILE_SIZE_LIMIT_BYTES: Record<SttModel, number> = {
+  'voxtral-mini-transcribe-2507': 1024 * 1024 * 1024,
+  'voxtral-mini-latest': 1024 * 1024 * 1024,
+  'gpt-4o-transcribe': 25 * 1024 * 1024,
+  'gpt-4o-transcribe-diarize': 25 * 1024 * 1024,
+  'interfaze': 25 * 1024 * 1024,
+}
 const STT_DURATION_LIMIT_SECONDS: Record<SttModel, number> = {
   'voxtral-mini-transcribe-2507': 3 * 60 * 60,
   'voxtral-mini-latest': 3 * 60 * 60,
@@ -820,6 +828,33 @@ async function extractAudioFromVideo(videoFile: File): Promise<Blob> {
   return new Blob([(data as Uint8Array).slice()], { type: 'audio/mpeg' })
 }
 
+// Compresses audio to MP3 at progressively lower bitrates until it fits within limitBytes.
+// Uses mono channel to halve size. Tries 64 → 32 → 16 kbps (all adequate for speech STT).
+async function compressAudioForUpload(blob: Blob, limitBytes: number): Promise<Blob> {
+  const ffmpeg = await getFFmpeg()
+  const mimeType = blob.type
+  const ext = mimeType.includes('mp4') || mimeType.includes('m4a') ? 'm4a'
+    : mimeType.includes('wav') ? 'wav'
+    : mimeType.includes('ogg') ? 'ogg'
+    : mimeType.includes('flac') ? 'flac'
+    : mimeType.includes('mpeg') || mimeType.includes('mp3') ? 'mp3'
+    : 'webm'
+  const inputName = `stt_in.${ext}`
+  await ffmpeg.writeFile(inputName, await fetchFile(blob))
+  for (const kbps of [64, 32, 16]) {
+    await ffmpeg.exec(['-i', inputName, '-vn', '-acodec', 'libmp3lame', '-b:a', `${kbps}k`, '-ac', '1', 'stt_out.mp3'])
+    const data = await ffmpeg.readFile('stt_out.mp3')
+    await ffmpeg.deleteFile('stt_out.mp3')
+    const compressed = new Blob([(data as Uint8Array).slice()], { type: 'audio/mpeg' })
+    if (compressed.size <= limitBytes) {
+      await ffmpeg.deleteFile(inputName)
+      return compressed
+    }
+  }
+  await ffmpeg.deleteFile(inputName)
+  throw new Error(`Audio (${formatBytes(blob.size)}) could not be compressed to fit the ${formatBytes(limitBytes)} provider limit`)
+}
+
 function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
   const [model, setModel] = useState<SttModel>('voxtral-mini-transcribe-2507')
   const [loading, setLoading] = useState(false)
@@ -834,6 +869,7 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
   const [recordedBytes, setRecordedBytes] = useState(0)
   const [recordingStartMs, setRecordingStartMs] = useState<number | null>(null)
   const [recordingElapsedSec, setRecordingElapsedSec] = useState(0)
+  const [compressing, setCompressing] = useState(false)
 
   useEffect(() => {
     if (!recording || !recordingStartMs) return
@@ -861,7 +897,8 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
-        throw new Error(data.error || 'Transcription failed')
+        const sizeInfo = ` (audio blob: ${formatBytes(audioBlob.size)})`
+        throw new Error((data.error || 'Transcription failed') + sizeInfo)
       }
 
       const data = await res.json()
@@ -898,41 +935,60 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
       return
     }
 
-    if (isAudio && file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
-      setError(`File too large. Maximum size is ${MAX_FILE_SIZE_MB}MB.`)
-      return
-    }
+    const limitBytes = STT_FILE_SIZE_LIMIT_BYTES[model]
 
     if (isVideo) {
       setConvertingVideo(true)
       setError(null)
       try {
-        const audioBlob = await extractAudioFromVideo(file)
-        if (audioBlob.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
-          setError(`Extracted audio too large. Maximum size is ${MAX_FILE_SIZE_MB}MB.`)
-          return
+        let audioBlob = await extractAudioFromVideo(file)
+        setConvertingVideo(false)
+        if (audioBlob.size > limitBytes) {
+          setCompressing(true)
+          try {
+            audioBlob = await compressAudioForUpload(audioBlob, limitBytes)
+          } finally {
+            setCompressing(false)
+          }
         }
         await handleTranscribe(audioBlob, `${fileNameWithoutExtension(file.name)}.mp3`)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Video audio extraction failed')
       } finally {
         setConvertingVideo(false)
+        setCompressing(false)
       }
       return
     }
 
+    // Audio file: convert format if needed, then compress if over the provider limit
+    let audioBlob: Blob = file
+    let uploadName = file.name
+
     if (!isAzureOpenAiSttModel(model) && !isInterfazeSttModel(model) && !isLikelyMistralCompatibleAudio(file)) {
       try {
-        const wavBlob = await convertRecordedBlobToWav(file)
-        await handleTranscribe(wavBlob, `${fileNameWithoutExtension(file.name)}.wav`)
-        return
+        audioBlob = await convertRecordedBlobToWav(file)
+        uploadName = `${fileNameWithoutExtension(file.name)}.wav`
       } catch {
         setError('Audio format conversion failed. Try selecting GPT-4o Transcribe or upload WAV/MP3/WebM.')
         return
       }
     }
 
-    await handleTranscribe(file, file.name)
+    if (audioBlob.size > limitBytes) {
+      setCompressing(true)
+      try {
+        audioBlob = await compressAudioForUpload(audioBlob, limitBytes)
+        uploadName = `${fileNameWithoutExtension(file.name)}.mp3`
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Audio compression failed')
+        setCompressing(false)
+        return
+      }
+      setCompressing(false)
+    }
+
+    await handleTranscribe(audioBlob, uploadName)
   }
 
   const handleDrop = (e: React.DragEvent) => {
@@ -969,12 +1025,26 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
         }
       }
 
-      recorder.onstop = () => {
+      recorder.onstop = async () => {
         stream.getTracks().forEach((t) => t.stop())
         const mimeType = recorder.mimeType || selectedMimeType || 'audio/webm'
         const extension = mimeType.includes('mp4') ? 'm4a' : 'webm'
-        const blob = new Blob(chunks, { type: mimeType })
-        void handleTranscribe(blob, `recording.${extension}`)
+        let blob = new Blob(chunks, { type: mimeType })
+        let uploadName = `recording.${extension}`
+        const limitBytes = STT_FILE_SIZE_LIMIT_BYTES[model]
+        if (blob.size > limitBytes) {
+          setCompressing(true)
+          try {
+            blob = await compressAudioForUpload(blob, limitBytes)
+            uploadName = 'recording.mp3'
+          } catch (err) {
+            setError(err instanceof Error ? err.message : 'Audio compression failed')
+            setCompressing(false)
+            return
+          }
+          setCompressing(false)
+        }
+        void handleTranscribe(blob, uploadName)
       }
 
       setRecordedBytes(0)
@@ -1100,7 +1170,7 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
                 Drag & drop audio or video files here
               </p>
               <p className="text-xs text-foreground/30">
-                Supports WAV, MP3, WebM, FLAC, M4A, AIFF, CAF, MP4, MOV, AVI, MKV · Max {MAX_FILE_SIZE_MB}MB
+                Supports WAV, MP3, WebM, FLAC, M4A, AIFF, CAF, MP4, MOV, AVI, MKV · Compressed automatically if over provider limit
               </p>
               {fileName && !loading && (
                 <p className="text-xs text-foreground/40 mt-1">Last file: {fileName}</p>
@@ -1124,7 +1194,7 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
       <div className="flex gap-3">
         <button
           onClick={recording ? stopRecording : startRecording}
-          disabled={loading || convertingVideo}
+          disabled={loading || convertingVideo || compressing}
           className={`inline-flex items-center gap-2 px-6 py-2.5 rounded-full font-medium text-sm transition-all cursor-pointer ${
             recording
               ? 'bg-red-500 text-white hover:bg-red-600'
@@ -1153,13 +1223,13 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
             <div className="flex justify-between text-xs text-red-700/90">
               <span>File size</span>
               <span>
-                {formatBytes(recordedBytes)} / {MAX_FILE_SIZE_MB} MB
+                {formatBytes(recordedBytes)} / {formatBytes(STT_FILE_SIZE_LIMIT_BYTES[model])}
               </span>
             </div>
             <div className="h-1.5 rounded-full bg-red-100 overflow-hidden">
               <div
-                className={`h-full transition-all ${recordedBytes / (MAX_FILE_SIZE_MB * 1024 * 1024) >= 0.8 ? 'bg-red-500' : 'bg-amber-500'}`}
-                style={{ width: `${Math.min((recordedBytes / (MAX_FILE_SIZE_MB * 1024 * 1024)) * 100, 100)}%` }}
+                className={`h-full transition-all ${recordedBytes / STT_FILE_SIZE_LIMIT_BYTES[model] >= 0.8 ? 'bg-red-500' : 'bg-amber-500'}`}
+                style={{ width: `${Math.min((recordedBytes / STT_FILE_SIZE_LIMIT_BYTES[model]) * 100, 100)}%` }}
               />
             </div>
           </div>
@@ -1179,11 +1249,19 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
             </div>
           </div>
 
-          {(recordedBytes / (MAX_FILE_SIZE_MB * 1024 * 1024) >= 0.8 || recordingElapsedSec / STT_DURATION_LIMIT_SECONDS[model] >= 0.8) && (
+          {(recordedBytes / STT_FILE_SIZE_LIMIT_BYTES[model] >= 0.8 || recordingElapsedSec / STT_DURATION_LIMIT_SECONDS[model] >= 0.8) && (
             <p className="text-xs text-red-700/90">
-              Approaching STT limits. Stop soon or switch to shorter chunks for better reliability.
+              Approaching STT limits. Audio will be compressed automatically if over the size limit.
             </p>
           )}
+        </div>
+      )}
+
+      {/* Compressing */}
+      {compressing && (
+        <div className="flex items-center gap-2 text-foreground/40 text-sm">
+          <span className="material-symbols-outlined animate-spin text-lg">progress_activity</span>
+          Compressing audio to fit provider limit…
         </div>
       )}
 
