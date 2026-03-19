@@ -888,11 +888,6 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
   }
 
   const processFile = async (file: File) => {
-    if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
-      setError(`File too large. Maximum size is ${MAX_FILE_SIZE_MB}MB.`)
-      return
-    }
-
     setFileName(file.name)
 
     const isVideo = isLikelyVideoFile(file)
@@ -903,11 +898,20 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
       return
     }
 
+    if (isAudio && file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+      setError(`File too large. Maximum size is ${MAX_FILE_SIZE_MB}MB.`)
+      return
+    }
+
     if (isVideo) {
       setConvertingVideo(true)
       setError(null)
       try {
         const audioBlob = await extractAudioFromVideo(file)
+        if (audioBlob.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+          setError(`Extracted audio too large. Maximum size is ${MAX_FILE_SIZE_MB}MB.`)
+          return
+        }
         await handleTranscribe(audioBlob, `${fileNameWithoutExtension(file.name)}.mp3`)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Video audio extraction failed')
