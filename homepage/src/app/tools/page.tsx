@@ -1,3 +1,4 @@
+import Link from "next/link"
 import { auth } from "@/auth"
 import { canAccessPath } from "@/lib/accessGrants"
 import { getEmailAccessGrantKeys } from "@/lib/db"
@@ -54,7 +55,7 @@ export default async function ToolsPage() {
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {visibleToolLinks.map((link, i) => (
-          <a
+          <Link
             key={link.href}
             href={link.href}
             className={`group block p-6 rounded-2xl bg-glass backdrop-blur-sm border border-glass-border hover:border-glass-border-hover hover:bg-glass-hover transition-all blur-reveal-${Math.min(i + 2, 5)}`}
@@ -64,7 +65,7 @@ export default async function ToolsPage() {
             </span>
             <h2 className="text-lg font-medium text-foreground mt-3">{link.title}</h2>
             <p className="text-sm text-foreground/50 mt-1">{link.description}</p>
-          </a>
+          </Link>
         ))}
       </div>
     </div>

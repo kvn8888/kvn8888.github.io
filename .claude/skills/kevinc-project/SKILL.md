@@ -60,6 +60,8 @@ Auth.js v5 (`next-auth@beta`) with Google OAuth, JWT sessions (no database).
 **Adding a new protected route:** Put it under `src/app/projects/` or `src/app/tools/` and ensure `src/proxy.ts` plus `auth.ts`'s `authorized` callback both match the new path family.
 If the route should be grantable to invited users, also add it to `src/lib/accessGrants.ts` and include any related protected API prefixes there.
 
+**Dev-only auth bypass:** Set `DEV_BYPASS_AUTH=true` in `homepage/.env.local` to skip Google SSO when testing protected routes locally.  Two safety conditions are checked — `NODE_ENV === 'development'` AND the env var — so it is impossible to activate in a Vercel deployment (which always sets `NODE_ENV=production`).  Note: API routes that read `auth?.user?.email` will receive `null` in bypass mode, so per-user data flows (e.g. cover-letter workbench) may behave differently.
+
 ## Runtime Secrets
 
 API keys can be overridden at runtime via `/tools/secrets` without a redeploy.

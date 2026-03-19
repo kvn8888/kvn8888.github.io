@@ -1,3 +1,4 @@
+import Link from "next/link"
 import { signIn } from "@/auth"
 import { EmailVerification } from "./EmailVerification"
 
@@ -30,12 +31,12 @@ export default async function SignInPage({
                   Your sign-in request has been recorded. An admin will review
                   and approve your access.
                 </p>
-                <a
+                <Link
                   href="/auth/signin"
                   className="text-sm text-foreground/50 hover:text-foreground/70 transition-colors"
                 >
                   ← Try again
-                </a>
+                </Link>
               </div>
             ) : (
               <>

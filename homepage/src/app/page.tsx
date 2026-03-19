@@ -2,6 +2,7 @@
 
 export const dynamic = 'force-static';
 
+import Link from 'next/link';
 import { SpeedInsights } from "@vercel/speed-insights/next"
 import { Analytics } from "@vercel/analytics/next"
 import { useState, useEffect } from 'react';
@@ -207,12 +208,12 @@ export default function Home() {
 
       {/* Admin link */}
       <div className="flex justify-end py-8 pr-4">
-        <a
+        <Link
           href="/projects"
           className="text-xs text-foreground/20 hover:text-foreground/50 transition-colors"
         >
           dashboard
-        </a>
+        </Link>
       </div>
     </div>
   );

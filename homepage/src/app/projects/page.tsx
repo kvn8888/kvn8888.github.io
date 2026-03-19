@@ -1,3 +1,4 @@
+import Link from "next/link"
 import { auth } from "@/auth"
 import { canAccessPath } from "@/lib/accessGrants"
 import { getEmailAccessGrantKeys } from "@/lib/db"
@@ -75,7 +76,7 @@ export default async function ProjectPage() {
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {visibleProjectLinks.map((link, i) => (
-          <a
+          <Link
             key={link.href}
             href={link.href}
             className={`group block p-6 rounded-2xl bg-glass backdrop-blur-sm border border-glass-border hover:border-glass-border-hover hover:bg-glass-hover transition-all ${getProjectRevealClass(link.href, i)}`}
@@ -89,7 +90,7 @@ export default async function ProjectPage() {
             <p className="text-sm text-foreground/50 mt-1">
               {link.description}
             </p>
-          </a>
+          </Link>
         ))}
       </div>
     </div>
