@@ -742,6 +742,9 @@ const STT_FILE_SIZE_LIMIT_BYTES: Record<SttModel, number> = {
   'gpt-4o-transcribe-diarize': 25 * 1024 * 1024,
   'interfaze': 25 * 1024 * 1024,
 }
+// Vercel serverless functions enforce a 4.5 MB request body limit.
+// We target 4 MB to leave headroom for FormData overhead (field names, boundaries, etc.).
+const VERCEL_UPLOAD_LIMIT_BYTES = 4 * 1024 * 1024
 const STT_DURATION_LIMIT_SECONDS: Record<SttModel, number> = {
   'voxtral-mini-transcribe-2507': 3 * 60 * 60,
   'voxtral-mini-latest': 3 * 60 * 60,
@@ -935,7 +938,7 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
       return
     }
 
-    const limitBytes = STT_FILE_SIZE_LIMIT_BYTES[model]
+    const limitBytes = Math.min(STT_FILE_SIZE_LIMIT_BYTES[model], VERCEL_UPLOAD_LIMIT_BYTES)
 
     if (isVideo) {
       setConvertingVideo(true)
@@ -1031,7 +1034,7 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
         const extension = mimeType.includes('mp4') ? 'm4a' : 'webm'
         let blob = new Blob(chunks, { type: mimeType })
         let uploadName = `recording.${extension}`
-        const limitBytes = STT_FILE_SIZE_LIMIT_BYTES[model]
+        const limitBytes = Math.min(STT_FILE_SIZE_LIMIT_BYTES[model], VERCEL_UPLOAD_LIMIT_BYTES)
         if (blob.size > limitBytes) {
           setCompressing(true)
           try {
@@ -1221,15 +1224,15 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
 
           <div className="space-y-1.5">
             <div className="flex justify-between text-xs text-red-700/90">
-              <span>File size</span>
+              <span>File size (will auto-compress)</span>
               <span>
-                {formatBytes(recordedBytes)} / {formatBytes(STT_FILE_SIZE_LIMIT_BYTES[model])}
+                {formatBytes(recordedBytes)} / {formatBytes(VERCEL_UPLOAD_LIMIT_BYTES)}
               </span>
             </div>
             <div className="h-1.5 rounded-full bg-red-100 overflow-hidden">
               <div
-                className={`h-full transition-all ${recordedBytes / STT_FILE_SIZE_LIMIT_BYTES[model] >= 0.8 ? 'bg-red-500' : 'bg-amber-500'}`}
-                style={{ width: `${Math.min((recordedBytes / STT_FILE_SIZE_LIMIT_BYTES[model]) * 100, 100)}%` }}
+                className={`h-full transition-all ${recordedBytes / VERCEL_UPLOAD_LIMIT_BYTES >= 0.8 ? 'bg-red-500' : 'bg-amber-500'}`}
+                style={{ width: `${Math.min((recordedBytes / VERCEL_UPLOAD_LIMIT_BYTES) * 100, 100)}%` }}
               />
             </div>
           </div>
@@ -1249,9 +1252,9 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
             </div>
           </div>
 
-          {(recordedBytes / STT_FILE_SIZE_LIMIT_BYTES[model] >= 0.8 || recordingElapsedSec / STT_DURATION_LIMIT_SECONDS[model] >= 0.8) && (
+          {(recordedBytes / VERCEL_UPLOAD_LIMIT_BYTES >= 0.8 || recordingElapsedSec / STT_DURATION_LIMIT_SECONDS[model] >= 0.8) && (
             <p className="text-xs text-red-700/90">
-              Approaching STT limits. Audio will be compressed automatically if over the size limit.
+              Approaching limits. Audio will be compressed automatically before upload.
             </p>
           )}
         </div>
