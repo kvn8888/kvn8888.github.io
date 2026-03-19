@@ -28,7 +28,10 @@ export async function GET(req: NextRequest) {
 
   try {
     const key = `speech/stt-upload/${Date.now()}-${crypto.randomUUID()}.${ext}`
-    const { url } = await createPresignedPutUrl(key, contentType)
+    const { url, region } = await createPresignedPutUrl(key, contentType)
+    // Log the region embedded in the URL for diagnosing region-mismatch issues
+    const urlRegion = new URL(url).hostname.match(/s3[.-]([^.]+)\.amazonaws\.com/)?.[1]
+    console.log(`[presign] key=${key} configured-region=${region} region-in-url=${urlRegion ?? 'global'}`)
     return NextResponse.json({ url, key, expiresIn: 600 })
   } catch (err) {
     console.error('Presign error:', err)

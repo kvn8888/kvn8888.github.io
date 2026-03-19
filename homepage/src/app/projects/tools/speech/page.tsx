@@ -910,8 +910,13 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
             method: 'PUT',
             headers: { 'Content-Type': audioBlob.type || 'audio/mpeg' },
             body: audioBlob,
+            redirect: 'error', // prevent region-redirect from silently changing PUT→GET
           })
-          if (!putRes.ok) throw new Error('Failed to upload audio to storage')
+          if (!putRes.ok) {
+            const errText = await putRes.text().catch(() => '')
+            const s3Code = errText.match(/<Code>(.*?)<\/Code>/)?.[1]
+            throw new Error(`S3 upload failed${s3Code ? ` (${s3Code})` : ''}: HTTP ${putRes.status}`)
+          }
 
           res = await fetch('/api/speech/stt', {
             method: 'POST',

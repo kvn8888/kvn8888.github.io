@@ -4,7 +4,7 @@ import { getSecret } from '@/lib/secrets'
 
 /* ── S3 client ── */
 
-async function getSpeechS3Client(): Promise<{ client: S3Client; bucket: string }> {
+async function getSpeechS3Client(): Promise<{ client: S3Client; bucket: string; region: string }> {
   const bucket = await getSecret('SPEECH_S3_BUCKET')
   const region = (await getSecret('AWS_REGION')) || 'us-east-1'
   const accessKeyId = await getSecret('AWS_ACCESS_KEY_ID')
@@ -15,11 +15,13 @@ async function getSpeechS3Client(): Promise<{ client: S3Client; bucket: string }
 
   return {
     bucket,
+    region,
     client: new S3Client({
       region,
       credentials: { accessKeyId, secretAccessKey },
       requestChecksumCalculation: 'WHEN_REQUIRED',
       responseChecksumValidation: 'WHEN_REQUIRED',
+      // Follow redirects server-side only; client presigned URLs must not redirect
     }),
   }
 }
@@ -29,15 +31,15 @@ async function getSpeechS3Client(): Promise<{ client: S3Client; bucket: string }
 export async function createPresignedPutUrl(
   key: string,
   contentType: string
-): Promise<{ url: string; key: string }> {
-  const { client, bucket } = await getSpeechS3Client()
+): Promise<{ url: string; key: string; region: string }> {
+  const { client, bucket, region } = await getSpeechS3Client()
   const command = new PutObjectCommand({
     Bucket: bucket,
     Key: key,
     ContentType: contentType,
   })
   const url = await getSignedUrl(client, command, { expiresIn: 600 })
-  return { url, key }
+  return { url, key, region }
 }
 
 /* ── Download from S3 ── */
