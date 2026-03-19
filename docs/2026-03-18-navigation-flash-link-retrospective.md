@@ -84,7 +84,7 @@ The gap between steps 2 and 4 is visible as a white flash — even in dark mode.
 
 This prevents a *theme* flash (light→dark), but it doesn't help with the *background* flash because the CSS variables (`--background`, `--foreground`) are defined in the external stylesheet, which hasn't loaded yet.
 
-**The fix**: Set the CSS variables inline in the same blocking script, then add an inline `<style>` that applies the background:
+**The fix**: Duplicate the critical CSS variables and body background in an inline `<style>` tag — NOT via `style.setProperty()`:
 
 ```tsx
 <head>
@@ -93,17 +93,18 @@ This prevents a *theme* flash (light→dark), but it doesn't help with the *back
       var t = localStorage.getItem('theme');
       var dark = t === 'dark' || (!t && matchMedia('(prefers-color-scheme: dark)').matches);
       if (dark) document.documentElement.classList.add('dark');
-      // Set CSS variables BEFORE external stylesheet loads
-      document.documentElement.style.setProperty('--background', dark ? '#0d0a08' : '#ffffff');
-      document.documentElement.style.setProperty('--foreground', dark ? '#faf9f5' : '#1a1a1a');
     })();
   `}} />
-  {/* Inline critical CSS — body gets background immediately */}
+  {/* Critical inline CSS — stylesheet rules, not inline styles */}
   <style dangerouslySetInnerHTML={{ __html: `
-    body { background: var(--background); }
+    :root { --background: #ffffff; --foreground: #0a0a0a; }
+    .dark { --background: #0d0a08; --foreground: #f0ece8; }
+    body { background: var(--background); color: var(--foreground); }
   `}} />
 </head>
 ```
+
+**Why not `style.setProperty()`?** My first attempt used `document.documentElement.style.setProperty('--background', ...)`. This works for the initial load — but inline styles have the highest CSS specificity. When the `ThemeProvider` toggles the `.dark` class, the stylesheet rules for `:root` and `.dark` can't override the inline style properties. The background color gets stuck on whatever was set at load time, and toggling light/dark mode breaks. A `<style>` tag with `:root`/`.dark` selectors has the same specificity as the external stylesheet, so class toggles work correctly.
 
 The execution order is now:
 1. HTML arrives → inline script runs → sets `.dark` class + CSS variables on `<html>`
