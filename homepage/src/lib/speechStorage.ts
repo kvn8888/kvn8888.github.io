@@ -15,7 +15,12 @@ async function getSpeechS3Client(): Promise<{ client: S3Client; bucket: string }
 
   return {
     bucket,
-    client: new S3Client({ region, credentials: { accessKeyId, secretAccessKey } }),
+    client: new S3Client({
+      region,
+      credentials: { accessKeyId, secretAccessKey },
+      requestChecksumCalculation: 'WHEN_REQUIRED',
+      responseChecksumValidation: 'WHEN_REQUIRED',
+    }),
   }
 }
 
