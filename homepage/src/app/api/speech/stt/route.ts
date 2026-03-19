@@ -31,7 +31,8 @@ export async function POST(req: NextRequest) {
       }
 
       const { buffer, contentType: s3ContentType } = await downloadFromS3(s3Key)
-      audioFile = new File([buffer], fileName, { type: s3ContentType })
+      const arrayBuffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer
+      audioFile = new File([arrayBuffer], fileName, { type: s3ContentType })
     } else {
       // Direct FormData upload (small files)
       const formData = await req.formData()
