@@ -29,20 +29,22 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        {/* Prevent flash of wrong theme — sets class AND background before external CSS loads */}
+        {/* Prevent flash of wrong theme — sets .dark class before first paint */}
         <script dangerouslySetInnerHTML={{ __html: `
           (function() {
             var t = localStorage.getItem('theme');
             var dark = t === 'dark' || (!t && window.matchMedia('(prefers-color-scheme: dark)').matches);
             if (dark) document.documentElement.classList.add('dark');
-            document.documentElement.style.setProperty('--background', dark ? '#0d0a08' : '#ffffff');
-            document.documentElement.style.setProperty('--foreground', dark ? '#faf9f5' : '#1a1a1a');
           })();
         `}} />
-        {/* Critical inline CSS — body gets its background immediately,
-            no waiting for external stylesheet to download */}
+        {/* Critical inline CSS — duplicates the minimum variables from globals.css
+            so body gets the correct background BEFORE the external stylesheet loads.
+            Uses :root/.dark selectors (not inline style) so ThemeProvider's class
+            toggle correctly switches variables without needing a refresh. */}
         <style dangerouslySetInnerHTML={{ __html: `
-          body { background: var(--background); }
+          :root { --background: #ffffff; --foreground: #0a0a0a; }
+          .dark { --background: #0d0a08; --foreground: #f0ece8; }
+          body { background: var(--background); color: var(--foreground); }
         `}} />
       </head>
       <body
