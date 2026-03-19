@@ -19,9 +19,16 @@ export const ACCESS_GRANT_OPTIONS = [
   {
     key: 'speech-studio',
     label: 'Speech Studio',
-    description: 'Speech Studio plus the shared speech APIs and legacy speech lab route.',
+    description: 'TTS, transcription, history, and legacy speech lab route (excludes pronunciation).',
     hubPaths: ['/projects'],
-    pathPrefixes: ['/projects/speech-studio', '/projects/tools/speech', '/api/speech'],
+    pathPrefixes: ['/projects/speech-studio', '/projects/tools/speech', '/api/speech/tts', '/api/speech/stt', '/api/speech/history'],
+  },
+  {
+    key: 'pronunciation-assessment',
+    label: 'Pronunciation Assessment',
+    description: 'Azure pronunciation assessment tool inside Speech Studio.',
+    hubPaths: ['/projects'],
+    pathPrefixes: ['/api/speech/pronunciation'],
   },
   {
     key: 'cover-letter-workbench',

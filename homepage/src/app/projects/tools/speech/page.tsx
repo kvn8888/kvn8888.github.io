@@ -34,7 +34,8 @@ const modalityLabels: Record<Tab, string> = {
   pronunciation: 'Pronunciation',
 }
 
-export default function SpeechLabPage() {
+export default function SpeechLabPage({ hidePronunciation }: { hidePronunciation?: boolean } = {}) {
+  const visibleTabs = hidePronunciation ? tabs.filter((t) => t.id !== 'pronunciation') : tabs
   const [activeTab, setActiveTab] = useState<Tab>('tts')
   const [history, setHistory] = useState<HistoryItem[]>([])
   const [historyError, setHistoryError] = useState<string | null>(null)
@@ -97,7 +98,7 @@ export default function SpeechLabPage() {
           Reason: pills match the glassmorphism card aesthetic better than underline tabs
           and provide a larger click target on mobile. */}
       <div className={`flex flex-wrap justify-center gap-2 ${mounted ? 'blur-reveal-2' : 'opacity-0'}`}>
-        {tabs.map((tab) => (
+        {visibleTabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
@@ -118,7 +119,7 @@ export default function SpeechLabPage() {
       <div className={`rounded-2xl bg-glass backdrop-blur-sm border border-glass-border overflow-hidden ${mounted ? 'blur-reveal-3' : 'opacity-0'}`}>
         {activeTab === 'tts' && <TtsPanel onHistorySaved={loadHistory} />}
         {activeTab === 'stt' && <SttPanel onHistorySaved={loadHistory} />}
-        {activeTab === 'pronunciation' && <PronunciationPanel onHistorySaved={loadHistory} />}
+        {activeTab === 'pronunciation' && !hidePronunciation && <PronunciationPanel onHistorySaved={loadHistory} />}
       </div>
 
       <div className={`rounded-2xl bg-glass backdrop-blur-sm border border-glass-border p-5 space-y-3 ${mounted ? 'blur-reveal-4' : 'opacity-0'}`}>
@@ -137,7 +138,7 @@ export default function SpeechLabPage() {
               <option value="all">All</option>
               <option value="tts">Text to Speech</option>
               <option value="stt">Transcription</option>
-              <option value="pronunciation">Pronunciation</option>
+              {!hidePronunciation && <option value="pronunciation">Pronunciation</option>}
             </select>
             <button
               onClick={loadHistory}
