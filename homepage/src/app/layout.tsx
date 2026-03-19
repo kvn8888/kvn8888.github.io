@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { ThemeProvider, UpdateToast } from "@/app/components";
+import { AuroraBackground, ThemeProvider, UpdateToast } from "@/app/components";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -47,6 +47,9 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <ThemeProvider>
+          {/* AuroraBackground lives here in the root layout so it persists
+              across ALL page navigations — never unmounts, never flashes */}
+          <AuroraBackground />
           {children}
           <UpdateToast />
         </ThemeProvider>

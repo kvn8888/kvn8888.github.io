@@ -264,17 +264,20 @@
   -webkit-backdrop-filter: blur(24px) saturate(160%);
 }
 
-body {
+/* html owns the canvas background so fixed z-index:-1 aurora blobs
+   paint above it (body is transparent, doesn't cover the aurora) */
+html {
+  overflow-x: hidden;
   background: var(--background);
+}
+
+body {
+  /* No background here — html's background becomes the canvas.
+     body is transparent so the fixed aurora behind it stays visible. */
   color: var(--foreground);
   font-family: var(--font-geist-sans), system-ui, sans-serif;
   -webkit-tap-highlight-color: transparent;
   overflow-x: hidden;
-}
-
-html {
-  overflow-x: hidden;
-  background: var(--background);
 }
 
 /* Material Symbols styling */

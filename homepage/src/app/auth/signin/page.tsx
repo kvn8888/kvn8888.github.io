@@ -1,5 +1,4 @@
 import { signIn } from "@/auth"
-import { AuroraBackground } from "@/app/components"
 import { EmailVerification } from "./EmailVerification"
 
 export default async function SignInPage({
@@ -14,7 +13,6 @@ export default async function SignInPage({
 
   return (
     <>
-      <AuroraBackground />
       <div className="min-h-screen flex items-center justify-center px-4">
         <div className="w-full max-w-sm blur-reveal">
           <div className="bg-glass backdrop-blur-xl rounded-2xl shadow-lg border border-glass-border p-8">

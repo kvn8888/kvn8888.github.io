@@ -1,5 +1,5 @@
 import { auth, signOut } from "@/auth"
-import { AuroraBackground, BackButton, ProfileMenu } from "@/app/components"
+import { BackButton, ProfileMenu } from "@/app/components"
 
 export default async function ToolsLayout({
   children,
@@ -10,7 +10,6 @@ export default async function ToolsLayout({
 
   return (
     <>
-      <AuroraBackground />
       <div className="min-h-screen">
         <header className="sticky top-0 z-50 backdrop-blur-xl bg-glass border-b border-glass-border">
           <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
