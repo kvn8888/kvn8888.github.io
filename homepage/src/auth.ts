@@ -58,6 +58,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         pathname.startsWith("/api/tools")
       const isProtected = isProtectedPage || isProtectedApi
 
+      // Dev-only bypass: requires BOTH NODE_ENV=development AND DEV_BYPASS_AUTH=true in .env.local
+      // NODE_ENV is always "production" on Vercel, so this can never activate in a real deploy
+      if (process.env.NODE_ENV === 'development' && process.env.DEV_BYPASS_AUTH === 'true' && isProtected) {
+        return true
+      }
+
       if (!isProtected) {
         return true
       }
