@@ -873,6 +873,7 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
   const [recordingStartMs, setRecordingStartMs] = useState<number | null>(null)
   const [recordingElapsedSec, setRecordingElapsedSec] = useState(0)
   const [compressing, setCompressing] = useState(false)
+  const [uploading, setUploading] = useState(false)
 
   useEffect(() => {
     if (!recording || !recordingStartMs) return
@@ -889,14 +890,44 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
     setSegments([])
 
     try {
-      const formData = new FormData()
-      formData.append('audio', audioBlob, uploadFileName)
-      formData.append('model', model)
+      let res: Response
 
-      const res = await fetch('/api/speech/stt', {
-        method: 'POST',
-        body: formData,
-      })
+      if (audioBlob.size > VERCEL_UPLOAD_LIMIT_BYTES) {
+        // Large file: upload to S3 first, then transcribe by reference
+        setUploading(true)
+        try {
+          const ext = uploadFileName.split('.').pop() || 'webm'
+          const presignRes = await fetch(
+            `/api/speech/stt/presign?contentType=${encodeURIComponent(audioBlob.type || 'audio/mpeg')}&ext=${encodeURIComponent(ext)}&size=${audioBlob.size}`
+          )
+          if (!presignRes.ok) {
+            const data = await presignRes.json().catch(() => ({}))
+            throw new Error(data.error || 'Failed to get upload URL')
+          }
+          const { url: putUrl, key: s3Key } = await presignRes.json()
+
+          const putRes = await fetch(putUrl, {
+            method: 'PUT',
+            headers: { 'Content-Type': audioBlob.type || 'audio/mpeg' },
+            body: audioBlob,
+          })
+          if (!putRes.ok) throw new Error('Failed to upload audio to storage')
+
+          res = await fetch('/api/speech/stt', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ s3Key, model, fileName: uploadFileName }),
+          })
+        } finally {
+          setUploading(false)
+        }
+      } else {
+        // Small file: direct FormData upload (faster, one hop)
+        const formData = new FormData()
+        formData.append('audio', audioBlob, uploadFileName)
+        formData.append('model', model)
+        res = await fetch('/api/speech/stt', { method: 'POST', body: formData })
+      }
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
@@ -938,7 +969,7 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
       return
     }
 
-    const limitBytes = Math.min(STT_FILE_SIZE_LIMIT_BYTES[model], VERCEL_UPLOAD_LIMIT_BYTES)
+    const limitBytes = STT_FILE_SIZE_LIMIT_BYTES[model]
 
     if (isVideo) {
       setConvertingVideo(true)
@@ -1034,7 +1065,7 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
         const extension = mimeType.includes('mp4') ? 'm4a' : 'webm'
         let blob = new Blob(chunks, { type: mimeType })
         let uploadName = `recording.${extension}`
-        const limitBytes = Math.min(STT_FILE_SIZE_LIMIT_BYTES[model], VERCEL_UPLOAD_LIMIT_BYTES)
+        const limitBytes = STT_FILE_SIZE_LIMIT_BYTES[model]
         if (blob.size > limitBytes) {
           setCompressing(true)
           try {
@@ -1197,7 +1228,7 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
       <div className="flex gap-3">
         <button
           onClick={recording ? stopRecording : startRecording}
-          disabled={loading || convertingVideo || compressing}
+          disabled={loading || convertingVideo || compressing || uploading}
           className={`inline-flex items-center gap-2 px-6 py-2.5 rounded-full font-medium text-sm transition-all cursor-pointer ${
             recording
               ? 'bg-red-500 text-white hover:bg-red-600'
@@ -1224,15 +1255,15 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
 
           <div className="space-y-1.5">
             <div className="flex justify-between text-xs text-red-700/90">
-              <span>File size (will auto-compress)</span>
+              <span>File size</span>
               <span>
-                {formatBytes(recordedBytes)} / {formatBytes(VERCEL_UPLOAD_LIMIT_BYTES)}
+                {formatBytes(recordedBytes)} / {formatBytes(STT_FILE_SIZE_LIMIT_BYTES[model])}
               </span>
             </div>
             <div className="h-1.5 rounded-full bg-red-100 overflow-hidden">
               <div
-                className={`h-full transition-all ${recordedBytes / VERCEL_UPLOAD_LIMIT_BYTES >= 0.8 ? 'bg-red-500' : 'bg-amber-500'}`}
-                style={{ width: `${Math.min((recordedBytes / VERCEL_UPLOAD_LIMIT_BYTES) * 100, 100)}%` }}
+                className={`h-full transition-all ${recordedBytes / STT_FILE_SIZE_LIMIT_BYTES[model] >= 0.8 ? 'bg-red-500' : 'bg-amber-500'}`}
+                style={{ width: `${Math.min((recordedBytes / STT_FILE_SIZE_LIMIT_BYTES[model]) * 100, 100)}%` }}
               />
             </div>
           </div>
@@ -1252,9 +1283,9 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
             </div>
           </div>
 
-          {(recordedBytes / VERCEL_UPLOAD_LIMIT_BYTES >= 0.8 || recordingElapsedSec / STT_DURATION_LIMIT_SECONDS[model] >= 0.8) && (
+          {(recordedBytes / STT_FILE_SIZE_LIMIT_BYTES[model] >= 0.8 || recordingElapsedSec / STT_DURATION_LIMIT_SECONDS[model] >= 0.8) && (
             <p className="text-xs text-red-700/90">
-              Approaching limits. Audio will be compressed automatically before upload.
+              Approaching provider limits. Audio will be compressed if needed before upload.
             </p>
           )}
         </div>
@@ -1268,8 +1299,16 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
         </div>
       )}
 
+      {/* Uploading to S3 */}
+      {uploading && (
+        <div className="flex items-center gap-2 text-foreground/40 text-sm">
+          <span className="material-symbols-outlined animate-spin text-lg">progress_activity</span>
+          Uploading audio…
+        </div>
+      )}
+
       {/* Loading */}
-      {loading && (
+      {loading && !uploading && (
         <div className="flex items-center gap-2 text-foreground/40 text-sm">
           <span className="material-symbols-outlined animate-spin text-lg">progress_activity</span>
           Transcribing…

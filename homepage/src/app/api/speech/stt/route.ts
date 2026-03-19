@@ -1,6 +1,9 @@
 import { auth } from '@/auth'
 import { NextRequest, NextResponse } from 'next/server'
 import { getSecret } from '@/lib/secrets'
+import { downloadFromS3, deleteFromS3 } from '@/lib/speechStorage'
+
+const STT_UPLOAD_PREFIX = 'speech/stt-upload/'
 
 export async function POST(req: NextRequest) {
   const session = await auth()
@@ -10,12 +13,35 @@ export async function POST(req: NextRequest) {
   const userEmail = session.user?.email?.toLowerCase() || 'unknown'
 
   try {
-    const formData = await req.formData()
-    const audioFile = formData.get('audio') as File | null
-    const model = (formData.get('model') as string) || 'voxtral-mini-transcribe-2507'
+    let audioFile: File
+    let model: string
+    let s3Key: string | null = null
 
-    if (!audioFile) {
-      return NextResponse.json({ error: 'Audio file is required' }, { status: 400 })
+    const contentType = req.headers.get('content-type') || ''
+
+    if (contentType.includes('application/json')) {
+      // S3-backed upload: client uploaded audio to S3, passes the key
+      const body = await req.json()
+      s3Key = body.s3Key as string
+      model = (body.model as string) || 'voxtral-mini-transcribe-2507'
+      const fileName = (body.fileName as string) || 'audio.mp3'
+
+      if (!s3Key || !s3Key.startsWith(STT_UPLOAD_PREFIX)) {
+        return NextResponse.json({ error: 'Invalid s3Key' }, { status: 400 })
+      }
+
+      const { buffer, contentType: s3ContentType } = await downloadFromS3(s3Key)
+      audioFile = new File([buffer], fileName, { type: s3ContentType })
+    } else {
+      // Direct FormData upload (small files)
+      const formData = await req.formData()
+      const file = formData.get('audio') as File | null
+      model = (formData.get('model') as string) || 'voxtral-mini-transcribe-2507'
+
+      if (!file) {
+        return NextResponse.json({ error: 'Audio file is required' }, { status: 400 })
+      }
+      audioFile = file
     }
 
     const isInterfazeModel = model === 'interfaze'
@@ -63,6 +89,7 @@ export async function POST(req: NextRequest) {
 
       const interfazeData = await interfazeRes.json()
       const text = interfazeData.choices?.[0]?.message?.content || ''
+      if (s3Key) deleteFromS3(s3Key).catch(() => {})
       return NextResponse.json({ text })
     }
 
@@ -162,6 +189,10 @@ export async function POST(req: NextRequest) {
     }
 
     const data = await res.json()
+
+    // Clean up S3 object after successful transcription
+    if (s3Key) deleteFromS3(s3Key).catch(() => {})
+
     return NextResponse.json(data)
   } catch (error) {
     console.error('STT route error:', {

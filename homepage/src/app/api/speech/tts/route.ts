@@ -1,8 +1,8 @@
 import { auth } from '@/auth'
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
 import { SignJWT, importPKCS8 } from 'jose'
 import { NextRequest, NextResponse } from 'next/server'
 import { getSecret } from '@/lib/secrets'
+import { uploadToS3 } from '@/lib/speechStorage'
 
 interface ServiceAccountKey {
   client_email: string
@@ -69,41 +69,6 @@ async function summarizeText(apiKey: string, text: string): Promise<string | nul
       data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim().slice(0, MAX_SUMMARY_LENGTH) ?? null
     )
   } catch {
-    return null
-  }
-}
-
-async function uploadToS3(wavBuffer: Buffer, key: string): Promise<string | null> {
-  const bucket = await getSecret('SPEECH_S3_BUCKET')
-  const region = (await getSecret('AWS_REGION')) || 'us-east-1'
-  if (!bucket) return null
-
-  const accessKeyId = await getSecret('AWS_ACCESS_KEY_ID')
-  const secretAccessKey = await getSecret('AWS_SECRET_ACCESS_KEY')
-
-  try {
-    const client = new S3Client({
-      region,
-      ...(accessKeyId && secretAccessKey
-        ? {
-            credentials: {
-              accessKeyId,
-              secretAccessKey,
-            },
-          }
-        : {}),
-    })
-    await client.send(
-      new PutObjectCommand({
-        Bucket: bucket,
-        Key: key,
-        Body: wavBuffer,
-        ContentType: 'audio/wav',
-      })
-    )
-    return `s3://${bucket}/${key}`
-  } catch (err) {
-    console.error('S3 upload error:', err)
     return null
   }
 }
@@ -270,7 +235,8 @@ export async function POST(req: NextRequest) {
       summarizeText(apiKey, normalizedText),
       uploadToS3(
         createWavBuffer(audioData, 24000, 1, 16),
-        `speech/tts/${Date.now()}-${voice}.wav`
+        `speech/tts/${Date.now()}-${voice}.wav`,
+        'audio/wav'
       ),
     ])
 
