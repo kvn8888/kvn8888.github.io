@@ -151,6 +151,13 @@ export async function POST(req: NextRequest) {
           { status: 404 }
         )
       }
+      if (res.status === 413 || err.toLowerCase().includes('too large') || err.toLowerCase().includes('file size') || err.toLowerCase().includes('exceeds')) {
+        const fileSizeMB = (audioFile.size / (1024 * 1024)).toFixed(1)
+        return NextResponse.json(
+          { error: `File too large for provider (${fileSizeMB} MB uploaded)` },
+          { status: res.status }
+        )
+      }
       return NextResponse.json({ error: 'Transcription failed' }, { status: res.status })
     }
 
