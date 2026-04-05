@@ -64,7 +64,7 @@ const projects: Project[] = [
     fullDesc: 'A local-first iOS food journal built with SwiftUI and SwiftData for iOS 26+. Point your camera at a nutrition label or a plate of food and get instant macro/micronutrient tracking — Gemini Flash Lite handles label scans in under 2 seconds, and Gemini Pro estimates plated meals. Features a weekly calendar strip with progress rings, meal sections with swipe-to-edit, a personal Food Bank for saved foods with serving mappings, weight-based container tracking, and HealthKit sync for active energy and 10+ micronutrients. Local-first with automatic iCloud/CloudKit sync across devices. BYOK — users bring their own Gemini key stored in the iOS Keychain; no proxy server needed.',
     demoUrl: '#',
     githubUrl: 'https://github.com/kvn8888/OpenFoodJournal',
-    category: 'in-progress',
+    category: 'personal',
   },
 
   // Hackathon Projects
