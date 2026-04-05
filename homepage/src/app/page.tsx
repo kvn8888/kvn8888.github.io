@@ -59,15 +59,55 @@ const projects: Project[] = [
   {
     id: 'openfoodjournal',
     title: 'OpenFoodJournal',
-    shortDesc: 'Open source self hosted myfitnesspal alternative with SwiftUI',
-    tags: ['TBD'],
-    fullDesc: 'TBD, planning',
+    shortDesc: 'Privacy-first iOS food journal with AI-powered nutrition scanning',
+    tags: ['SwiftUI', 'SwiftData', 'Gemini', 'HealthKit', 'CloudKit'],
+    fullDesc: 'A local-first iOS food journal built with SwiftUI and SwiftData for iOS 26+. Point your camera at a nutrition label or a plate of food and get instant macro/micronutrient tracking — Gemini Flash Lite handles label scans in under 2 seconds, and Gemini Pro estimates plated meals. Features a weekly calendar strip with progress rings, meal sections with swipe-to-edit, a personal Food Bank for saved foods with serving mappings, weight-based container tracking, and HealthKit sync for active energy and 10+ micronutrients. Local-first with automatic iCloud/CloudKit sync across devices. BYOK — users bring their own Gemini key stored in the iOS Keychain; no proxy server needed.',
     demoUrl: '#',
     githubUrl: 'https://github.com/kvn8888/OpenFoodJournal',
     category: 'in-progress',
   },
 
-  // Hackathon Projects (placeholder)
+  // Hackathon Projects
+  {
+    id: 'depscope',
+    title: 'DepScope',
+    shortDesc: '1st Place · HackWithBay 2.0 — Dependency due diligence agent',
+    tags: ['Node.js', 'Express', 'React', 'Gemini', 'You.com'],
+    fullDesc: 'Autonomous multi-agent system for open-source dependency due diligence. Paste a package name or GitHub URL and three sequential agents run: a Repo Health Analyzer pulling GitHub stats (stars, commit cadence, bus factor, license), an External Researcher using You.com Search to surface CVEs and community sentiment, and a Gemini 2.0 Flash Risk Scorer that synthesizes everything into a letter grade (A–F) with severity-ranked findings and opinionated alternatives. Streams agent progress live via SSE. Scores five dimensions — security (30%), maintenance (25%), stability (20%), community (15%), documentation (10%) — with automatic downgrades for unpatched critical CVEs, archived repos, and single-maintainer staleness. Won 1st place at HackWithBay 2.0.',
+    demoUrl: '#',
+    githubUrl: 'https://github.com/kvn8888/DepScope',
+    category: 'hackathon',
+  },
+  {
+    id: 'factcheckme',
+    title: 'FactCheckMe',
+    shortDesc: '2nd Place · HackWithBay 2.0 — Real-time audio fact-checking',
+    tags: ['React', 'TypeScript', 'Supabase', 'ElevenLabs', 'Gemini', 'Hyperspell'],
+    fullDesc: 'Real-time fact-checking tool built for voters watching debates and speeches. ElevenLabs transcribes live audio, Gemini 2.0 with Google Search grounding extracts and verifies claims instantly, and Hyperspell provides semantic caching so repeated talking points return in under 100ms instead of 2–3 seconds. The semantic cache recognizes differently-worded versions of the same claim — "unemployment is 4.2%" and "the unemployment rate is at 4.2%" both hit the cache. Claims surface with verdicts, supporting sources, and a statistics dashboard. Built on Supabase Edge Functions with a React + Tailwind frontend. Won 2nd place at HackWithBay 2.0.',
+    demoUrl: '#',
+    githubUrl: 'https://github.com/kvn8888/FactCheckMe',
+    category: 'hackathon',
+  },
+  {
+    id: 'guardianeye',
+    title: 'GuardianEye',
+    shortDesc: '2nd Place · HackWithBay 2.0 — AI-powered scam detection',
+    tags: ['FastAPI', 'React', 'Neo4j', 'Gemini', 'Tavily', 'Yutori'],
+    fullDesc: 'Multi-agent scam detection pipeline that analyzes screenshots, voice recordings, and text messages and returns a RED / YELLOW / GREEN verdict. Six parallel agents run on each submission: Reka Vision reads text from images, GLiNER extracts entities (phone numbers, URLs, dollar amounts), Tavily searches scam databases in roughly 2 seconds, a Yutori Research agent conducts a deep investigation (~60s), Gemini 3 Flash synthesizes the final verdict, and Neo4j maps the scam network connecting entities to past reports. Identical content returns from SQLite/Turso cache instantly. Voice deepfake detection via Modulate. All services degrade gracefully to rule-based fallbacks when API keys are absent. Won 2nd place at HackWithBay 2.0.',
+    demoUrl: '#',
+    githubUrl: 'https://github.com/kvn8888/GuardianEye',
+    category: 'hackathon',
+  },
+  {
+    id: 'cerberus',
+    title: 'Cerberus',
+    shortDesc: '3rd Place · HackWithBay 2.0 — Cross-domain threat intelligence agent',
+    tags: ['Neo4j', 'FastAPI', 'React', 'RocketRide', 'Claude', 'STIX'],
+    fullDesc: 'Cross-domain threat intelligence agent that closes the gap between siloed security tools. Paste a single entity — an npm package, IP address, domain, CVE, or Juspay fraud signal — and Cerberus autonomously traces the full attack chain across software supply chain, network infrastructure, and financial fraud surfaces simultaneously. Built on Neo4j for native cross-domain graph traversal and RocketRide\'s wave-planning agent for parallel tool orchestration. Each investigation streams a Claude-generated narrative with threat score, blast radius, IOC table with defanged export, force-directed threat graph, geo IP map, and MITRE ATT&CK tactic heatmap. A self-improvement loop writes confirmed threat patterns back to Neo4j so repeat investigations skip the LLM entirely and return in ~2 seconds. Integrates Juspay fraud signals as first-class graph nodes and exports STIX 2.1 bundles with TLP markings. Won 3rd place at HackWithBay 2.0.',
+    demoUrl: '#',
+    githubUrl: 'https://github.com/kvn8888/Cerberus',
+    category: 'hackathon',
+  },
 ];
 
 const categoryLabels: Record<ProjectCategory, string> = {
@@ -122,8 +162,7 @@ export default function Home() {
 
         {/* Bio text */}
         <p className="text-lg text-foreground/60 max-w-xl mx-auto mb-6 leading-relaxed blur-reveal-2">
-          I&apos;m a software engineering student at the Rochester Institute of Technology.
-          Currently on an internship at Ivalua, Inc.
+          I&apos;m a software engineering student at the Rochester Institute of Technology. Passionate about useful projects that feels great to use.
         </p>
 
         {/* Social Links */}
