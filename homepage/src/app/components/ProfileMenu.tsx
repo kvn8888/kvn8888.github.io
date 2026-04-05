@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import Image from 'next/image'
 import { useTheme } from './ThemeProvider'
 
@@ -13,7 +14,10 @@ interface ProfileMenuProps {
 
 export function ProfileMenu({ userName, userEmail, userImage, signOutAction }: ProfileMenuProps) {
   const [open, setOpen] = useState(false)
-  const menuRef = useRef<HTMLDivElement>(null)
+  // dropdownPos holds the fixed-position coordinates for the portal dropdown
+  const [dropdownPos, setDropdownPos] = useState({ top: 0, right: 0 })
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
   const { theme, setTheme } = useTheme()
 
   const themeIcon = theme === 'dark' ? 'dark_mode' : theme === 'light' ? 'light_mode' : 'monitor'
@@ -24,13 +28,27 @@ export function ProfileMenu({ userName, userEmail, userImage, signOutAction }: P
     setTheme(next)
   }
 
-  // Close on click outside
+  // Compute dropdown position from the trigger button on open
+  const handleOpen = () => {
+    if (!open && triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect()
+      // Position: just below the trigger, aligned to the right edge
+      setDropdownPos({
+        top: rect.bottom + 8,
+        right: window.innerWidth - rect.right,
+      })
+    }
+    setOpen(!open)
+  }
+
+  // Close on click outside (check both trigger and portal dropdown)
   useEffect(() => {
     if (!open) return
     const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setOpen(false)
-      }
+      const target = e.target as Node
+      const clickedTrigger = triggerRef.current?.contains(target)
+      const clickedDropdown = dropdownRef.current?.contains(target)
+      if (!clickedTrigger && !clickedDropdown) setOpen(false)
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
@@ -46,11 +64,82 @@ export function ProfileMenu({ userName, userEmail, userImage, signOutAction }: P
     return () => window.removeEventListener('keydown', handler)
   }, [open])
 
+  // The dropdown content — rendered into a portal so it escapes the header's
+  // stacking context (which has backdrop-filter: blur). Without the portal,
+  // the dropdown's own backdrop-filter only blurs the header's already-
+  // composited glass surface rather than the real page content behind it.
+  const dropdown = open ? (
+    <div
+      ref={dropdownRef}
+      style={{ position: 'fixed', top: dropdownPos.top, right: dropdownPos.right }}
+      className="w-72 origin-top-right rounded-2xl profile-card-glass profile-popover-enter border border-glass-border shadow-xl shadow-black/10 z-[200]"
+    >
+      {/* Inner wrapper clips children without affecting the outer backdrop-filter */}
+      <div className="rounded-2xl overflow-hidden">
+        {/* User info */}
+        <div className="px-5 py-4 flex items-center gap-3 border-b border-foreground/5">
+          {userImage ? (
+            <Image
+              src={userImage}
+              alt=""
+              width={48}
+              height={48}
+              className="rounded-full shrink-0"
+            />
+          ) : (
+            <div className="w-12 h-12 rounded-full bg-foreground/10 flex items-center justify-center shrink-0">
+              <span className="material-symbols-outlined text-foreground/40 text-2xl">person</span>
+            </div>
+          )}
+          <div className="min-w-0">
+            <p className="font-medium text-foreground text-sm truncate">{userName || 'User'}</p>
+            <p className="text-xs text-foreground/40 truncate">{userEmail || ''}</p>
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="px-2 py-2 space-y-0.5">
+          {/* Theme toggle — cycles: System → Light → Dark → System */}
+          <button
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-foreground/60 hover:bg-foreground/5 hover:text-foreground transition-all cursor-pointer text-left"
+            onClick={cycleTheme}
+          >
+            <span className="material-symbols-outlined text-lg">{themeIcon}</span>
+            <span>Theme</span>
+            <span className="ml-auto text-xs text-foreground/30">{themeLabel}</span>
+          </button>
+        </div>
+
+        {/* Sign out */}
+        <div className="px-2 py-2 border-t border-foreground/5">
+          <form action={signOutAction}>
+            <button
+              type="submit"
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-red-600 hover:bg-red-50 transition-all cursor-pointer text-left"
+            >
+              <span className="material-symbols-outlined text-lg">logout</span>
+              Sign out
+            </button>
+          </form>
+        </div>
+
+        {/* Version — build commit hash */}
+        <div className="px-5 py-2.5 border-t border-foreground/5 flex items-center justify-between">
+          <span className="text-xs text-foreground/30">version</span>
+          <span className="text-[11px] font-mono text-foreground/30 bg-foreground/5 px-2 py-0.5 rounded-full">
+            {(process.env.NEXT_PUBLIC_COMMIT_SHA ?? 'dev').slice(0, 7)}
+          </span>
+        </div>
+      </div>
+    </div>
+  ) : null
+
   return (
-    <div className="relative" ref={menuRef}>
+    <div className="relative">
       {/* Avatar trigger */}
       <button
-        onClick={() => setOpen(!open)}
+        ref={triggerRef}
+        onClick={handleOpen}
         className="flex items-center gap-2 cursor-pointer rounded-full px-1.5 py-1.5 transition-all duration-200 hover:bg-foreground/[0.06] hover:backdrop-blur-sm hover:shadow-sm hover:shadow-black/5"
       >
         {userImage ? (
@@ -68,71 +157,8 @@ export function ProfileMenu({ userName, userEmail, userImage, signOutAction }: P
         )}
       </button>
 
-      {/* Popover card — iOS-style frosted glass: backdrop-filter blur + saturate
-          instead of a flat opacity overlay, ensuring legibility over any page content.
-          NOTE: overflow-hidden is on the inner wrapper, NOT this element — putting
-          overflow:hidden on the backdrop-filter element breaks blur in Safari + Chromium */}
-      {open && (
-        <div className="absolute right-0 top-full mt-2 w-72 origin-top-right rounded-2xl profile-card-glass profile-popover-enter border border-glass-border shadow-xl shadow-black/10 z-50">
-          {/* Inner wrapper clips children to rounded-2xl without affecting backdrop-filter */}
-          <div className="rounded-2xl overflow-hidden">
-          {/* User info */}
-          <div className="px-5 py-4 flex items-center gap-3 border-b border-foreground/5">
-            {userImage ? (
-              <Image
-                src={userImage}
-                alt=""
-                width={48}
-                height={48}
-                className="rounded-full shrink-0"
-              />
-            ) : (
-              <div className="w-12 h-12 rounded-full bg-foreground/10 flex items-center justify-center shrink-0">
-                <span className="material-symbols-outlined text-foreground/40 text-2xl">person</span>
-              </div>
-            )}
-            <div className="min-w-0">
-              <p className="font-medium text-foreground text-sm truncate">{userName || 'User'}</p>
-              <p className="text-xs text-foreground/40 truncate">{userEmail || ''}</p>
-            </div>
-          </div>
-
-          {/* Actions */}
-          <div className="px-2 py-2 space-y-0.5">
-            {/* Theme toggle — cycles: System → Light → Dark → System */}
-            <button
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-foreground/60 hover:bg-foreground/5 hover:text-foreground transition-all cursor-pointer text-left"
-              onClick={cycleTheme}
-            >
-              <span className="material-symbols-outlined text-lg">{themeIcon}</span>
-              <span>Theme</span>
-              <span className="ml-auto text-xs text-foreground/30">{themeLabel}</span>
-            </button>
-          </div>
-
-          {/* Sign out */}
-          <div className="px-2 py-2 border-t border-foreground/5">
-            <form action={signOutAction}>
-              <button
-                type="submit"
-                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-red-600 hover:bg-red-50 transition-all cursor-pointer text-left"
-              >
-                <span className="material-symbols-outlined text-lg">logout</span>
-                Sign out
-              </button>
-            </form>
-          </div>
-
-          {/* Version — build commit hash */}
-          <div className="px-5 py-2.5 border-t border-foreground/5 flex items-center justify-between">
-            <span className="text-xs text-foreground/30">version</span>
-            <span className="text-[11px] font-mono text-foreground/30 bg-foreground/5 px-2 py-0.5 rounded-full">
-              {(process.env.NEXT_PUBLIC_COMMIT_SHA ?? 'dev').slice(0, 7)}
-            </span>
-          </div>
-          </div>{/* end inner overflow-hidden wrapper */}
-        </div>
-      )}
+      {/* Render dropdown as a body portal to escape the header's stacking context */}
+      {typeof document !== 'undefined' && createPortal(dropdown, document.body)}
     </div>
   )
 }
