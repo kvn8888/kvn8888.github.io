@@ -69,9 +69,13 @@ export function ProfileMenu({ userName, userEmail, userImage, signOutAction }: P
       </button>
 
       {/* Popover card — iOS-style frosted glass: backdrop-filter blur + saturate
-          instead of a flat opacity overlay, ensuring legibility over any page content */}
+          instead of a flat opacity overlay, ensuring legibility over any page content.
+          NOTE: overflow-hidden is on the inner wrapper, NOT this element — putting
+          overflow:hidden on the backdrop-filter element breaks blur in Safari + Chromium */}
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-72 origin-top-right rounded-2xl profile-card-glass profile-popover-enter border border-glass-border shadow-xl shadow-black/10 z-50 overflow-hidden">
+        <div className="absolute right-0 top-full mt-2 w-72 origin-top-right rounded-2xl profile-card-glass profile-popover-enter border border-glass-border shadow-xl shadow-black/10 z-50">
+          {/* Inner wrapper clips children to rounded-2xl without affecting backdrop-filter */}
+          <div className="rounded-2xl overflow-hidden">
           {/* User info */}
           <div className="px-5 py-4 flex items-center gap-3 border-b border-foreground/5">
             {userImage ? (
@@ -126,6 +130,7 @@ export function ProfileMenu({ userName, userEmail, userImage, signOutAction }: P
               {(process.env.NEXT_PUBLIC_COMMIT_SHA ?? 'dev').slice(0, 7)}
             </span>
           </div>
+          </div>{/* end inner overflow-hidden wrapper */}
         </div>
       )}
     </div>
