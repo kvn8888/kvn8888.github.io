@@ -139,9 +139,12 @@ export default function Home() {
       <SpeedInsights/>
       <Analytics />
 
-      {/* Theme toggle — top right, subtle */}
-      <div className="fixed top-4 right-4 z-50">
+      {/* Theme toggle + commit hash — top right */}
+      <div className="fixed top-4 right-4 z-50 flex flex-col items-end gap-1">
         <ThemeToggle />
+        <span className="text-[10px] text-foreground/20 font-mono leading-none">
+          {(process.env.NEXT_PUBLIC_COMMIT_SHA ?? 'dev').slice(0, 7)}
+        </span>
       </div>
 
       {/* Content with staggered blur reveal animation */}
