@@ -118,6 +118,14 @@ export function ProfileMenu({ userName, userEmail, userImage, signOutAction }: P
               </button>
             </form>
           </div>
+
+          {/* Version — build commit hash */}
+          <div className="px-5 py-2.5 border-t border-foreground/5 flex items-center justify-between">
+            <span className="text-xs text-foreground/30">version</span>
+            <span className="text-[11px] font-mono text-foreground/30 bg-foreground/5 px-2 py-0.5 rounded-full">
+              {(process.env.NEXT_PUBLIC_COMMIT_SHA ?? 'dev').slice(0, 7)}
+            </span>
+          </div>
         </div>
       )}
     </div>
