@@ -29,7 +29,6 @@ const projects: Project[] = [
     tags: ['TypeScript', 'Docker', 'React', 'Turso'],
     fullDesc: 'A sports betting arbitrage bot that finds positive expected value (EV) opportunities between sportsbook odds and Polymarket prediction markets. Fetches odds from The Odds API (NFL, NBA, NHL), de-vigs to find true probability, and identifies mispriced Polymarket contracts. Sizes bets using Kelly Criterion (1/4 Kelly, 5% max position) and supports both paper trading and live execution via the Polymarket CLOB API. Includes a full web dashboard with portfolio overview, live opportunities, position tracking, per-user secrets management, and a pooled Odds API usage monitor.',
     demoUrl: 'https://polymarket-ev-bot-docker.onrender.com/polymarket/',
-    githubUrl: 'https://github.com/kvn8888/polymarket-ev-bot',
     category: 'personal',
     screenshot: '/screenshots/polymarket.png',
   },
@@ -60,6 +59,7 @@ const projects: Project[] = [
     tags: ['SwiftUI', 'SwiftData', 'Gemini', 'HealthKit', 'CloudKit'],
     fullDesc: 'A local-first iOS food journal built with SwiftUI and SwiftData for iOS 26+. Point your camera at a nutrition label or a plate of food and get instant macro/micronutrient tracking — Gemini Flash Lite handles label scans in under 2 seconds, and Gemini Pro estimates plated meals. Features a weekly calendar strip with progress rings, meal sections with swipe-to-edit, a personal Food Bank for saved foods with serving mappings, weight-based container tracking, and HealthKit sync for active energy and 10+ micronutrients. Local-first with automatic iCloud/CloudKit sync across devices. BYOK — users bring their own Gemini key stored in the iOS Keychain; no proxy server needed.',
     githubUrl: 'https://github.com/kvn8888/OpenFoodJournal',
+    demoUrl: 'https://apps.apple.com/us/app/openfoodjournal/id6761086648',
     category: 'personal',
   },
 
@@ -89,6 +89,7 @@ const projects: Project[] = [
     tags: ['FastAPI', 'React', 'Neo4j', 'Gemini', 'Tavily', 'Yutori'],
     fullDesc: 'Multi-agent scam detection pipeline that analyzes screenshots, voice recordings, and text messages and returns a RED / YELLOW / GREEN verdict. Six parallel agents run on each submission: Reka Vision reads text from images, GLiNER extracts entities (phone numbers, URLs, dollar amounts), Tavily searches scam databases in roughly 2 seconds, a Yutori Research agent conducts a deep investigation (~60s), Gemini 3 Flash synthesizes the final verdict, and Neo4j maps the scam network connecting entities to past reports. Identical content returns from SQLite/Turso cache instantly. Voice deepfake detection via Modulate. All services degrade gracefully to rule-based fallbacks when API keys are absent. Won 2nd place at HackWithBay 2.0.',
     githubUrl: 'https://github.com/kvn8888/GuardianEye',
+    demoUrl: 'https://guardianeyeui.onrender.com/',
     category: 'hackathon',
   },
   {
@@ -98,6 +99,7 @@ const projects: Project[] = [
     tags: ['Neo4j', 'FastAPI', 'React', 'RocketRide', 'Claude', 'STIX'],
     fullDesc: 'Cross-domain threat intelligence agent that closes the gap between siloed security tools. Paste a single entity — an npm package, IP address, domain, CVE, or Juspay fraud signal — and Cerberus autonomously traces the full attack chain across software supply chain, network infrastructure, and financial fraud surfaces simultaneously. Built on Neo4j for native cross-domain graph traversal and RocketRide\'s wave-planning agent for parallel tool orchestration. Each investigation streams a Claude-generated narrative with threat score, blast radius, IOC table with defanged export, force-directed threat graph, geo IP map, and MITRE ATT&CK tactic heatmap. A self-improvement loop writes confirmed threat patterns back to Neo4j so repeat investigations skip the LLM entirely and return in ~2 seconds. Integrates Juspay fraud signals as first-class graph nodes and exports STIX 2.1 bundles with TLP markings. Won 3rd place at HackWithBay 2.0.',
     githubUrl: 'https://github.com/kvn8888/Cerberus',
+    demoUrl: 'https://cerberus-frontend.onrender.com/',
     category: 'hackathon',
   },
 ];
