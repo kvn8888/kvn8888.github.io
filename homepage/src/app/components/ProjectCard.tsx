@@ -13,7 +13,7 @@ export function ProjectCard({ project, onClick }: ProjectCardProps) {
     <motion.div
       layoutId={`card-${project.id}`}
       onClick={onClick}
-      className="p-4 rounded-xl border bg-glass border-glass-border hover:bg-glass-hover transition-colors cursor-pointer group"
+      className="p-4 rounded-xl border bg-foreground/5 border-glass-border hover:bg-foreground/10 transition-colors cursor-pointer group"
       whileHover={{ scale: 1.02 }}
       whileTap={{ scale: 0.98 }}
       transition={{ type: "spring", stiffness: 500, damping: 30 }}
