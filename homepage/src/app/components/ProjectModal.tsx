@@ -105,21 +105,25 @@ export function ProjectModal({ project, onClose }: ProjectModalProps) {
           <p className="text-foreground/60 leading-relaxed mb-8">{project.fullDesc}</p>
 
           <div className="flex items-center gap-4 mt-auto">
-            <a
-              href={project.demoUrl}
-              className="inline-flex items-center justify-center px-6 py-3 bg-foreground text-background rounded-full font-medium hover:opacity-90 transition-opacity"
-              onClick={(e) => e.stopPropagation()}
-            >
-              View Demo
-              <span className="material-symbols-outlined ml-1 text-sm">arrow_outward</span>
-            </a>
-            <a
-              href={project.githubUrl}
-              className="px-6 py-3 text-foreground/60 hover:text-foreground font-medium transition-colors"
-              onClick={(e) => e.stopPropagation()}
-            >
-              GitHub
-            </a>
+            {project.demoUrl && (
+              <a
+                href={project.demoUrl}
+                className="inline-flex items-center justify-center px-6 py-3 bg-foreground text-background rounded-full font-medium hover:opacity-90 transition-opacity"
+                onClick={(e) => e.stopPropagation()}
+              >
+                View Demo
+                <span className="material-symbols-outlined ml-1 text-sm">arrow_outward</span>
+              </a>
+            )}
+            {project.githubUrl && (
+              <a
+                href={project.githubUrl}
+                className="px-6 py-3 text-foreground/60 hover:text-foreground font-medium transition-colors"
+                onClick={(e) => e.stopPropagation()}
+              >
+                GitHub
+              </a>
+            )}
           </div>
         </motion.div>
       </motion.div>
