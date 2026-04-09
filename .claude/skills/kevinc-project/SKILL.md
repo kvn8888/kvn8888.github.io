@@ -157,6 +157,53 @@ All follow POST pattern with auth check + request body/formData:
   - Returns: Azure NBest assessment (AccuracyScore, FluencyScore, etc.)
   - Env: `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`
 
+### Azure OpenAI STT / Diarization
+
+The Azure OpenAI deployment has three STT models:
+- `gpt-4o-transcribe` — standard transcription
+- `gpt-4o-mini-transcribe` — cheaper/faster transcription
+- `gpt-4o-transcribe-diarize` — speaker-labeled transcription (configured in `AZURE_OPENAI_STT_DEPLOYMENT_GPT4O_TRANSCRIBE_DIARIZE`)
+
+**Critical Azure gotchas (hard-won):**
+
+1. **Must use raw `requests`/`fetch`, NOT the OpenAI SDK** — The SDK's `extra_body` is silently dropped for `multipart/form-data` requests. Audio goes as multipart; JSON-only fields like `chunking_strategy` don't reach the server via SDK.
+
+2. **Azure requires `{"type":"server_vad"}`, NOT `"auto"`** — OpenAI's documented `"auto"` value is rejected by Azure with a 400. Serialized as a JSON string in form-data:
+   ```python
+   data={"chunking_strategy": json.dumps({"type": "server_vad"})}
+   ```
+
+3. **Duration limit on diarize model** — Even files under 25MB fail if the audio is too long. Chunk to 10-minute segments for the full-file diarize workflow.
+
+4. **Speaker labels are local per chunk** — "Speaker A" in chunk 0 and "Speaker A" in chunk 7 are independent labels; cross-chunk consistency requires `known_speaker_references` or custom post-processing.
+
+5. **API version**: `2025-03-01-preview` — required for `response_format="diarized_json"`.
+
+**Minimum working pattern:**
+```python
+import json, requests
+resp = requests.post(
+    f"{endpoint}/openai/deployments/{deployment}/audio/transcriptions?api-version=2025-03-01-preview",
+    headers={"api-key": api_key},
+    files={"file": (filename, open_file, "audio/mpeg")},
+    data={
+        "response_format": "diarized_json",
+        "chunking_strategy": json.dumps({"type": "server_vad"}),
+    },
+    timeout=300,
+)
+# Returns: {"segments": [{"speaker":"A","text":"...","start":0.0,"end":2.5}], "text":"..."}
+```
+
+**Parallel chunking pattern:**
+- Split at 10-min intervals via ffmpeg, extract directly from source (avoid re-encoding)
+- Use `ThreadPoolExecutor(max_workers=4)` with 2s stagger between starts
+- Shift `seg["start"] += offset_sec` for each chunk's absolute timestamps
+- Sort merged segments by `start` after all chunks complete
+- Cache chunk files to avoid re-encoding on retry
+
+Env vars: `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_API_VERSION`, `AZURE_OPENAI_STT_DEPLOYMENT_GPT4O_TRANSCRIBE_DIARIZE`
+
 ## Environment Variables
 
 Use `homepage/.env.example` as the canonical current template.
