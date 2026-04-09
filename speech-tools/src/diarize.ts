@@ -87,16 +87,16 @@ export async function runDiarize(
   // Step 1: Split audio into chunks using ffmpeg
   // This is fast (~10s for 9 chunks) and happens synchronously before we start workers
   let chunks: AudioChunk[];
+  let totalDurationSec: number;
   try {
-    chunks = splitIntoChunks(audioBuffer, filename, workDir);
+    ({ chunks, totalDurationSec } = splitIntoChunks(audioBuffer, filename, workDir));
   } catch (err) {
     send({ type: "error", message: `Audio splitting failed: ${err}` });
     return;
   }
 
-  // Announce how many chunks we'll process
-  const durationSec = (chunks.length - 1) * 600 + 600; // rough estimate
-  send({ type: "started", totalChunks: chunks.length, durationSec });
+  // Announce how many chunks we'll process (with the real duration from ffprobe)
+  send({ type: "started", totalChunks: chunks.length, durationSec: totalDurationSec });
 
   // Step 2: Process all chunks in parallel with limited concurrency
   const semaphore = new Semaphore(maxWorkers);

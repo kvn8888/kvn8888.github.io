@@ -56,13 +56,13 @@ export function getAudioDuration(filePath: string): number {
  * @param audioBuffer  Raw bytes of the uploaded audio file
  * @param originalName Filename hint for file extension (e.g. "recording.m4a")
  * @param workDir      Temp directory to write chunks into
- * @returns Array of AudioChunk objects sorted by offsetSec
+ * @returns Object with chunks array and totalDurationSec
  */
 export function splitIntoChunks(
   audioBuffer: Buffer,
   originalName: string,
   workDir: string
-): AudioChunk[] {
+): { chunks: AudioChunk[]; totalDurationSec: number } {
   // Write the uploaded buffer to disk so ffmpeg can read it
   const ext = path.extname(originalName) || ".m4a";
   const inputPath = path.join(workDir, `source${ext}`);
@@ -108,7 +108,7 @@ export function splitIntoChunks(
     chunks.push({ path: chunkPath, offsetSec: startSec, index: i });
   }
 
-  return chunks;
+  return { chunks, totalDurationSec: totalSec };
 }
 
 /**
