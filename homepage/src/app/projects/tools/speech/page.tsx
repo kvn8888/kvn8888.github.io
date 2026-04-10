@@ -740,7 +740,7 @@ const STT_FILE_SIZE_LIMIT_BYTES: Record<SttModel, number> = {
   'voxtral-mini-transcribe-2507': 1024 * 1024 * 1024,
   'voxtral-mini-latest': 1024 * 1024 * 1024,
   'gpt-4o-transcribe': 25 * 1024 * 1024,
-  'gpt-4o-transcribe-diarize': 25 * 1024 * 1024,
+  'gpt-4o-transcribe-diarize': 500 * 1024 * 1024, // Render backend handles chunking; 500 MB is well above any real recording
   'interfaze': 25 * 1024 * 1024,
 }
 // Vercel serverless functions enforce a 4.5 MB request body limit.
@@ -875,6 +875,8 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
   const [recordingElapsedSec, setRecordingElapsedSec] = useState(0)
   const [compressing, setCompressing] = useState(false)
   const [uploading, setUploading] = useState(false)
+  // Diarize-specific: tracks how many 10-min chunks have completed so we can show progress
+  const [diarizeProgress, setDiarizeProgress] = useState<{ completed: number; total: number } | null>(null)
 
   useEffect(() => {
     if (!recording || !recordingStartMs) return
@@ -884,7 +886,116 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
     return () => window.clearInterval(interval)
   }, [recording, recordingStartMs])
 
+  // Handles gpt-4o-transcribe-diarize: sends audio to the Render speech-tools service
+  // which chunks it into 10-min segments, processes them in parallel via Azure, and
+  // streams SSE events back. Bypasses Vercel entirely (no 60-300s timeout issue).
+  const handleDiarizeTranscribe = async (audioBlob: Blob, uploadFileName: string) => {
+    setLoading(true)
+    setError(null)
+    setTranscript(null)
+    setSegments([])
+    setDiarizeProgress(null)
+
+    try {
+      const formData = new FormData()
+      formData.append('audio', audioBlob, uploadFileName)
+      formData.append('max_workers', '10')
+
+      const res = await fetch('https://speech-tools.onrender.com/diarize', {
+        method: 'POST',
+        body: formData,
+      })
+
+      if (!res.ok || !res.body) {
+        const text = await res.text().catch(() => '')
+        throw new Error(`Render service error ${res.status}: ${text}`)
+      }
+
+      // Parse the SSE stream line by line.
+      // Each event is: "data: {json}\n\n"
+      // We accumulate partial chunks in a buffer to handle mid-chunk network reads.
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+
+        // Split on newlines; keep the last incomplete line in the buffer
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          const json = line.slice(6).trim()
+          if (!json) continue
+
+          // Parse is typed loosely because the SseEvent union lives in the Render service.
+          // We use "type" as the discriminant, same as the TypeScript type file.
+          const event = JSON.parse(json) as {
+            type: string;
+            totalChunks?: number;
+            completed?: number;
+            total?: number;
+            segments?: { speaker: string; text: string; start: number; end: number }[];
+            totalSegments?: number;
+            uniqueSpeakers?: string[];
+            totalMs?: number;
+            error?: string;
+            message?: string;
+          }
+
+          if (event.type === 'started') {
+            setDiarizeProgress({ completed: 0, total: event.totalChunks ?? 0 })
+          } else if (event.type === 'chunk_done') {
+            setDiarizeProgress({ completed: event.completed ?? 0, total: event.total ?? 0 })
+          } else if (event.type === 'complete') {
+            const segs = event.segments ?? []
+            // Format as "[Speaker A] 0:00  text" — one line per speaker turn
+            const formatted = segs.map(s => {
+              const ts = formatDuration(Math.round(s.start))
+              return `[Speaker ${s.speaker}] ${ts}  ${s.text.trim()}`
+            }).join('\n')
+            setTranscript(formatted)
+            setSegments(segs.map(s => ({
+              start: s.start,
+              end: s.end,
+              text: `[Speaker ${s.speaker}] ${s.text}`,
+            })))
+            saveSpeechHistory({
+              modality: 'stt',
+              title: `Diarize · gpt-4o-transcribe-diarize`,
+              content: formatted.slice(0, 1500),
+              metadata: {
+                model: 'gpt-4o-transcribe-diarize',
+                segments: event.totalSegments ?? segs.length,
+                speakers: event.uniqueSpeakers?.length ?? 0,
+              },
+            })
+            onHistorySaved()
+          } else if (event.type === 'error') {
+            throw new Error(event.message ?? event.error ?? 'Diarization failed')
+          }
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Diarization failed')
+    } finally {
+      setLoading(false)
+      setDiarizeProgress(null)
+    }
+  }
+
   const handleTranscribe = async (audioBlob: Blob, uploadFileName = 'recording.webm') => {
+    // For the diarize model, bypass Vercel and stream directly from the Render service
+    if (model === 'gpt-4o-transcribe-diarize') {
+      await handleDiarizeTranscribe(audioBlob, uploadFileName)
+      return
+    }
+
     setLoading(true)
     setError(null)
     setTranscript(null)
@@ -1317,7 +1428,9 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
       {loading && !uploading && (
         <div className="flex items-center gap-2 text-foreground/40 text-sm">
           <span className="material-symbols-outlined animate-spin text-lg">progress_activity</span>
-          Transcribing…
+          {diarizeProgress
+            ? `Diarizing… ${diarizeProgress.completed} / ${diarizeProgress.total} chunks`
+            : 'Transcribing…'}
         </div>
       )}
 
@@ -1397,7 +1510,7 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
           </div>
           <div className="rounded-lg bg-foreground/[0.02] border border-foreground/5 p-2.5">
             <p className="font-medium text-foreground/50 mb-1">GPT‑4o Transcribe Diarize</p>
-            <p>Same 25MB upload cap; use <code>diarized_json</code> upstream for speaker-attributed output</p>
+            <p>Up to 500 MB. Splits to 10-min chunks automatically and processes them in parallel via a dedicated Render service — no Vercel timeout limit.</p>
             <p>For long audio, chunking is still recommended to avoid provider timeouts</p>
           </div>
         </div>
