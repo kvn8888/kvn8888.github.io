@@ -252,14 +252,18 @@ async function runTranscribeParallel(
           try {
             let text = "";
 
-            // Temporarily define a dummy send to capture the delta/done output
-            // for this chunk (we don't want intermediate deltas in the outer stream)
+            // captureSend intercepts the inner transcription's SSE events:
+            // - delta events (Azure streaming tokens) are forwarded to the outer stream
+            //   as chunk_delta events tagged with this chunk's index, so the client can
+            //   show live typing inside each chunk slot simultaneously
+            // - done event records the authoritative final text for assembly
             const captureSend = (e: SseEvent) => {
               if (e.type === "done" && e.text) {
                 text = e.text;
               } else if (e.type === "delta" && e.text) {
-                // Azure streaming deltas: accumulate locally
+                // Accumulate locally AND forward as a chunk-scoped delta
                 text += e.text;
+                send({ type: "chunk_delta", index: chunk.index, text: e.text });
               }
             };
 

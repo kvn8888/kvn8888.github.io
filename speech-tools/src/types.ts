@@ -52,6 +52,7 @@ export type SseEvent =
   // Transcription-only events (non-diarize models via POST /transcribe)
   | { type: "transcribe_started"; totalChunks: number }           // large file split into N chunks for parallel processing
   | { type: "chunk_text_done"; index: number; text: string; completed: number; total: number; durationMs: number } // one chunk finished transcription
+  | { type: "chunk_delta"; index: number; text: string }         // live token from one parallel chunk (Azure streaming, parallel mode)
   | { type: "delta"; text: string }                              // incremental token from Azure streaming (single-file mode)
   | { type: "done"; text: string; segments?: SimpleSegment[] }   // final assembled transcript
   | { type: "error"; message: string };

@@ -1080,8 +1080,21 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
               // Large file split into chunks — show chunk progress
               totalChunks = event.totalChunks ?? 1
               setDiarizeProgress({ completed: 0, total: totalChunks })
+            } else if (event.type === 'chunk_delta') {
+              // Azure is streaming tokens live from within one parallel chunk slot
+              // Accumulate into that slot's running text and immediately re-render
+              const idx = event.index ?? 0
+              const prev = partialTexts.get(idx) ?? ''
+              partialTexts.set(idx, prev + (event.text ?? ''))
+
+              // Rebuild visible transcript: show all known slots in order, placeholder for unstarted ones
+              const assembled = Array.from({ length: totalChunks }, (_, i) => {
+                if (partialTexts.has(i)) return partialTexts.get(i)!
+                return `[Chunk ${i + 1} — processing…]`
+              }).join('\n\n')
+              setTranscript(assembled.trim())
             } else if (event.type === 'chunk_text_done') {
-              // One chunk finished — slot its text in and rebuild the partial transcript
+              // One chunk finished — overwrite with authoritative text and update counter
               partialTexts.set(event.index ?? 0, event.text ?? '')
               setDiarizeProgress({ completed: event.completed ?? 0, total: event.total ?? totalChunks })
 
@@ -1092,7 +1105,7 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
               }).join('\n\n')
               setTranscript(assembled.trim())
             } else if (event.type === 'delta' && event.text) {
-              // Azure streaming: show tokens word-by-word as they arrive
+              // Azure streaming: show tokens word-by-word as they arrive (small file / single-shot path)
               runningText += event.text
               setTranscript(runningText)
             } else if (event.type === 'done' && event.text != null) {
