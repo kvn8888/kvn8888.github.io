@@ -244,18 +244,48 @@ Two Render-hosted Docker services run alongside the Vercel deployment:
 - Has its own Google OAuth client (separate callback URIs registered in Google Cloud Console)
 
 ### speech-tools (`speech-tools.onrender.com`, ID: `srv-d7c3nhh9rddc739ese9g`)
-- **Purpose**: Audio processing too long-running for Vercel (diarization takes 5-10+ min)
+- **Purpose**: Audio processing too long-running for Vercel (transcription + diarization take 5-10+ min)
 - **Source**: `speech-tools/` at repo root — TypeScript/Express, Dockerfile, deployed from `dia-design` branch
-- **Routes**: `GET /health`, `POST /diarize` (SSE stream)
-- **`POST /diarize`**: accepts `multipart/form-data` with `audio` field + optional `max_workers` (default 10)
-  - Runs ffmpeg to split audio into 10-min chunks
-  - Sends chunks to Azure `gpt-4o-transcribe-diarize` in parallel
-  - Streams SSE events: `started → chunk_start → chunk_done → complete`
-  - `complete` event payload: `{segments:[{speaker,text,start,end}], totalSegments, uniqueSpeakers, totalMs}`
-- **Speech Lab integration**: When `gpt-4o-transcribe-diarize` model is selected in STT tab, `page.tsx` calls Render directly (bypasses Vercel — no timeout). SSE parsed via `fetch + ReadableStream`.
-- **Cold start**: Free tier spins down after 15 min idle → ~50s cold start on first request
-- **File limit**: 500 MB (configured in `STT_FILE_SIZE_LIMIT_BYTES` in speech `page.tsx`)
-- **Env vars needed on Render**: `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_API_VERSION=2025-03-01-preview`, `AZURE_OPENAI_DIARIZE_DEPLOYMENT=gpt-4o-transcribe-diarize`
+- **Routes**: `GET /health`, `POST /diarize` (SSE), `POST /transcribe` (SSE)
+
+#### `POST /diarize`
+- Accepts `multipart/form-data` with `audio` field + optional `max_workers` (default 10)
+- Splits audio into 10-min chunks via ffmpeg
+- Sends chunks to Azure `gpt-4o-transcribe-diarize` in parallel (Semaphore-limited)
+- SSE events: `started → chunk_start → chunk_done → complete`
+- `chunk_done` includes `segments: DiarizedSegment[]` for live partial transcripts
+- `complete` event payload: `{segments:[{speaker,text,start,end}], totalSegments, uniqueSpeakers, totalMs}`
+
+#### `POST /transcribe`
+- Accepts `multipart/form-data` with `audio` field + optional `model`, `max_workers` (default 10)
+- Supports: `voxtral-mini-latest`, `voxtral-mini-transcribe-2507`, `gpt-4o-transcribe`
+- **Small files (≤ 20 MB)**: single-file path — Azure streams `delta` events, Voxtral returns `done`
+- **Large files (> 20 MB)**: parallel chunked path — ffmpeg splits, all chunks run concurrently
+  - Azure chunks: 300-second (5 min) segments to stay under Azure's 25 MB per-file limit
+  - Voxtral chunks: 600-second (10 min) segments
+  - SSE events: `transcribe_started → chunk_text_done × N → done`
+  - `chunk_text_done`: `{index, text, completed, total, durationMs}`
+
+#### Shared utilities in `speech-tools/src/`
+- `semaphore.ts` — shared Semaphore class used by both diarize and transcribe parallel paths
+- `audio.ts` — `splitIntoChunks(buffer, filename, workDir, chunkDurationSec=600)` with optional duration override; `makeTempDir()`
+- `logger.ts` — pino logger, conditionally ships to Axiom (`AXIOM_TOKEN` + `AXIOM_DATASET` env vars)
+- `types.ts` — discriminated union `SseEvent` covering all events for both paths
+
+#### Speech Lab integration (`homepage/src/app/projects/tools/speech/page.tsx`)
+- `handleDiarizeTranscribe` → Render `/diarize` SSE; accumulates `partialSegs` on `chunk_done`
+- `handleRenderTranscribe` → Render `/transcribe` SSE; handles both delta (small) and chunk slot (large) paths; shows `[Chunk N — processing…]` placeholders for in-flight chunks
+
+#### Env vars needed on Render
+- `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_API_VERSION=2025-03-01-preview`
+- `AZURE_OPENAI_DIARIZE_DEPLOYMENT=gpt-4o-transcribe-diarize`
+- `MISTRAL_API_KEY` — required for Voxtral (not yet set as of last session)
+- `AXIOM_TOKEN`, `AXIOM_DATASET` — optional, enables structured log shipping to Axiom
+
+#### Cold start / limits
+- Free tier spins down after 15 min idle → ~50s cold start on first request
+- File upload limit: 200 MB (multer in `index.ts`)
+- Page.tsx file limits: voxtral 1 GB, gpt-4o-transcribe 200 MB, diarize 500 MB
 
 ## Proxying External Apps
 
