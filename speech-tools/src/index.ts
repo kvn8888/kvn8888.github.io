@@ -19,6 +19,7 @@ import express, { Request, Response } from "express";
 import multer from "multer";
 import { runDiarize } from "./diarize.js";
 import type { SseEvent } from "./types.js";
+import { logger } from "./logger.js";
 
 const app = express();
 // multer stores uploaded files in memory as Buffers — no temp disk writes for the raw upload
@@ -51,6 +52,9 @@ app.post("/diarize", upload.single("audio"), async (req: Request, res: Response)
   }
 
   const maxWorkers = Math.min(20, Math.max(1, parseInt(req.body?.max_workers ?? "10", 10)));
+  const reqLog = logger.child({ file: req.file.originalname, sizeBytes: req.file.size, maxWorkers });
+  reqLog.info("diarize request received");
+  const reqStart = Date.now();
 
   // Configure SSE response headers
   res.setHeader("Content-Type", "text/event-stream");
@@ -69,8 +73,10 @@ app.post("/diarize", upload.single("audio"), async (req: Request, res: Response)
 
   try {
     await runDiarize(req.file.buffer, req.file.originalname, maxWorkers, send);
+    reqLog.info({ durationMs: Date.now() - reqStart }, "diarize complete");
   } catch (err) {
     // Catch-all for unexpected errors — surface them as a final SSE event
+    reqLog.error({ err: String(err), durationMs: Date.now() - reqStart }, "diarize error");
     send({ type: "error", message: String(err) });
   } finally {
     res.end();
@@ -81,7 +87,10 @@ app.post("/diarize", upload.single("audio"), async (req: Request, res: Response)
 // Start listening
 // ---------------------------------------------------------------------------
 app.listen(PORT, () => {
-  console.log(`[speech-tools] Listening on port ${PORT}`);
-  console.log(`[speech-tools] Azure endpoint: ${process.env.AZURE_OPENAI_ENDPOINT ?? "(not set)"}`);
-  console.log(`[speech-tools] Diarize deployment: ${process.env.AZURE_OPENAI_DIARIZE_DEPLOYMENT ?? "gpt-4o-transcribe-diarize"}`);
+  logger.info({
+    port: PORT,
+    azureEndpoint: process.env.AZURE_OPENAI_ENDPOINT ?? "(not set)",
+    diarizeDeployment: process.env.AZURE_OPENAI_DIARIZE_DEPLOYMENT ?? "gpt-4o-transcribe-diarize",
+    axiomEnabled: !!(process.env.AXIOM_TOKEN && process.env.AXIOM_DATASET),
+  }, "speech-tools started");
 });

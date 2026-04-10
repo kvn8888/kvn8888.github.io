@@ -19,6 +19,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { AudioChunk, DiarizedSegment } from "./types.js";
+import { logger } from "./logger.js";
 
 /** How long to wait for a single chunk response. 5 minutes is generous. */
 const REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
@@ -33,7 +34,7 @@ const AZURE_API_VERSION = process.env.AZURE_OPENAI_API_VERSION ?? "2025-03-01-pr
 const AZURE_DEPLOYMENT = process.env.AZURE_OPENAI_DIARIZE_DEPLOYMENT ?? "gpt-4o-transcribe-diarize";
 
 if (!AZURE_ENDPOINT || !AZURE_API_KEY) {
-  console.warn("[azure] WARNING: AZURE_OPENAI_ENDPOINT or AZURE_OPENAI_API_KEY not set");
+  logger.warn("AZURE_OPENAI_ENDPOINT or AZURE_OPENAI_API_KEY not set — requests will fail");
 }
 
 /**
@@ -85,7 +86,7 @@ export async function transcribeChunk(chunk: AudioChunk): Promise<DiarizedSegmen
       clearTimeout(timer);
       // AbortError means timeout; any other fetch error (network, DNS) → retry
       const isTimeout = err instanceof Error && err.name === "AbortError";
-      console.error(`[chunk ${chunk.index}] fetch error (attempt ${attempt + 1}): ${err}`);
+      logger.error({ chunkIndex: chunk.index, attempt: attempt + 1, err: String(err) }, "fetch error");
       if (attempt === MAX_RETRIES - 1) {
         throw new Error(`chunk ${chunk.index} failed after ${MAX_RETRIES} attempts: ${err}`);
       }
@@ -97,7 +98,7 @@ export async function transcribeChunk(chunk: AudioChunk): Promise<DiarizedSegmen
     // 429 or 5xx → retry
     if (resp.status === 429 || resp.status >= 500) {
       const body = await resp.text();
-      console.warn(`[chunk ${chunk.index}] HTTP ${resp.status} (attempt ${attempt + 1}): ${body}`);
+      logger.warn({ chunkIndex: chunk.index, status: resp.status, attempt: attempt + 1, body }, "retryable HTTP error");
       if (attempt === MAX_RETRIES - 1) {
         throw new Error(`chunk ${chunk.index} HTTP ${resp.status} after ${MAX_RETRIES} attempts`);
       }
