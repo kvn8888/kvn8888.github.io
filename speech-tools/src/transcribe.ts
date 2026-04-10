@@ -221,9 +221,18 @@ async function runTranscribeParallel(
     // Write source file once — splitOneChunkAsync reads from this path for each chunk
     const inputPath = writeSourceFile(buffer, filename, workDir);
 
-    // Get total duration first (fast — ffprobe reads container metadata without decoding)
-    // This lets us know nChunks and emit transcribe_started BEFORE any ffmpeg split begins
-    const totalDurationSec = getAudioDuration(inputPath);
+    // Get total duration (fast — ffprobe reads container metadata without decoding).
+    // WebM from browser MediaRecorder often lacks duration metadata (reports N/A),
+    // so we fall back to a conservative estimate: ~16kbps mono opus ≈ 2 KB/s.
+    let totalDurationSec: number;
+    try {
+      totalDurationSec = getAudioDuration(inputPath);
+    } catch {
+      // Estimate: assume ~2 KB/s for opus/webm; if wrong, ffmpeg simply produces
+      // fewer or more chunks than estimated — transcription still works correctly.
+      totalDurationSec = Math.max(chunkDurationSec, buffer.byteLength / 2000);
+      logger.warn({ model, file: filename, estimatedDurationSec: totalDurationSec }, "ffprobe duration unavailable, using estimate");
+    }
     const nChunks = Math.ceil(totalDurationSec / chunkDurationSec);
 
     logger.info({ model, file: filename, chunks: nChunks, totalDurationSec }, "parallel transcription started");

@@ -23,6 +23,7 @@ export const CHUNK_DURATION_SEC = 600;
  * without decoding any audio.
  */
 export function getAudioDuration(filePath: string): number {
+  // First try: read duration from the container's format header (instant)
   const result = spawnSync(
     "ffprobe",
     [
@@ -34,15 +35,33 @@ export function getAudioDuration(filePath: string): number {
     { encoding: "utf8" }
   );
 
-  if (result.status !== 0) {
-    throw new Error(`ffprobe failed: ${result.stderr}`);
+  if (result.status === 0) {
+    const secs = parseFloat(result.stdout.trim());
+    if (!isNaN(secs) && secs > 0) return secs;
   }
 
-  const secs = parseFloat(result.stdout.trim());
-  if (isNaN(secs)) {
-    throw new Error(`ffprobe returned non-numeric duration: ${result.stdout}`);
+  // Fallback: WebM from browser MediaRecorder often lacks duration metadata.
+  // Force ffprobe to scan packets (slower, but handles headerless containers).
+  const fallback = spawnSync(
+    "ffprobe",
+    [
+      "-v", "error",
+      "-select_streams", "a:0",
+      "-show_entries", "stream=duration",
+      "-of", "default=noprint_wrappers=1:nokey=1",
+      "-analyzeduration", "2147483647",
+      "-probesize", "2147483647",
+      filePath,
+    ],
+    { encoding: "utf8" }
+  );
+
+  if (fallback.status === 0) {
+    const secs = parseFloat(fallback.stdout.trim());
+    if (!isNaN(secs) && secs > 0) return secs;
   }
-  return secs;
+
+  throw new Error(`ffprobe returned non-numeric duration: ${result.stdout?.trim() ?? "N/A"}`);
 }
 
 /**
