@@ -917,6 +917,9 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
+      // Accumulates segments from each chunk_done event so we can display them progressively.
+      // Mutable array intentionally outside useState — updated during stream, React state is set after each sort.
+      const partialSegs: { speaker: string; text: string; start: number; end: number }[] = []
 
       while (true) {
         const { done, value } = await reader.read()
@@ -952,6 +955,22 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
             setDiarizeProgress({ completed: 0, total: event.totalChunks ?? 0 })
           } else if (event.type === 'chunk_done') {
             setDiarizeProgress({ completed: event.completed ?? 0, total: event.total ?? 0 })
+            // Merge this chunk's segments into our running list and display immediately.
+            // Sorting by start time ensures out-of-order chunk arrivals display correctly.
+            if (event.segments && event.segments.length > 0) {
+              partialSegs.push(...event.segments)
+              partialSegs.sort((a, b) => a.start - b.start)
+              const formatted = partialSegs.map(s => {
+                const ts = formatDuration(Math.round(s.start))
+                return `[Speaker ${s.speaker}] ${ts}  ${s.text.trim()}`
+              }).join('\n')
+              setTranscript(formatted)
+              setSegments(partialSegs.map(s => ({
+                start: s.start,
+                end: s.end,
+                text: `[Speaker ${s.speaker}] ${s.text}`,
+              })))
+            }
           } else if (event.type === 'complete') {
             const segs = event.segments ?? []
             // Format as "[Speaker A] 0:00  text" — one line per speaker turn

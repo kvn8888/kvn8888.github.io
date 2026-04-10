@@ -129,6 +129,7 @@ export async function runDiarize(
           completed: completedCount,
           total: chunks.length,
           durationMs,
+          segments, // Include the actual segments so callers can stream partial results
         });
       } catch (err) {
         const durationMs = Date.now() - chunkStart;

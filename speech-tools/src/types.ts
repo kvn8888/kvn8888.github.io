@@ -39,7 +39,7 @@ export interface ChunkResult {
 export type SseEvent =
   | { type: "started"; totalChunks: number; durationSec: number }
   | { type: "chunk_start"; index: number; offsetSec: number }
-  | { type: "chunk_done"; index: number; segmentCount: number; completed: number; total: number; durationMs: number }
+  | { type: "chunk_done"; index: number; segmentCount: number; completed: number; total: number; durationMs: number; segments: DiarizedSegment[] }
   | { type: "chunk_error"; index: number; error: string; willRetry: boolean }
   | { type: "complete"; segments: DiarizedSegment[]; totalSegments: number; uniqueSpeakers: string[]; totalMs: number }
   | { type: "error"; message: string };
