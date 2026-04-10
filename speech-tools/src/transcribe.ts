@@ -316,14 +316,15 @@ async function runTranscribeParallel(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Main entry point — auto-selects parallel vs single based on file size
+// Main entry point — auto-selects parallel vs single based on file size + duration
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * Transcribe a pre-recorded audio file using the specified model.
  *
- * For files ≤ 20 MB: single-shot transcription (Azure streams delta events, Voxtral returns done).
- * For files > 20 MB: automatic parallel chunking via ffmpeg (same pattern as /diarize).
+ * For files ≤ 20 MB AND ≤ 1500s (Azure): single-shot transcription.
+ * For files > 20 MB OR > 1500s (Azure only): automatic parallel chunking.
+ * Voxtral supports up to 1 GB per file so only the size threshold applies.
  *
  * @param buffer     Raw audio file bytes (from multer memory storage)
  * @param filename   Original filename (for content-type hints)
@@ -343,9 +344,43 @@ export async function runTranscribe(
   }
 
   const start = Date.now();
-  logger.info({ model, file: filename, sizeBytes: buffer.byteLength, parallel: buffer.byteLength > PARALLEL_THRESHOLD_BYTES }, "runTranscribe");
+  const isBigFile = buffer.byteLength > PARALLEL_THRESHOLD_BYTES;
 
-  if (buffer.byteLength > PARALLEL_THRESHOLD_BYTES) {
+  // Azure gpt-4o-transcribe has a hard 1500-second (~25 min) duration limit per request.
+  // A file can be small in bytes (e.g., 16 MB at 64kbps) but still be 34 minutes long —
+  // well past Azure's limit. We probe duration BEFORE sending to catch this case.
+  // Voxtral supports up to 1 GB / unlimited duration so this check only applies to Azure.
+  const AZURE_MAX_SINGLE_DURATION_SEC = 1500;
+  const isAzureModel = AZURE_TRANSCRIBE_MODELS.has(model);
+
+  let useParallel = isBigFile;
+
+  if (!useParallel && isAzureModel) {
+    // Quick ffprobe pass — reads the container's metadata header, no decode
+    const probDir = makeTempDir();
+    const probPath = path.join(probDir, filename);
+    try {
+      writeFileSync(probPath, buffer);
+      const durationSec = getAudioDuration(probPath);
+      if (durationSec > AZURE_MAX_SINGLE_DURATION_SEC) {
+        logger.info(
+          { model, file: filename, durationSec, limit: AZURE_MAX_SINGLE_DURATION_SEC },
+          "file exceeds Azure duration limit — upgrading to parallel"
+        );
+        useParallel = true;
+      }
+    } catch {
+      // Can't determine duration — safer to use parallel and avoid a 400 from Azure
+      logger.warn({ model, file: filename }, "could not probe duration, forcing parallel");
+      useParallel = true;
+    } finally {
+      rmSync(probDir, { recursive: true, force: true });
+    }
+  }
+
+  logger.info({ model, file: filename, sizeBytes: buffer.byteLength, parallel: useParallel }, "runTranscribe");
+
+  if (useParallel) {
     await runTranscribeParallel(buffer, filename, model, maxWorkers, send);
   } else {
     // Small file — single request (Azure streams delta events, Voxtral returns one done)
@@ -365,4 +400,5 @@ export async function runTranscribe(
 
   logger.info({ model, durationMs: Date.now() - start }, "runTranscribe complete");
 }
+
 
