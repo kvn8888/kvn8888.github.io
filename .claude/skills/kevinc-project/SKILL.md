@@ -235,6 +235,28 @@ Optional (storage / databases):
 - `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
 - `RESUME_S3_BUCKET`, `RESUME_S3_KEY`, `RESUME_S3_PUBLIC_URL`, `SPEECH_S3_BUCKET`
 
+## Render Services
+
+Two Render-hosted Docker services run alongside the Vercel deployment:
+
+### Polymarket EV Bot (`polymarket-ev-bot-docker.onrender.com`)
+- Proxied at `/polymarket` and `/polymarket/:path*` via `next.config.ts` rewrites
+- Has its own Google OAuth client (separate callback URIs registered in Google Cloud Console)
+
+### speech-tools (`speech-tools.onrender.com`, ID: `srv-d7c3nhh9rddc739ese9g`)
+- **Purpose**: Audio processing too long-running for Vercel (diarization takes 5-10+ min)
+- **Source**: `speech-tools/` at repo root — TypeScript/Express, Dockerfile, deployed from `dia-design` branch
+- **Routes**: `GET /health`, `POST /diarize` (SSE stream)
+- **`POST /diarize`**: accepts `multipart/form-data` with `audio` field + optional `max_workers` (default 10)
+  - Runs ffmpeg to split audio into 10-min chunks
+  - Sends chunks to Azure `gpt-4o-transcribe-diarize` in parallel
+  - Streams SSE events: `started → chunk_start → chunk_done → complete`
+  - `complete` event payload: `{segments:[{speaker,text,start,end}], totalSegments, uniqueSpeakers, totalMs}`
+- **Speech Lab integration**: When `gpt-4o-transcribe-diarize` model is selected in STT tab, `page.tsx` calls Render directly (bypasses Vercel — no timeout). SSE parsed via `fetch + ReadableStream`.
+- **Cold start**: Free tier spins down after 15 min idle → ~50s cold start on first request
+- **File limit**: 500 MB (configured in `STT_FILE_SIZE_LIMIT_BYTES` in speech `page.tsx`)
+- **Env vars needed on Render**: `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_API_VERSION=2025-03-01-preview`, `AZURE_OPENAI_DIARIZE_DEPLOYMENT=gpt-4o-transcribe-diarize`
+
 ## Proxying External Apps
 
 When proxying an external app under a subpath like `/polymarket`, preserve the same base path in the destination if the upstream app is mounted there too.
