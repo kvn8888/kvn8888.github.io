@@ -35,6 +35,13 @@ export interface ChunkResult {
   error: string | null;
 }
 
+/** A non-diarized segment (word timestamps from Voxtral, etc.) */
+export interface SimpleSegment {
+  start: number;
+  end: number;
+  text: string;
+}
+
 /** SSE event shapes emitted as diarization progresses */
 export type SseEvent =
   | { type: "started"; totalChunks: number; durationSec: number }
@@ -42,4 +49,7 @@ export type SseEvent =
   | { type: "chunk_done"; index: number; segmentCount: number; completed: number; total: number; durationMs: number; segments: DiarizedSegment[] }
   | { type: "chunk_error"; index: number; error: string; willRetry: boolean }
   | { type: "complete"; segments: DiarizedSegment[]; totalSegments: number; uniqueSpeakers: string[]; totalMs: number }
+  // Transcription-only events (non-diarize models via POST /transcribe)
+  | { type: "delta"; text: string }                              // incremental token from Azure streaming
+  | { type: "done"; text: string; segments?: SimpleSegment[] }   // final text + optional word timestamps
   | { type: "error"; message: string };

@@ -18,6 +18,7 @@
 import express, { Request, Response } from "express";
 import multer from "multer";
 import { runDiarize } from "./diarize.js";
+import { runTranscribe, isSupportedTranscribeModel } from "./transcribe.js";
 import type { SseEvent } from "./types.js";
 import { logger } from "./logger.js";
 
@@ -77,6 +78,61 @@ app.post("/diarize", upload.single("audio"), async (req: Request, res: Response)
   } catch (err) {
     // Catch-all for unexpected errors — surface them as a final SSE event
     reqLog.error({ err: String(err), durationMs: Date.now() - reqStart }, "diarize error");
+    send({ type: "error", message: String(err) });
+  } finally {
+    res.end();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /transcribe — upload a pre-recorded audio file, receive SSE stream
+//
+// Supports: voxtral-mini-transcribe-2507, voxtral-mini-latest (Mistral, batch)
+//           gpt-4o-transcribe, gpt-4o-mini-transcribe  (Azure, streaming)
+//
+// Request (multipart/form-data):
+//   audio  (file)   — required
+//   model  (string) — optional, default "gpt-4o-transcribe"
+//
+// Response: text/event-stream
+//   { type: "delta", text: "..." }             — token-by-token for Azure models
+//   { type: "done",  text: "...", segments? }  — final transcript
+//   { type: "error", message: "..." }          — failure
+// ---------------------------------------------------------------------------
+app.post("/transcribe", upload.single("audio"), async (req: Request, res: Response): Promise<void> => {
+  if (!req.file) {
+    res.status(400).json({ error: "No audio file provided. Send as multipart field 'audio'." });
+    return;
+  }
+
+  const model = (req.body?.model as string) || "gpt-4o-transcribe";
+
+  if (!isSupportedTranscribeModel(model)) {
+    res.status(400).json({
+      error: `Unsupported model: "${model}". Use voxtral-mini-latest, voxtral-mini-transcribe-2507, gpt-4o-transcribe, or gpt-4o-mini-transcribe.`,
+    });
+    return;
+  }
+
+  const reqLog = logger.child({ model, file: req.file.originalname, sizeBytes: req.file.size });
+  reqLog.info("transcribe request received");
+  const reqStart = Date.now();
+
+  // SSE response headers (same pattern as /diarize)
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+
+  const send = (event: SseEvent): void => {
+    res.write(`data: ${JSON.stringify(event)}\n\n`);
+  };
+
+  try {
+    await runTranscribe(req.file.buffer, req.file.originalname, model, send);
+    reqLog.info({ durationMs: Date.now() - reqStart }, "transcribe complete");
+  } catch (err) {
+    reqLog.error({ err: String(err), durationMs: Date.now() - reqStart }, "transcribe error");
     send({ type: "error", message: String(err) });
   } finally {
     res.end();

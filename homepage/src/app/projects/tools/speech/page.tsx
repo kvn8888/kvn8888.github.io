@@ -739,7 +739,7 @@ const MISTRAL_COMPATIBLE_AUDIO_TYPES = ['audio/wav', 'audio/webm', 'audio/mp3', 
 const STT_FILE_SIZE_LIMIT_BYTES: Record<SttModel, number> = {
   'voxtral-mini-transcribe-2507': 1024 * 1024 * 1024,
   'voxtral-mini-latest': 1024 * 1024 * 1024,
-  'gpt-4o-transcribe': 25 * 1024 * 1024,
+  'gpt-4o-transcribe': 200 * 1024 * 1024, // Render backend; multer limit is 200 MB
   'gpt-4o-transcribe-diarize': 500 * 1024 * 1024, // Render backend handles chunking; 500 MB is well above any real recording
   'interfaze': 25 * 1024 * 1024,
 }
@@ -1009,16 +1009,20 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
   }
 
   /**
-   * Streaming transcription path for gpt-4o-transcribe and gpt-4o-mini-transcribe.
-   * Calls /api/speech/stt/stream which proxies Azure's SSE stream directly.
-   * Text tokens stream in word-by-word instead of all appearing at once.
+   * Unified transcription path for all Voxtral + Azure gpt-4o-transcribe models.
+   * Calls the Render speech-tools /transcribe endpoint which returns SSE events.
    *
-   * Azure SSE event format:
-   *   data: {"type":"transcript.text.delta","delta":"Hello"}
-   *   data: {"type":"transcript.text.done","text":"Hello world"}
-   *   data: [DONE]
+   * Event format from Render:
+   *   { type: "delta", text: "..." }  — incremental token (Azure models stream these)
+   *   { type: "done",  text: "...", segments?: [...] } — final authoritative transcript
+   *   { type: "error", message: "..." }
+   *
+   * Advantages over the old Vercel path:
+   *   - No Vercel timeout — Render handles files that take minutes
+   *   - No S3 presign dance for large files (Render multer handles up to 200 MB directly)
+   *   - Azure gpt-4o-transcribe streams tokens word-by-word
    */
-  const handleStreamTranscribe = async (audioBlob: Blob, uploadFileName: string) => {
+  const handleRenderTranscribe = async (audioBlob: Blob, uploadFileName: string) => {
     setLoading(true)
     setError(null)
     setTranscript(null)
@@ -1029,11 +1033,14 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
       formData.append('audio', audioBlob, uploadFileName)
       formData.append('model', model)
 
-      const res = await fetch('/api/speech/stt/stream', { method: 'POST', body: formData })
+      const res = await fetch('https://speech-tools.onrender.com/transcribe', {
+        method: 'POST',
+        body: formData,
+      })
 
       if (!res.ok || !res.body) {
         const data = await res.json().catch(() => ({}))
-        throw new Error(data.error || `Streaming failed (HTTP ${res.status})`)
+        throw new Error(data.error || `Transcription failed (HTTP ${res.status})`)
       }
 
       const reader = res.body.getReader()
@@ -1052,21 +1059,34 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue
           const raw = line.slice(6).trim()
-          if (!raw || raw === '[DONE]') continue
+          if (!raw) continue
 
           try {
-            const event = JSON.parse(raw) as { type: string; delta?: string; text?: string }
-            if (event.type === 'transcript.text.delta' && event.delta) {
-              // Append the incremental delta and update the displayed transcript live
-              runningText += event.delta
+            const event = JSON.parse(raw) as {
+              type: string
+              text?: string
+              segments?: { start: number; end: number; text: string }[]
+              message?: string
+            }
+
+            if (event.type === 'delta' && event.text) {
+              // Azure streaming: show tokens word-by-word as they arrive
+              runningText += event.text
               setTranscript(runningText)
-            } else if (event.type === 'transcript.text.done' && event.text) {
-              // Final authoritative text — replace running accumulation in case of off-by-one
+            } else if (event.type === 'done' && event.text != null) {
+              // Final authoritative text from Render — use this as the ground truth
               runningText = event.text
               setTranscript(event.text)
+              if (event.segments) {
+                setSegments(event.segments)
+              }
+            } else if (event.type === 'error') {
+              throw new Error(event.message || 'Transcription error from Render service')
             }
-          } catch {
-            // Non-JSON lines (e.g., event: type headers) are ignored
+          } catch (parseErr) {
+            // Re-throw real errors but swallow JSON parse errors (non-JSON SSE lines)
+            if (parseErr instanceof SyntaxError) continue
+            throw parseErr
           }
         }
       }
@@ -1076,86 +1096,45 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
           modality: 'stt',
           title: `STT · ${model}`,
           content: runningText.slice(0, 1500),
-          metadata: { model, streaming: true },
+          metadata: { model },
         })
         onHistorySaved()
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Streaming transcription failed')
+      setError(err instanceof Error ? err.message : 'Transcription failed')
     } finally {
       setLoading(false)
     }
   }
 
-  const STREAMING_STT_MODELS = new Set(['gpt-4o-transcribe', 'gpt-4o-mini-transcribe'])
-
   const handleTranscribe = async (audioBlob: Blob, uploadFileName = 'recording.webm') => {
-    // For the diarize model, bypass Vercel and stream directly from the Render service
+    // Diarize model: stream parallel chunks from Render speech-tools /diarize
     if (model === 'gpt-4o-transcribe-diarize') {
       await handleDiarizeTranscribe(audioBlob, uploadFileName)
       return
     }
 
-    // For streaming-capable Azure models + small files, use the SSE streaming path
-    if (STREAMING_STT_MODELS.has(model) && audioBlob.size <= VERCEL_UPLOAD_LIMIT_BYTES) {
-      await handleStreamTranscribe(audioBlob, uploadFileName)
+    // All Voxtral + gpt-4o-transcribe models go to Render /transcribe (avoids Vercel timeouts)
+    if (model !== 'interfaze') {
+      await handleRenderTranscribe(audioBlob, uploadFileName)
       return
     }
 
+    // interfaze stays on Vercel — small file direct FormData only
     setLoading(true)
     setError(null)
     setTranscript(null)
     setSegments([])
 
     try {
-      let res: Response
-
-      if (audioBlob.size > VERCEL_UPLOAD_LIMIT_BYTES) {
-        // Large file: upload to S3 first, then transcribe by reference
-        setUploading(true)
-        try {
-          const ext = uploadFileName.split('.').pop() || 'webm'
-          const presignRes = await fetch(
-            `/api/speech/stt/presign?contentType=${encodeURIComponent(audioBlob.type || 'audio/mpeg')}&ext=${encodeURIComponent(ext)}&size=${audioBlob.size}`
-          )
-          if (!presignRes.ok) {
-            const data = await presignRes.json().catch(() => ({}))
-            throw new Error(data.error || 'Failed to get upload URL')
-          }
-          const { url: putUrl, key: s3Key } = await presignRes.json()
-
-          const putRes = await fetch(putUrl, {
-            method: 'PUT',
-            headers: { 'Content-Type': audioBlob.type || 'audio/mpeg' },
-            body: audioBlob,
-            redirect: 'error', // prevent region-redirect from silently changing PUT→GET
-          })
-          if (!putRes.ok) {
-            const errText = await putRes.text().catch(() => '')
-            const s3Code = errText.match(/<Code>(.*?)<\/Code>/)?.[1]
-            throw new Error(`S3 upload failed${s3Code ? ` (${s3Code})` : ''}: HTTP ${putRes.status}`)
-          }
-
-          res = await fetch('/api/speech/stt', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ s3Key, model, fileName: uploadFileName }),
-          })
-        } finally {
-          setUploading(false)
-        }
-      } else {
-        // Small file: direct FormData upload (faster, one hop)
-        const formData = new FormData()
-        formData.append('audio', audioBlob, uploadFileName)
-        formData.append('model', model)
-        res = await fetch('/api/speech/stt', { method: 'POST', body: formData })
-      }
+      const formData = new FormData()
+      formData.append('audio', audioBlob, uploadFileName)
+      formData.append('model', model)
+      const res = await fetch('/api/speech/stt', { method: 'POST', body: formData })
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
-        const sizeInfo = ` (audio blob: ${formatBytes(audioBlob.size)})`
-        throw new Error((data.error || 'Transcription failed') + sizeInfo)
+        throw new Error(data.error || 'Transcription failed')
       }
 
       const data = await res.json()
@@ -1171,7 +1150,7 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
         modality: 'stt',
         title: `STT · ${model}`,
         content: (data.text || '').slice(0, 1500),
-        metadata: { model, segments: data.segments?.length || 0 },
+        metadata: { model },
       })
       onHistorySaved()
     } catch (err) {
