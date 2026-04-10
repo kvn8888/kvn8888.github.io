@@ -142,15 +142,39 @@ The fix was to read the file, identify exactly where the old function ended (`} 
 
 ## What the Numbers Now Look Like
 
-For a 39 MB / 84-minute file (17 × 5-minute chunks):
+For a 39 MB / 84-minute file (17 × 5-minute chunks, m4a input):
 
-| Metric | Before pipeline | After pipeline |
-|--------|----------------|----------------|
-| First text on screen | ~52s | ~11s |
-| Total time | ~72s | ~28s (estimated) |
-| How it feels | "Is it broken?" | Chunks appear every ~3s |
+| Metric | Original (batch split) | After pipeline | After copy-mode |
+|--------|------------------------|----------------|-----------------|
+| First text on screen | ~52s | ~11s | ~3-4s |
+| Total split time | ~44s | ~44s (pipelined) | ~0.85s |
+| Total time | ~72s | ~28s | <15s |
+| How it feels | "Is it broken?" | Chunks appear every ~3s | Near-instant start |
 
-The 11-second first-content time breaks down as: 2.6s (split chunk 0) + 8.5s (transcribe chunk 0 via Azure). After that, a new chunk result appears roughly every 2.6 seconds while the rest of the batch converges.
+The copy-mode timing breaks down as: 0.05s (copy chunk 0) + 0.05s (copy chunk 1, concurrently transcribing) + ... The ffmpeg work is now purely I/O speed — just reading and copying the compressed AAC frames without touching the codec at all.
+
+## Step 4: Copy-Mode Splitting for m4a
+
+After the pipeline commit was pushed, a natural follow-up question arose: if ffmpeg is re-encoding 84 minutes of audio into 17 MP3 chunks, and both transcription APIs accept m4a natively — why are we re-encoding at all?
+
+The answer was: we weren't thinking about it. The `splitIntoChunks` function was originally written to produce MP3 for a specific sample rate constraint, and copy-mode was never considered.
+
+```typescript
+// Before: decode AAC → encode MP3 at 32kbps mono 16kHz — ~2.6s per chunk
+const codecArgs = ["-ac", "1", "-ar", "16000", "-b:a", "32k"];
+// output: chunk_000.mp3
+
+// After: detect m4a input, just splice the container
+const useCopyMode = inputExt === ".m4a" || inputExt === ".mp4";
+const codecArgs = useCopyMode ? ["-c:a", "copy"] : ["-ac", "1", "-ar", "16000", "-b:a", "32k"];
+// output: chunk_000.m4a (if copy mode) or chunk_000.mp3 (fallback)
+```
+
+With `-c:a copy`, ffmpeg just reads the AAC frames from the m4a container and writes them into a new m4a container with a new start offset. There's no decode or encode pass. It runs at disk read/write speed — about 50-100× faster than real-time, compared to the ~25× real-time encode speed we had before.
+
+The 17-chunk total split time drops from ~44s to ~0.85s. Combined with the pipeline, the theoretical first-content time for an 84-minute m4a file is now ~8.5s (0.05s copy + 8.5s transcribe chunk 0 via Azure).
+
+**Caveat**: for other input formats (mp3, wav, webm), the re-encode path remains as fallback. Copy mode only works when input and output container are compatible.
 
 ## What's Next
 
