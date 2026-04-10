@@ -25,7 +25,7 @@ import { readFileSync } from "node:fs";
 import { writeFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import type { SseEvent, SimpleSegment } from "./types.js";
-import { splitIntoChunks, makeTempDir } from "./audio.js";
+import { makeTempDir, writeSourceFile, getAudioDuration, splitOneChunkAsync, CHUNK_DURATION_SEC } from "./audio.js";
 import { Semaphore } from "./semaphore.js";
 import { logger } from "./logger.js";
 
@@ -202,20 +202,7 @@ const PARALLEL_THRESHOLD_BYTES = 20 * 1024 * 1024;
 /** Max concurrent transcription calls per request */
 const DEFAULT_MAX_WORKERS = 10;
 
-/** Stagger: start workers 1.5s apart to reduce burst pressure on API rate limits */
-const STAGGER_MS = 1500;
-
-/**
- * Azure's published per-file limit is 25 MB.
- * At 16kHz mono 32kbps (our ffmpeg settings), 5 min ≈ 12 MB → safe margin.
- */
-const AZURE_CHUNK_DURATION_SEC = 300; // 5 minutes
-
-/**
- * Voxtral supports up to 1 GB per file, so we use the standard 10-min window
- * (same as diarize) for predictable memory usage on Render.
- */
-const VOXTRAL_CHUNK_DURATION_SEC = 600; // 10 minutes
+/** Stagger is no longer needed — the split pipeline provides natural ~2.6s-per-chunk stagger */
 
 async function runTranscribeParallel(
   buffer: Buffer,
@@ -224,28 +211,41 @@ async function runTranscribeParallel(
   maxWorkers: number,
   send: (e: SseEvent) => void
 ): Promise<void> {
-  const workDir = await makeTempDir();
+  const workDir = makeTempDir();
 
   try {
     const chunkDurationSec = AZURE_TRANSCRIBE_MODELS.has(model)
-      ? AZURE_CHUNK_DURATION_SEC
-      : VOXTRAL_CHUNK_DURATION_SEC;
+      ? 300   // 5 minutes — stays under Azure's 25 MB per-file limit at 32kbps
+      : CHUNK_DURATION_SEC; // 10 minutes (Voxtral supports up to 1 GB per file)
 
-    const { chunks, totalDurationSec } = await splitIntoChunks(buffer, filename, workDir, chunkDurationSec);
+    // Write source file once — splitOneChunkAsync reads from this path for each chunk
+    const inputPath = writeSourceFile(buffer, filename, workDir);
 
-    logger.info({ model, file: filename, chunks: chunks.length, totalDurationSec }, "parallel transcription started");
-    send({ type: "transcribe_started", totalChunks: chunks.length });
+    // Get total duration first (fast — ffprobe reads container metadata without decoding)
+    // This lets us know nChunks and emit transcribe_started BEFORE any ffmpeg split begins
+    const totalDurationSec = getAudioDuration(inputPath);
+    const nChunks = Math.ceil(totalDurationSec / chunkDurationSec);
+
+    logger.info({ model, file: filename, chunks: nChunks, totalDurationSec }, "parallel transcription started");
+    send({ type: "transcribe_started", totalChunks: nChunks });
 
     const semaphore = new Semaphore(maxWorkers);
     let completedCount = 0;
-
-    // Store results keyed by chunk index — completion order may differ from chunk order
     const results: Map<number, string> = new Map();
+    const workerPromises: Promise<void>[] = [];
 
-    const workers = chunks.map((chunk, i) =>
-      new Promise<void>((resolve) => {
-        // Stagger worker starts to avoid simultaneous API bursts
-        setTimeout(async () => {
+    // Pipeline: split chunk i → immediately launch its transcription worker.
+    // The sequential await on each split means chunk 1 doesn't start splitting
+    // until chunk 0's split is done — but transcription workers for completed
+    // splits run freely in the background.  The ~2.6s per-chunk split time
+    // naturally provides stagger so no explicit setTimeout delay is needed.
+    for (let i = 0; i < nChunks; i++) {
+      // Await the split (blocks this loop iteration only, not any running workers)
+      const chunk = await splitOneChunkAsync(inputPath, i, chunkDurationSec, workDir);
+
+      // Fire off transcription worker immediately (fire-and-forget into promise array)
+      workerPromises.push(
+        (async () => {
           await semaphore.acquire();
           const workerStart = Date.now();
 
@@ -261,13 +261,11 @@ async function runTranscribeParallel(
               if (e.type === "done" && e.text) {
                 text = e.text;
               } else if (e.type === "delta" && e.text) {
-                // Accumulate locally AND forward as a chunk-scoped delta
                 text += e.text;
                 send({ type: "chunk_delta", index: chunk.index, text: e.text });
               }
             };
 
-            // Transcribe the chunk file using the appropriate provider
             if (VOXTRAL_MODELS.has(model)) {
               await transcribeVoxtral(chunk.path, model, captureSend);
             } else {
@@ -276,19 +274,16 @@ async function runTranscribeParallel(
 
             completedCount++;
             results.set(chunk.index, text);
-
             send({
               type: "chunk_text_done",
               index: chunk.index,
               text,
               completed: completedCount,
-              total: chunks.length,
+              total: nChunks,
               durationMs: Date.now() - workerStart,
             });
-
-            logger.info({ model, chunkIndex: chunk.index, completedCount, total: chunks.length, durationMs: Date.now() - workerStart }, "chunk transcribed");
+            logger.info({ model, chunkIndex: chunk.index, completedCount, total: nChunks, durationMs: Date.now() - workerStart }, "chunk transcribed");
           } catch (err) {
-            // Emit a chunk_text_done with empty text so the client knows this chunk failed
             completedCount++;
             results.set(chunk.index, "");
             logger.error({ model, chunkIndex: chunk.index, err: String(err) }, "chunk transcription error");
@@ -297,23 +292,20 @@ async function runTranscribeParallel(
               index: chunk.index,
               text: "",
               completed: completedCount,
-              total: chunks.length,
+              total: nChunks,
               durationMs: Date.now() - workerStart,
             });
           } finally {
             semaphore.release();
-            resolve();
           }
-        }, i * STAGGER_MS);
-      })
-    );
+        })()
+      );
+    }
 
-    await Promise.all(workers);
+    await Promise.all(workerPromises);
 
     // Assemble final transcript in chunk order (not completion order)
-    const assembled = chunks
-      .sort((a, b) => a.index - b.index)
-      .map((c) => results.get(c.index) ?? "")
+    const assembled = Array.from({ length: nChunks }, (_, i) => results.get(i) ?? "")
       .join(" ")
       .trim();
 
@@ -354,11 +346,10 @@ export async function runTranscribe(
   logger.info({ model, file: filename, sizeBytes: buffer.byteLength, parallel: buffer.byteLength > PARALLEL_THRESHOLD_BYTES }, "runTranscribe");
 
   if (buffer.byteLength > PARALLEL_THRESHOLD_BYTES) {
-    // Large file — use parallel chunked processing
     await runTranscribeParallel(buffer, filename, model, maxWorkers, send);
   } else {
-    // Small file — single request (Azure will stream delta events, Voxtral returns one done)
-    const workDir = await makeTempDir();
+    // Small file — single request (Azure streams delta events, Voxtral returns one done)
+    const workDir = makeTempDir();
     const filePath = path.join(workDir, filename);
     try {
       writeFileSync(filePath, buffer);

@@ -8,7 +8,7 @@
  * IMPORTANT: ffmpeg must be installed in the Docker container (see Dockerfile).
  */
 
-import { execSync, spawnSync } from "node:child_process";
+import { execSync, spawnSync, spawn } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -120,4 +120,73 @@ export function makeTempDir(): string {
   const dir = path.join(tmpdir(), `speech-tools-${Date.now()}`);
   mkdirSync(dir, { recursive: true });
   return dir;
+}
+
+/**
+ * Write an audio buffer to a stable source file in the work directory.
+ * Returns the absolute path, which can be passed to ffprobe/ffmpeg.
+ */
+export function writeSourceFile(buffer: Buffer, originalName: string, workDir: string): string {
+  const ext = path.extname(originalName) || ".m4a";
+  const inputPath = path.join(workDir, `source${ext}`);
+  writeFileSync(inputPath, buffer);
+  return inputPath;
+}
+
+/**
+ * Async variant of the chunk split — runs a single ffmpeg call without blocking the event loop.
+ *
+ * Why async? The synchronous `splitIntoChunks` runs ALL ffmpeg calls sequentially before
+ * any transcription worker can start. By splitting one chunk at a time asynchronously, the
+ * caller (runTranscribeParallel) can start transcribing chunk 0 while chunk 1 is still
+ * being split, giving a "pipelined" effect.
+ *
+ * The ~2.6s per-chunk split time naturally staggers transcription workers — no need for
+ * an explicit setTimeout stagger.
+ *
+ * @param inputPath       Absolute path to the source audio file written by writeSourceFile
+ * @param chunkIndex      0-based index of this chunk
+ * @param chunkDurationSec Max seconds extracted per chunk
+ * @param workDir         Directory where the mp3 chunk will be written
+ * @returns Resolved AudioChunk once ffmpeg completes
+ */
+export function splitOneChunkAsync(
+  inputPath: string,
+  chunkIndex: number,
+  chunkDurationSec: number,
+  workDir: string
+): Promise<AudioChunk> {
+  const startSec = chunkIndex * chunkDurationSec;
+  const chunkPath = path.join(workDir, `chunk_${String(chunkIndex).padStart(3, "0")}.mp3`);
+
+  return new Promise((resolve, reject) => {
+    const proc = spawn(
+      "ffmpeg",
+      [
+        "-ss", String(startSec),
+        "-i", inputPath,
+        "-t", String(chunkDurationSec),
+        "-ac", "1",
+        "-ar", "16000",
+        "-b:a", "32k",
+        "-y",
+        chunkPath,
+      ]
+    );
+
+    // We don't care about stdout/stderr for normal operation, but collect stderr for errors
+    const errChunks: Buffer[] = [];
+    proc.stderr?.on("data", (d: Buffer) => errChunks.push(d));
+
+    proc.on("close", (code) => {
+      if (code !== 0) {
+        const errMsg = Buffer.concat(errChunks).toString().slice(-500);
+        reject(new Error(`ffmpeg chunk ${chunkIndex} exited ${code}: ${errMsg}`));
+      } else {
+        resolve({ path: chunkPath, offsetSec: startSec, index: chunkIndex });
+      }
+    });
+
+    proc.on("error", reject);
+  });
 }
