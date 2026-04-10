@@ -24,47 +24,13 @@
 import type { AudioChunk, ChunkResult, DiarizedSegment, SseEvent } from "./types.js";
 import { splitIntoChunks, makeTempDir } from "./audio.js";
 import { transcribeChunk } from "./azure.js";
+import { Semaphore } from "./semaphore.js";
 
 /** Default: allow 10 concurrent Azure calls */
 const DEFAULT_MAX_WORKERS = 10;
 
 /** Stagger: start workers 1.5s apart to soften burst impact */
 const STAGGER_MS = 1500;
-
-/**
- * A simple semaphore for limiting concurrency.
- * acquire() returns a promise that resolves when a slot opens up.
- * release() frees a slot and wakes up the next waiter.
- */
-class Semaphore {
-  private available: number;
-  private waiters: Array<() => void> = [];
-
-  constructor(limit: number) {
-    this.available = limit;
-  }
-
-  acquire(): Promise<void> {
-    if (this.available > 0) {
-      this.available--;
-      return Promise.resolve();
-    }
-    // No slots available — enqueue and wait
-    return new Promise((resolve) => {
-      this.waiters.push(resolve);
-    });
-  }
-
-  release(): void {
-    const next = this.waiters.shift();
-    if (next) {
-      // Give the slot directly to the next waiter (don't increment available)
-      next();
-    } else {
-      this.available++;
-    }
-  }
-}
 
 /**
  * Full diarization pipeline for one request.

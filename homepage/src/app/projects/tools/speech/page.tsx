@@ -1047,6 +1047,9 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
       const decoder = new TextDecoder()
       let buffer = ''
       let runningText = ''
+      // For parallel chunked mode: accumulate per-chunk text, keyed by chunk index
+      const partialTexts = new Map<number, string>()
+      let totalChunks = 1
 
       while (true) {
         const { done, value } = await reader.read()
@@ -1065,11 +1068,30 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
             const event = JSON.parse(raw) as {
               type: string
               text?: string
+              totalChunks?: number
+              index?: number
+              completed?: number
+              total?: number
               segments?: { start: number; end: number; text: string }[]
               message?: string
             }
 
-            if (event.type === 'delta' && event.text) {
+            if (event.type === 'transcribe_started') {
+              // Large file split into chunks — show chunk progress
+              totalChunks = event.totalChunks ?? 1
+              setDiarizeProgress({ completed: 0, total: totalChunks })
+            } else if (event.type === 'chunk_text_done') {
+              // One chunk finished — slot its text in and rebuild the partial transcript
+              partialTexts.set(event.index ?? 0, event.text ?? '')
+              setDiarizeProgress({ completed: event.completed ?? 0, total: event.total ?? totalChunks })
+
+              // Assemble available chunks in index order, with placeholders for missing ones
+              const assembled = Array.from({ length: event.total ?? totalChunks }, (_, i) => {
+                if (partialTexts.has(i)) return partialTexts.get(i)!
+                return `[Chunk ${i + 1} — processing…]`
+              }).join('\n\n')
+              setTranscript(assembled.trim())
+            } else if (event.type === 'delta' && event.text) {
               // Azure streaming: show tokens word-by-word as they arrive
               runningText += event.text
               setTranscript(runningText)
@@ -1514,7 +1536,7 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
         <div className="flex items-center gap-2 text-foreground/40 text-sm">
           <span className="material-symbols-outlined animate-spin text-lg">progress_activity</span>
           {diarizeProgress
-            ? `Diarizing… ${diarizeProgress.completed} / ${diarizeProgress.total} chunks`
+            ? `${model === 'gpt-4o-transcribe-diarize' ? 'Diarizing' : 'Transcribing'}… ${diarizeProgress.completed} / ${diarizeProgress.total} chunks`
             : 'Transcribing…'}
         </div>
       )}

@@ -50,6 +50,8 @@ export type SseEvent =
   | { type: "chunk_error"; index: number; error: string; willRetry: boolean }
   | { type: "complete"; segments: DiarizedSegment[]; totalSegments: number; uniqueSpeakers: string[]; totalMs: number }
   // Transcription-only events (non-diarize models via POST /transcribe)
-  | { type: "delta"; text: string }                              // incremental token from Azure streaming
-  | { type: "done"; text: string; segments?: SimpleSegment[] }   // final text + optional word timestamps
+  | { type: "transcribe_started"; totalChunks: number }           // large file split into N chunks for parallel processing
+  | { type: "chunk_text_done"; index: number; text: string; completed: number; total: number; durationMs: number } // one chunk finished transcription
+  | { type: "delta"; text: string }                              // incremental token from Azure streaming (single-file mode)
+  | { type: "done"; text: string; segments?: SimpleSegment[] }   // final assembled transcript
   | { type: "error"; message: string };

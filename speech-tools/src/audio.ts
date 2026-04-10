@@ -61,7 +61,8 @@ export function getAudioDuration(filePath: string): number {
 export function splitIntoChunks(
   audioBuffer: Buffer,
   originalName: string,
-  workDir: string
+  workDir: string,
+  chunkDurationSec: number = CHUNK_DURATION_SEC
 ): { chunks: AudioChunk[]; totalDurationSec: number } {
   // Write the uploaded buffer to disk so ffmpeg can read it
   const ext = path.extname(originalName) || ".m4a";
@@ -70,12 +71,12 @@ export function splitIntoChunks(
 
   // Determine the total duration so we know how many chunks to make
   const totalSec = getAudioDuration(inputPath);
-  const nChunks = Math.ceil(totalSec / CHUNK_DURATION_SEC);
+  const nChunks = Math.ceil(totalSec / chunkDurationSec);
 
   const chunks: AudioChunk[] = [];
 
   for (let i = 0; i < nChunks; i++) {
-    const startSec = i * CHUNK_DURATION_SEC;
+    const startSec = i * chunkDurationSec;
     const chunkPath = path.join(workDir, `chunk_${String(i).padStart(3, "0")}.mp3`);
 
     // ffmpeg args:
@@ -91,7 +92,7 @@ export function splitIntoChunks(
       [
         "-ss", String(startSec),
         "-i", inputPath,
-        "-t", String(CHUNK_DURATION_SEC),
+        "-t", String(chunkDurationSec),
         "-ac", "1",
         "-ar", "16000",
         "-b:a", "32k",

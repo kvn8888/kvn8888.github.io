@@ -22,8 +22,11 @@
  */
 
 import { readFileSync } from "node:fs";
+import { writeFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import type { SseEvent, SimpleSegment } from "./types.js";
+import { splitIntoChunks, makeTempDir } from "./audio.js";
+import { Semaphore } from "./semaphore.js";
 import { logger } from "./logger.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -186,46 +189,185 @@ async function transcribeAzure(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Main entry point
+// Parallel entry point — split large files into chunks, process in parallel
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Files above this threshold are split into chunks and transcribed in parallel.
+ * Smaller files are sent as a single request (Azure streaming delta or Voxtral batch).
+ * 20 MB covers files that would exceed Azure's 25 MB single-file limit at typical bitrates.
+ */
+const PARALLEL_THRESHOLD_BYTES = 20 * 1024 * 1024;
+
+/** Max concurrent transcription calls per request */
+const DEFAULT_MAX_WORKERS = 10;
+
+/** Stagger: start workers 1.5s apart to reduce burst pressure on API rate limits */
+const STAGGER_MS = 1500;
+
+/**
+ * Azure's published per-file limit is 25 MB.
+ * At 16kHz mono 32kbps (our ffmpeg settings), 5 min ≈ 12 MB → safe margin.
+ */
+const AZURE_CHUNK_DURATION_SEC = 300; // 5 minutes
+
+/**
+ * Voxtral supports up to 1 GB per file, so we use the standard 10-min window
+ * (same as diarize) for predictable memory usage on Render.
+ */
+const VOXTRAL_CHUNK_DURATION_SEC = 600; // 10 minutes
+
+async function runTranscribeParallel(
+  buffer: Buffer,
+  filename: string,
+  model: string,
+  maxWorkers: number,
+  send: (e: SseEvent) => void
+): Promise<void> {
+  const workDir = await makeTempDir();
+
+  try {
+    const chunkDurationSec = AZURE_TRANSCRIBE_MODELS.has(model)
+      ? AZURE_CHUNK_DURATION_SEC
+      : VOXTRAL_CHUNK_DURATION_SEC;
+
+    const { chunks, totalDurationSec } = await splitIntoChunks(buffer, filename, workDir, chunkDurationSec);
+
+    logger.info({ model, file: filename, chunks: chunks.length, totalDurationSec }, "parallel transcription started");
+    send({ type: "transcribe_started", totalChunks: chunks.length });
+
+    const semaphore = new Semaphore(maxWorkers);
+    let completedCount = 0;
+
+    // Store results keyed by chunk index — completion order may differ from chunk order
+    const results: Map<number, string> = new Map();
+
+    const workers = chunks.map((chunk, i) =>
+      new Promise<void>((resolve) => {
+        // Stagger worker starts to avoid simultaneous API bursts
+        setTimeout(async () => {
+          await semaphore.acquire();
+          const workerStart = Date.now();
+
+          try {
+            let text = "";
+
+            // Temporarily define a dummy send to capture the delta/done output
+            // for this chunk (we don't want intermediate deltas in the outer stream)
+            const captureSend = (e: SseEvent) => {
+              if (e.type === "done" && e.text) {
+                text = e.text;
+              } else if (e.type === "delta" && e.text) {
+                // Azure streaming deltas: accumulate locally
+                text += e.text;
+              }
+            };
+
+            // Transcribe the chunk file using the appropriate provider
+            if (VOXTRAL_MODELS.has(model)) {
+              await transcribeVoxtral(chunk.path, model, captureSend);
+            } else {
+              await transcribeAzure(chunk.path, model, captureSend);
+            }
+
+            completedCount++;
+            results.set(chunk.index, text);
+
+            send({
+              type: "chunk_text_done",
+              index: chunk.index,
+              text,
+              completed: completedCount,
+              total: chunks.length,
+              durationMs: Date.now() - workerStart,
+            });
+
+            logger.info({ model, chunkIndex: chunk.index, completedCount, total: chunks.length, durationMs: Date.now() - workerStart }, "chunk transcribed");
+          } catch (err) {
+            // Emit a chunk_text_done with empty text so the client knows this chunk failed
+            completedCount++;
+            results.set(chunk.index, "");
+            logger.error({ model, chunkIndex: chunk.index, err: String(err) }, "chunk transcription error");
+            send({
+              type: "chunk_text_done",
+              index: chunk.index,
+              text: "",
+              completed: completedCount,
+              total: chunks.length,
+              durationMs: Date.now() - workerStart,
+            });
+          } finally {
+            semaphore.release();
+            resolve();
+          }
+        }, i * STAGGER_MS);
+      })
+    );
+
+    await Promise.all(workers);
+
+    // Assemble final transcript in chunk order (not completion order)
+    const assembled = chunks
+      .sort((a, b) => a.index - b.index)
+      .map((c) => results.get(c.index) ?? "")
+      .join(" ")
+      .trim();
+
+    send({ type: "done", text: assembled });
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main entry point — auto-selects parallel vs single based on file size
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * Transcribe a pre-recorded audio file using the specified model.
  *
- * @param buffer   Raw audio file bytes (from multer memory storage)
- * @param filename Original filename (for content-type hints)
- * @param model    Model identifier: voxtral-mini-latest, gpt-4o-transcribe, etc.
- * @param send     Callback invoked for each SSE event to emit to the client
+ * For files ≤ 20 MB: single-shot transcription (Azure streams delta events, Voxtral returns done).
+ * For files > 20 MB: automatic parallel chunking via ffmpeg (same pattern as /diarize).
+ *
+ * @param buffer     Raw audio file bytes (from multer memory storage)
+ * @param filename   Original filename (for content-type hints)
+ * @param model      Model identifier: voxtral-mini-latest, gpt-4o-transcribe, etc.
+ * @param send       Callback invoked for each SSE event to emit to the client
+ * @param maxWorkers Max parallel API calls for large-file chunked mode (default 10)
  */
 export async function runTranscribe(
   buffer: Buffer,
   filename: string,
   model: string,
-  send: (e: SseEvent) => void
+  send: (e: SseEvent) => void,
+  maxWorkers = DEFAULT_MAX_WORKERS
 ): Promise<void> {
-  const { makeTempDir } = await import("./audio.js");
-  const { writeFileSync, rmSync } = await import("node:fs");
-
-  const workDir = await makeTempDir();
-  const filePath = path.join(workDir, filename);
-
-  try {
-    writeFileSync(filePath, buffer);
-    const start = Date.now();
-
-    if (VOXTRAL_MODELS.has(model)) {
-      logger.info({ model, file: filename, sizeBytes: buffer.byteLength }, "starting voxtral transcription");
-      await transcribeVoxtral(filePath, model, send);
-    } else if (AZURE_TRANSCRIBE_MODELS.has(model)) {
-      logger.info({ model, file: filename, sizeBytes: buffer.byteLength }, "starting azure transcription");
-      await transcribeAzure(filePath, model, send);
-    } else {
-      throw new Error(`Unsupported model: ${model}`);
-    }
-
-    logger.info({ model, durationMs: Date.now() - start }, "transcription complete");
-  } finally {
-    // Always clean up the temp file even if transcription failed
-    rmSync(workDir, { recursive: true, force: true });
+  if (!isSupportedTranscribeModel(model)) {
+    throw new Error(`Unsupported model: ${model}`);
   }
+
+  const start = Date.now();
+  logger.info({ model, file: filename, sizeBytes: buffer.byteLength, parallel: buffer.byteLength > PARALLEL_THRESHOLD_BYTES }, "runTranscribe");
+
+  if (buffer.byteLength > PARALLEL_THRESHOLD_BYTES) {
+    // Large file — use parallel chunked processing
+    await runTranscribeParallel(buffer, filename, model, maxWorkers, send);
+  } else {
+    // Small file — single request (Azure will stream delta events, Voxtral returns one done)
+    const workDir = await makeTempDir();
+    const filePath = path.join(workDir, filename);
+    try {
+      writeFileSync(filePath, buffer);
+      if (VOXTRAL_MODELS.has(model)) {
+        await transcribeVoxtral(filePath, model, send);
+      } else {
+        await transcribeAzure(filePath, model, send);
+      }
+    } finally {
+      rmSync(workDir, { recursive: true, force: true });
+    }
+  }
+
+  logger.info({ model, durationMs: Date.now() - start }, "runTranscribe complete");
 }
+
