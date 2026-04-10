@@ -36,7 +36,15 @@ const modalityLabels: Record<Tab, string> = {
 
 export default function SpeechLabPage({ hidePronunciation }: { hidePronunciation?: boolean } = {}) {
   const visibleTabs = hidePronunciation ? tabs.filter((t) => t.id !== 'pronunciation') : tabs
-  const [activeTab, setActiveTab] = useState<Tab>('tts')
+  const [activeTab, setActiveTab] = useState<Tab>(() => {
+    if (typeof window === 'undefined') return 'tts'
+    const saved = localStorage.getItem('speech-lab-tab')
+    if (saved && ['tts', 'stt', 'pronunciation'].includes(saved)) return saved as Tab
+    return 'tts'
+  })
+
+  // Persist active tab to localStorage
+  useEffect(() => { localStorage.setItem('speech-lab-tab', activeTab) }, [activeTab])
   const [history, setHistory] = useState<HistoryItem[]>([])
   const [historyError, setHistoryError] = useState<string | null>(null)
   const [historyFilter, setHistoryFilter] = useState<SpeechModality>('all')
@@ -860,7 +868,13 @@ async function compressAudioForUpload(blob: Blob, limitBytes: number): Promise<B
 }
 
 function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
-  const [model, setModel] = useState<SttModel>('voxtral-mini-transcribe-2507')
+  const [model, setModelRaw] = useState<SttModel>(() => {
+    if (typeof window === 'undefined') return 'voxtral-mini-transcribe-2507'
+    const saved = localStorage.getItem('speech-lab-stt-model')
+    if (saved && ['voxtral-mini-transcribe-2507','voxtral-mini-latest','gpt-4o-transcribe','gpt-4o-transcribe-diarize','interfaze'].includes(saved)) return saved as SttModel
+    return 'voxtral-mini-transcribe-2507'
+  })
+  const setModel = (m: SttModel) => { setModelRaw(m); localStorage.setItem('speech-lab-stt-model', m) }
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [transcript, setTranscript] = useState<string | null>(null)
@@ -1779,7 +1793,13 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
 function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
   const [referenceText, setReferenceText] = useState('')
   const [referenceSource, setReferenceSource] = useState<'manual' | 'transcription'>('transcription')
-  const [transcriptionModel, setTranscriptionModel] = useState<SttModel>('gpt-4o-transcribe')
+  const [transcriptionModel, setTranscriptionModelRaw] = useState<SttModel>(() => {
+    if (typeof window === 'undefined') return 'gpt-4o-transcribe'
+    const saved = localStorage.getItem('speech-lab-pron-model')
+    if (saved && ['voxtral-mini-transcribe-2507','voxtral-mini-latest','gpt-4o-transcribe','gpt-4o-transcribe-diarize','interfaze'].includes(saved)) return saved as SttModel
+    return 'gpt-4o-transcribe'
+  })
+  const setTranscriptionModel = (m: SttModel) => { setTranscriptionModelRaw(m); localStorage.setItem('speech-lab-pron-model', m) }
   const [language, setLanguage] = useState('en-US')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
