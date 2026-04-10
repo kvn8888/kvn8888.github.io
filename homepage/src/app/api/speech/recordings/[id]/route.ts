@@ -22,7 +22,7 @@ export async function GET(
 
   try {
     const { buffer, contentType } = await downloadFromS3(key)
-    return new NextResponse(buffer, {
+    return new NextResponse(new Uint8Array(buffer), {
       headers: {
         'Content-Type': contentType,
         'Content-Length': String(buffer.byteLength),
