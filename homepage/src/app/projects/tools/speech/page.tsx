@@ -878,6 +878,14 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
   // Diarize-specific: tracks how many 10-min chunks have completed so we can show progress
   const [diarizeProgress, setDiarizeProgress] = useState<{ completed: number; total: number } | null>(null)
 
+  // Saved recordings (max 3, stored in S3 for offline retry)
+  const [savedRecordings, setSavedRecordings] = useState<
+    { id: string; key: string; sizeBytes: number; createdAt: string }[]
+  >([])
+  const [savingRecording, setSavingRecording] = useState(false)
+  // Tracks which recording ID is currently being retried (for loading state)
+  const [retryingId, setRetryingId] = useState<string | null>(null)
+
   useEffect(() => {
     if (!recording || !recordingStartMs) return
     const interval = window.setInterval(() => {
@@ -885,6 +893,73 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
     }, 250)
     return () => window.clearInterval(interval)
   }, [recording, recordingStartMs])
+
+  // Fetch saved recordings from S3 on mount
+  useEffect(() => {
+    void fetchRecordings()
+  }, [])
+
+  const fetchRecordings = async () => {
+    try {
+      const res = await fetch('/api/speech/recordings')
+      if (!res.ok) return
+      const data = await res.json()
+      setSavedRecordings(data.recordings ?? [])
+    } catch {
+      // Silent fail — recordings panel just won't show
+    }
+  }
+
+  // Save a recording blob to S3 (called in parallel with transcription)
+  const saveRecordingToS3 = async (blob: Blob, filename: string) => {
+    setSavingRecording(true)
+    try {
+      const formData = new FormData()
+      formData.append('audio', blob, filename)
+      const res = await fetch('/api/speech/recordings', { method: 'POST', body: formData })
+      if (res.ok) await fetchRecordings() // Refresh the list
+    } catch {
+      // Non-fatal — recording still transcribes even if S3 save fails
+    } finally {
+      setSavingRecording(false)
+    }
+  }
+
+  // Delete a saved recording
+  const deleteRecording = async (id: string) => {
+    try {
+      await fetch(`/api/speech/recordings/${encodeURIComponent(id)}`, { method: 'DELETE' })
+      setSavedRecordings((prev) => prev.filter((r) => r.id !== id))
+    } catch {
+      // Silent fail
+    }
+  }
+
+  // Retry transcription of a saved recording with the currently selected model
+  const retryRecording = async (id: string) => {
+    setRetryingId(id)
+    try {
+      // Get a presigned download URL from our API
+      const urlRes = await fetch(`/api/speech/recordings/${encodeURIComponent(id)}`)
+      if (!urlRes.ok) throw new Error('Failed to get download URL')
+      const { url } = await urlRes.json()
+
+      // Download the audio blob from S3
+      const audioRes = await fetch(url)
+      if (!audioRes.ok) throw new Error('Failed to download recording')
+      const blob = await audioRes.blob()
+
+      // Derive a filename from the recording ID (e.g. "1712678400000-abc123.webm")
+      const uploadName = id.includes('.') ? id : `${id}.webm`
+
+      // Send it through the normal transcription flow
+      await handleTranscribe(blob, uploadName)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Retry failed')
+    } finally {
+      setRetryingId(null)
+    }
+  }
 
   // Handles gpt-4o-transcribe-diarize: sends audio to the Render speech-tools service
   // which chunks it into 10-min segments, processes them in parallel via Azure, and
@@ -1303,6 +1378,10 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
         let blob = new Blob(chunks, { type: mimeType })
         let uploadName = `recording.${extension}`
         const limitBytes = STT_FILE_SIZE_LIMIT_BYTES[model]
+
+        // Keep the original blob for S3 save (before any compression)
+        const originalBlob = blob
+
         if (blob.size > limitBytes) {
           setCompressing(true)
           try {
@@ -1315,6 +1394,9 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
           }
           setCompressing(false)
         }
+
+        // Save to S3 (background, non-blocking) AND transcribe in parallel
+        void saveRecordingToS3(originalBlob, `recording.${extension}`)
         void handleTranscribe(blob, uploadName)
       }
 
@@ -1478,6 +1560,65 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
           {recording ? 'Stop Recording' : 'Record'}
         </button>
       </div>
+
+      {/* Saving indicator */}
+      {savingRecording && (
+        <div className="flex items-center gap-2 text-foreground/40 text-xs">
+          <span className="material-symbols-outlined animate-spin text-sm">progress_activity</span>
+          Saving recording to cloud…
+        </div>
+      )}
+
+      {/* Saved Recordings (max 3) */}
+      {savedRecordings.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-foreground/50 flex items-center gap-1.5">
+            <span className="material-symbols-outlined text-sm">cloud_done</span>
+            Saved Recordings ({savedRecordings.length}/3)
+          </p>
+          <div className="space-y-1.5">
+            {savedRecordings.map((rec) => {
+              const date = new Date(rec.createdAt)
+              const timeStr = date.toLocaleString(undefined, {
+                month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+              })
+              const isRetrying = retryingId === rec.id
+              return (
+                <div
+                  key={rec.id}
+                  className="flex items-center gap-2 px-3 py-2 rounded-xl bg-foreground/[0.03] border border-foreground/10 text-sm"
+                >
+                  <span className="material-symbols-outlined text-foreground/30 text-base">mic</span>
+                  <div className="flex-1 min-w-0">
+                    <span className="text-foreground/70 text-xs">{timeStr}</span>
+                    <span className="text-foreground/30 text-xs ml-2">{formatBytes(rec.sizeBytes)}</span>
+                  </div>
+                  <button
+                    onClick={() => retryRecording(rec.id)}
+                    disabled={loading || isRetrying}
+                    className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-foreground/5 text-foreground/60 text-xs hover:bg-foreground/10 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {isRetrying ? (
+                      <span className="material-symbols-outlined animate-spin text-sm">progress_activity</span>
+                    ) : (
+                      <span className="material-symbols-outlined text-sm">replay</span>
+                    )}
+                    Retry
+                  </button>
+                  <button
+                    onClick={() => deleteRecording(rec.id)}
+                    disabled={isRetrying}
+                    className="inline-flex items-center p-1 rounded-full text-foreground/30 hover:text-red-500 hover:bg-red-50 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                    title="Delete recording"
+                  >
+                    <span className="material-symbols-outlined text-base">close</span>
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Recording indicator */}
       {recording && (
