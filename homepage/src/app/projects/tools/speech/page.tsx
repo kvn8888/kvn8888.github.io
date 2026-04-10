@@ -939,13 +939,8 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
   const retryRecording = async (id: string) => {
     setRetryingId(id)
     try {
-      // Get a presigned download URL from our API
-      const urlRes = await fetch(`/api/speech/recordings/${encodeURIComponent(id)}`)
-      if (!urlRes.ok) throw new Error('Failed to get download URL')
-      const { url } = await urlRes.json()
-
-      // Download the audio blob from S3
-      const audioRes = await fetch(url)
+      // Download the audio blob from S3 via our proxy API (avoids CORS)
+      const audioRes = await fetch(`/api/speech/recordings/${encodeURIComponent(id)}`)
       if (!audioRes.ok) throw new Error('Failed to download recording')
       const blob = await audioRes.blob()
 

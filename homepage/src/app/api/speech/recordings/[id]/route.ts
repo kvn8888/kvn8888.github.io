@@ -1,5 +1,5 @@
 import { auth } from '@/auth'
-import { deleteFromS3, createPresignedGetUrl } from '@/lib/speechStorage'
+import { deleteFromS3, downloadFromS3 } from '@/lib/speechStorage'
 import { NextResponse } from 'next/server'
 
 // The S3 prefix used for recordings — must match speechStorage.ts
@@ -7,8 +7,8 @@ const RECORDINGS_PREFIX = 'recordings/'
 
 /**
  * GET /api/speech/recordings/[id]
- * Returns a short-lived presigned URL to download the recording.
- * The client uses this to fetch the audio blob for retry transcription.
+ * Proxies the audio bytes from S3 back to the client.
+ * Avoids CORS issues with direct S3 presigned URLs.
  */
 export async function GET(
   _request: Request,
@@ -21,11 +21,16 @@ export async function GET(
   const key = `${RECORDINGS_PREFIX}${id}`
 
   try {
-    const url = await createPresignedGetUrl(key)
-    return NextResponse.json({ url })
+    const { buffer, contentType } = await downloadFromS3(key)
+    return new NextResponse(buffer, {
+      headers: {
+        'Content-Type': contentType,
+        'Content-Length': String(buffer.byteLength),
+      },
+    })
   } catch (error) {
     return NextResponse.json(
-      { error: 'Failed to generate download URL', details: String(error) },
+      { error: 'Failed to download recording', details: String(error) },
       { status: 500 }
     )
   }
