@@ -1008,10 +1008,97 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
     }
   }
 
+  /**
+   * Streaming transcription path for gpt-4o-transcribe and gpt-4o-mini-transcribe.
+   * Calls /api/speech/stt/stream which proxies Azure's SSE stream directly.
+   * Text tokens stream in word-by-word instead of all appearing at once.
+   *
+   * Azure SSE event format:
+   *   data: {"type":"transcript.text.delta","delta":"Hello"}
+   *   data: {"type":"transcript.text.done","text":"Hello world"}
+   *   data: [DONE]
+   */
+  const handleStreamTranscribe = async (audioBlob: Blob, uploadFileName: string) => {
+    setLoading(true)
+    setError(null)
+    setTranscript(null)
+    setSegments([])
+
+    try {
+      const formData = new FormData()
+      formData.append('audio', audioBlob, uploadFileName)
+      formData.append('model', model)
+
+      const res = await fetch('/api/speech/stt/stream', { method: 'POST', body: formData })
+
+      if (!res.ok || !res.body) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || `Streaming failed (HTTP ${res.status})`)
+      }
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let runningText = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          const raw = line.slice(6).trim()
+          if (!raw || raw === '[DONE]') continue
+
+          try {
+            const event = JSON.parse(raw) as { type: string; delta?: string; text?: string }
+            if (event.type === 'transcript.text.delta' && event.delta) {
+              // Append the incremental delta and update the displayed transcript live
+              runningText += event.delta
+              setTranscript(runningText)
+            } else if (event.type === 'transcript.text.done' && event.text) {
+              // Final authoritative text — replace running accumulation in case of off-by-one
+              runningText = event.text
+              setTranscript(event.text)
+            }
+          } catch {
+            // Non-JSON lines (e.g., event: type headers) are ignored
+          }
+        }
+      }
+
+      if (runningText) {
+        saveSpeechHistory({
+          modality: 'stt',
+          title: `STT · ${model}`,
+          content: runningText.slice(0, 1500),
+          metadata: { model, streaming: true },
+        })
+        onHistorySaved()
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Streaming transcription failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const STREAMING_STT_MODELS = new Set(['gpt-4o-transcribe', 'gpt-4o-mini-transcribe'])
+
   const handleTranscribe = async (audioBlob: Blob, uploadFileName = 'recording.webm') => {
     // For the diarize model, bypass Vercel and stream directly from the Render service
     if (model === 'gpt-4o-transcribe-diarize') {
       await handleDiarizeTranscribe(audioBlob, uploadFileName)
+      return
+    }
+
+    // For streaming-capable Azure models + small files, use the SSE streaming path
+    if (STREAMING_STT_MODELS.has(model) && audioBlob.size <= VERCEL_UPLOAD_LIMIT_BYTES) {
+      await handleStreamTranscribe(audioBlob, uploadFileName)
       return
     }
 
