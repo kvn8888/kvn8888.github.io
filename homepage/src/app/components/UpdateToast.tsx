@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 
 const CLIENT_SHA = process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA
-const POLL_INTERVAL_MS = 5 * 60 * 1000
+const POLL_INTERVAL_MS = 20000 // check every 20s
 
 export function UpdateToast() {
   const [visible, setVisible] = useState(false)
