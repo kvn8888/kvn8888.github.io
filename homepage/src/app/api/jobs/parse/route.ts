@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
             {
               parts: [
                 {
-                  text: `Extract the following fields from this job posting. Return ONLY valid JSON with these exact keys: company, role, type.\n\n- company: the company name\n- role: the job title/role\n- type: the primary technical domain (e.g. Cloud, AI Engineering, Frontend, Backend, Full Stack, Embedded, IoT, DevOps, General)\n\nJob posting:\n${text}`,
+                  text: `Extract the following fields from this job posting. Return ONLY valid JSON with these exact keys: company, role, type, location, work_mode.\n\n- company: the company name\n- role: the job title/role\n- type: the primary technical domain (e.g. Cloud, AI Engineering, Frontend, Backend, Full Stack, Embedded, IoT, DevOps, General)\n- location: city and state/country if present (e.g. "Tonawanda, NY", "London, UK"). Empty string if not stated.\n- work_mode: one of "onsite", "hybrid", "remote". Empty string if not stated or ambiguous.\n\nJob posting:\n${text}`,
                 },
               ],
             },
@@ -39,8 +39,10 @@ export async function POST(req: NextRequest) {
                 company: { type: 'STRING' },
                 role: { type: 'STRING' },
                 type: { type: 'STRING' },
+                location: { type: 'STRING' },
+                work_mode: { type: 'STRING' },
               },
-              required: ['company', 'role', 'type'],
+              required: ['company', 'role', 'type', 'location', 'work_mode'],
             },
           },
         }),

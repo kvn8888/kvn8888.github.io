@@ -2,7 +2,7 @@ import { auth } from '@/auth'
 import { ensureJobsSchema, getJobsDb } from '@/lib/jobsDb'
 import { NextRequest, NextResponse } from 'next/server'
 
-const ALLOWED_FIELDS = ['company', 'role', 'type', 'source', 'cover_letter', 'resume_type', 'interviewed', 'description'] as const
+const ALLOWED_FIELDS = ['company', 'role', 'type', 'source', 'cover_letter', 'resume_type', 'interviewed', 'description', 'location', 'work_mode'] as const
 type AllowedField = (typeof ALLOWED_FIELDS)[number]
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

@@ -33,6 +33,8 @@ interface ParsedJob {
   role: string
   type: string
   description: string
+  location: string
+  work_mode: string
 }
 
 interface JobApplication {
@@ -46,6 +48,8 @@ interface JobApplication {
   resume_type: string | null
   interviewed: boolean
   description: string | null
+  location: string | null
+  work_mode: string | null
 }
 
 interface Stats {
@@ -124,6 +128,8 @@ function AddTab() {
           source,
           cover_letter: coverLetter === 'yes' ? (coverLetterText || '') : 'no',
           resume_type: resumeType,
+          location: parsed.location || null,
+          work_mode: parsed.work_mode || null,
         }),
       })
       const data = await res.json()
@@ -254,9 +260,9 @@ function AddTab() {
       {parsed && (
         <div className="rounded-2xl border border-glass-border bg-foreground/[0.02] p-4 space-y-3">
           <p className="text-xs text-foreground/40">Parsed — click any field to edit</p>
-          {(['company', 'role', 'type', 'description'] as const).map((field) => (
+          {(['company', 'role', 'type', 'location', 'work_mode', 'description'] as const).map((field) => (
             <div key={field}>
-              <p className="text-xs text-foreground/40 mb-0.5 capitalize">{field}</p>
+              <p className="text-xs text-foreground/40 mb-0.5 capitalize">{field.replace('_', ' ')}</p>
               {editField === field ? (
                 <div className="flex gap-2">
                   <input
@@ -434,6 +440,8 @@ function BrowseTab() {
                     {job.role}
                     {job.type ? ` · ${job.type}` : ''}
                     {job.resume_type ? ` · ${job.resume_type}` : ''}
+                    {job.location ? ` · ${job.location}` : ''}
+                    {job.work_mode ? ` · ${job.work_mode}` : ''}
                   </p>
                 </div>
                 <div className="text-right shrink-0">

@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
     const params = q ? [q, limit, offset] : [limit, offset]
 
     const rows = await db.execute({
-      sql: `SELECT id, company, role, date, source, type, cover_letter, resume_type, interviewed, description
+      sql: `SELECT id, company, role, date, source, type, cover_letter, resume_type, interviewed, description, location, work_mode
             FROM job_applications
             ${whereClause}
             ORDER BY date DESC
@@ -45,6 +45,8 @@ export async function GET(req: NextRequest) {
       resume_type: r.resume_type,
       interviewed: Boolean(r.interviewed),
       description: r.description,
+      location: r.location,
+      work_mode: r.work_mode,
     }))
 
     const total = Number(countRows.rows[0]?.total ?? 0)
@@ -71,7 +73,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json()
-    const { company, role, description, type, source, cover_letter, resume_type, date } = body
+    const { company, role, description, type, source, cover_letter, resume_type, date, location, work_mode } = body
 
     if (!company || !role) {
       return NextResponse.json({ error: 'company and role are required' }, { status: 400 })
@@ -82,9 +84,9 @@ export async function POST(req: NextRequest) {
     const db = await getJobsDb()
     await ensureJobsSchema(db)
     const result = await db.execute({
-      sql: `INSERT INTO job_applications (company, role, description, date, source, type, cover_letter, resume_type)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      args: [company, role, description || null, jobDate, source || null, type || null, cover_letter || null, resume_type || null],
+      sql: `INSERT INTO job_applications (company, role, description, date, source, type, cover_letter, resume_type, location, work_mode)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [company, role, description || null, jobDate, source || null, type || null, cover_letter || null, resume_type || null, location || null, work_mode || null],
     })
 
     const id = Number(result.lastInsertRowid)
@@ -96,7 +98,7 @@ export async function POST(req: NextRequest) {
         await fetch(webhookUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ company, role, description, date: jobDate, source, type, cover_letter, resume_type }),
+          body: JSON.stringify({ company, role, description, date: jobDate, source, type, cover_letter, resume_type, location, work_mode }),
         })
       } catch (webhookErr) {
         console.warn('Sheets webhook failed (non-fatal):', webhookErr)

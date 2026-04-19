@@ -63,6 +63,8 @@ export async function ensureJobsSchema(db: Client) {
         type TEXT,
         cover_letter TEXT,
         resume_type TEXT,
+        location TEXT,
+        work_mode TEXT,
         interviewed INTEGER NOT NULL DEFAULT 0,
         created_at TEXT DEFAULT (datetime('now'))
       );
@@ -73,6 +75,17 @@ export async function ensureJobsSchema(db: Client) {
       CREATE INDEX IF NOT EXISTS idx_job_applications_company
         ON job_applications(company);
     `)
+
+    // Migration for DBs predating location/work_mode. SQLite has no ADD COLUMN IF NOT EXISTS,
+    // so check PRAGMA table_info and add only missing columns.
+    const info = await db.execute(`PRAGMA table_info(job_applications)`)
+    const existingCols = new Set(info.rows.map((r) => String(r.name)))
+    if (!existingCols.has('location')) {
+      await db.execute(`ALTER TABLE job_applications ADD COLUMN location TEXT`)
+    }
+    if (!existingCols.has('work_mode')) {
+      await db.execute(`ALTER TABLE job_applications ADD COLUMN work_mode TEXT`)
+    }
   } catch (error) {
     console.error('Failed to initialize job_applications schema', {
       error,
