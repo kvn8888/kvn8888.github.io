@@ -24,6 +24,7 @@ const RESUME_TYPE_OPTIONS = [
   'Embedded',
   'IoT',
   'DevOps',
+  'CV',
   'Other',
 ]
 
