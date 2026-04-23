@@ -145,7 +145,7 @@ export default function Home() {
       </div>
 
       {/* Content with staggered blur reveal animation */}
-      <div className="text-center max-w-4xl mx-auto relative z-10">
+      <div className="text-center max-w-4xl mx-auto relative z-10 pt-8">
         {/* Small tagline — visible immediately, no opacity:0 animation */}
         <p className="text-sm text-foreground/50 mb-4 tracking-wide">Software Engineering Student, Spring 2027</p>
 
