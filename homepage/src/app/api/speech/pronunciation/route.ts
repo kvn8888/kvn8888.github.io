@@ -7,6 +7,8 @@ type PronunciationResponse = {
   DisplayText?: string
   NBest?: Array<{
     PronunciationAssessment?: Record<string, unknown>
+    AccuracyScore?: number
+    PronScore?: number
     Words?: Array<Record<string, unknown>>
   }>
   PronunciationAssessment?: Record<string, unknown>
@@ -14,7 +16,12 @@ type PronunciationResponse = {
 }
 
 function hasPronunciationAssessment(data: PronunciationResponse): boolean {
-  return Boolean(data.NBest?.[0]?.PronunciationAssessment || data.PronunciationAssessment)
+  const nbestTop = data.NBest?.[0]
+  return Boolean(
+    nbestTop?.PronunciationAssessment ||
+    data.PronunciationAssessment ||
+    (typeof nbestTop?.AccuracyScore === 'number' && typeof nbestTop?.PronScore === 'number')
+  )
 }
 
 async function postPronunciationRequest(args: {
@@ -75,6 +82,7 @@ export async function POST(req: NextRequest) {
       Format: 'Detailed',
       PhonemeAlphabet: 'IPA',
       NBestPhonemeCount: 5,
+      EnableMiscue: 'True',
       EnableProsodyAssessment: 'True',
     }
 
@@ -131,6 +139,7 @@ export async function POST(req: NextRequest) {
           Format: 'Detailed',
           PhonemeAlphabet: 'IPA',
           NBestPhonemeCount: 5,
+          EnableMiscue: 'True',
         },
       })
 

@@ -1790,6 +1790,78 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
 }
 
 /* ─── Pronunciation Panel ─── */
+const PROSODY_BREAK_CONFIDENCE_THRESHOLD = 0.75
+
+function normalizeAzureWord(word: AzureWord): PronWord {
+  const assessment = word.PronunciationAssessment
+  const prosody = (assessment?.Feedback ?? word.Feedback)?.Prosody
+
+  return {
+    word: word.Word,
+    accuracyScore: assessment?.AccuracyScore ?? word.AccuracyScore ?? 0,
+    errorType: assessment?.ErrorType ?? word.ErrorType ?? 'None',
+    offset: word.Offset,
+    duration: word.Duration,
+    syllables: (word.Syllables ?? []).map((syllable) => ({
+      syllable: syllable.Syllable,
+      grapheme: syllable.Grapheme,
+      accuracyScore: syllable.PronunciationAssessment?.AccuracyScore ?? syllable.AccuracyScore ?? 0,
+      offset: syllable.Offset,
+      duration: syllable.Duration,
+    })),
+    phonemes: (word.Phonemes ?? []).map((phoneme) => ({
+      phoneme: phoneme.Phoneme,
+      accuracyScore: phoneme.PronunciationAssessment?.AccuracyScore ?? phoneme.AccuracyScore ?? 0,
+      offset: phoneme.Offset,
+      duration: phoneme.Duration,
+      nBestPhonemes: (phoneme.PronunciationAssessment?.NBestPhonemes ?? phoneme.NBestPhonemes ?? []).map((candidate) => ({
+        phoneme: candidate.Phoneme,
+        score: candidate.Score,
+      })),
+    })),
+    prosody: prosody
+      ? {
+          breakErrorTypes: prosody.Break?.ErrorTypes ?? [],
+          unexpectedBreakConfidence: prosody.Break?.UnexpectedBreak?.Confidence,
+          missingBreakConfidence: prosody.Break?.MissingBreak?.Confidence,
+          breakLength: prosody.Break?.BreakLength,
+          intonationErrorTypes: prosody.Intonation?.ErrorTypes ?? [],
+          monotoneConfidence: prosody.Intonation?.Monotone?.Confidence,
+          wordPitchSlopeConfidence: prosody.Intonation?.Monotone?.WordPitchSlopeConfidence,
+          syllablePitchDeltaConfidence: prosody.Intonation?.Monotone?.SyllablePitchDeltaConfidence,
+        }
+      : undefined,
+  }
+}
+
+function getProsodyBreakIssues(word: PronWord): ProsodyBreakIssue[] {
+  const issues: ProsodyBreakIssue[] = []
+  const unexpectedBreakConfidence = word.prosody?.unexpectedBreakConfidence
+  const missingBreakConfidence = word.prosody?.missingBreakConfidence
+
+  if (
+    word.errorType === 'UnexpectedBreak' ||
+    word.prosody?.breakErrorTypes.includes('UnexpectedBreak') ||
+    (unexpectedBreakConfidence != null && unexpectedBreakConfidence > PROSODY_BREAK_CONFIDENCE_THRESHOLD)
+  ) {
+    issues.push({ type: 'unexpected-break', word: word.word, confidence: unexpectedBreakConfidence })
+  }
+
+  if (
+    word.errorType === 'MissingBreak' ||
+    word.prosody?.breakErrorTypes.includes('MissingBreak') ||
+    (missingBreakConfidence != null && missingBreakConfidence > PROSODY_BREAK_CONFIDENCE_THRESHOLD)
+  ) {
+    issues.push({ type: 'missing-break', word: word.word, confidence: missingBreakConfidence })
+  }
+
+  return issues
+}
+
+function hasMonotoneFeedback(word: PronWord): boolean {
+  return word.errorType === 'Monotone' || Boolean(word.prosody?.intonationErrorTypes.includes('Monotone'))
+}
+
 function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
   const [referenceText, setReferenceText] = useState('')
   const [referenceSource, setReferenceSource] = useState<'manual' | 'transcription'>('transcription')
@@ -1867,11 +1939,7 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
           lexical: nbestTop?.Lexical || null,
           confidence: nbestTop?.Confidence,
           snr: data.SNR,
-          words: words.map((w: AzureWord) => ({
-            word: w.Word,
-            accuracyScore: w.PronunciationAssessment?.AccuracyScore ?? w.AccuracyScore ?? 0,
-            errorType: w.PronunciationAssessment?.ErrorType ?? w.ErrorType ?? 'None',
-          })),
+          words: words.map(normalizeAzureWord),
         }
         setResult(nextResult)
         saveSpeechHistory({
@@ -1882,6 +1950,7 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
             pronScore: nextResult.pronScore,
             accuracyScore: nextResult.accuracyScore,
             fluencyScore: nextResult.fluencyScore,
+            prosodyScore: nextResult.prosodyScore,
           },
         })
         onHistorySaved()
@@ -2032,6 +2101,11 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
           readOnly={referenceSource === 'transcription'}
           className="w-full rounded-xl bg-foreground/[0.03] border border-foreground/10 px-4 py-2.5 text-sm text-foreground placeholder:text-foreground/30 focus:outline-none focus:ring-2 focus:ring-foreground/20 transition-all"
         />
+        {referenceSource === 'transcription' && (
+          <p className="text-xs text-foreground/40">
+            Auto-generated text is useful for exploratory feedback. Use manual text input when practicing omissions and completeness against a fixed script.
+          </p>
+        )}
       </div>
 
       {/* Language */}
@@ -2141,28 +2215,23 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
             )}
           </div>
 
+          {language !== 'en-US' && (
+            <div className="rounded-xl bg-foreground/[0.02] border border-foreground/10 px-3 py-2.5 text-xs text-foreground/50">
+              Detailed IPA, syllable, spoken-phoneme, and prosody feedback is available for English (US). Other locales keep the scores Azure returns.
+            </div>
+          )}
+
+          {language === 'en-US' && result.prosodyScore != null && (
+            <ProsodyFeedback words={result.words} />
+          )}
+
           {/* Word-level breakdown */}
           {result.words.length > 0 && (
             <div className="space-y-2">
               <p className="text-xs text-foreground/40 uppercase tracking-wider font-medium">Word Breakdown</p>
-              <div className="flex flex-wrap gap-2">
+              <div className="grid gap-2 sm:grid-cols-2">
                 {result.words.map((w, i) => (
-                  <span
-                    key={i}
-                    className={`px-3 py-1.5 rounded-xl text-sm font-medium border ${
-                      w.errorType !== 'None'
-                        ? 'bg-red-50 border-red-200 text-red-700'
-                        : w.accuracyScore >= 80
-                          ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                          : w.accuracyScore >= 50
-                            ? 'bg-amber-50 border-amber-200 text-amber-700'
-                            : 'bg-red-50 border-red-200 text-red-700'
-                    }`}
-                    title={`Accuracy: ${w.accuracyScore}${w.errorType !== 'None' ? ` | Error: ${w.errorType}` : ''}`}
-                  >
-                    {w.word}
-                    <span className="ml-1.5 text-xs opacity-60">{Math.round(w.accuracyScore)}</span>
-                  </span>
+                  <PronunciationWordDetails key={`${w.word}-${i}`} word={w} />
                 ))}
               </div>
             </div>
@@ -2183,6 +2252,156 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
         </div>
       </details>
     </div>
+  )
+}
+
+function formatAzureTime(value?: number): string | null {
+  return value == null ? null : `${(value / 10_000_000).toFixed(2)}s`
+}
+
+function formatConfidence(value?: number): string {
+  return value == null ? 'reported by Azure' : `${Math.round(value * 100)}% confidence`
+}
+
+function ProsodyFeedback({ words }: { words: PronWord[] }) {
+  const breakIssues = words.flatMap(getProsodyBreakIssues)
+  const monotoneDetected = words.some(hasMonotoneFeedback)
+
+  return (
+    <div className="rounded-xl bg-foreground/[0.02] border border-foreground/10 p-3 space-y-2.5">
+      <div>
+        <p className="text-xs text-foreground/40 uppercase tracking-wider font-medium">Prosody Feedback</p>
+        <p className="text-xs text-foreground/40 mt-0.5">English (US) guidance for pauses and intonation.</p>
+      </div>
+
+      {breakIssues.length === 0 && !monotoneDetected && (
+        <p className="text-sm text-emerald-700">No actionable prosody issues crossed Azure&apos;s recommended confidence threshold.</p>
+      )}
+
+      {breakIssues.map((issue, index) => (
+        <div
+          key={`${issue.type}-${issue.word}-${index}`}
+          className="flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-700"
+        >
+          <span className="material-symbols-outlined text-lg">pause_circle</span>
+          <p>
+            {issue.type === 'unexpected-break'
+              ? <>Avoid pausing before <span className="font-medium">{issue.word}</span>.</>
+              : <>Add a short pause before <span className="font-medium">{issue.word}</span>.</>}
+            <span className="ml-1 text-xs opacity-70">({formatConfidence(issue.confidence)})</span>
+          </p>
+        </div>
+      ))}
+
+      {monotoneDetected && (
+        <div className="flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-700">
+          <span className="material-symbols-outlined text-lg">graphic_eq</span>
+          <p>Your pitch stayed relatively flat across this sentence. Vary emphasis and intonation around the key words.</p>
+        </div>
+      )}
+
+      <p className="text-[11px] text-foreground/35">
+        Pause suggestions use Azure&apos;s recommended {PROSODY_BREAK_CONFIDENCE_THRESHOLD.toFixed(2)} confidence threshold.
+      </p>
+    </div>
+  )
+}
+
+function PronunciationWordDetails({ word }: { word: PronWord }) {
+  const start = formatAzureTime(word.offset)
+  const duration = formatAzureTime(word.duration)
+  const breakIssues = getProsodyBreakIssues(word)
+  const hasPronunciationError = word.errorType !== 'None' && !['UnexpectedBreak', 'MissingBreak', 'Monotone'].includes(word.errorType)
+  const style = hasPronunciationError
+    ? 'bg-red-50 border-red-200 text-red-700'
+    : breakIssues.length > 0
+      ? 'bg-amber-50 border-amber-200 text-amber-700'
+      : word.accuracyScore >= SCORE_EXCELLENT
+        ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+        : word.accuracyScore >= SCORE_GOOD
+          ? 'bg-amber-50 border-amber-200 text-amber-700'
+          : 'bg-red-50 border-red-200 text-red-700'
+
+  return (
+    <details className={`group rounded-xl border ${style}`}>
+      <summary className="list-none cursor-pointer px-3 py-2 [&::-webkit-details-marker]:hidden">
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <span className="text-sm font-medium">{word.word}</span>
+            <span className="ml-1.5 text-xs opacity-60">{Math.round(word.accuracyScore)}</span>
+          </div>
+          <span className="material-symbols-outlined text-base transition-transform group-open:rotate-180">expand_more</span>
+        </div>
+        {(word.errorType !== 'None' || breakIssues.length > 0) && (
+          <div className="flex flex-wrap gap-1 mt-1.5">
+            {word.errorType !== 'None' && (
+              <span className="rounded-full bg-background/50 px-2 py-0.5 text-[11px]">{word.errorType}</span>
+            )}
+            {breakIssues.map((issue) => (
+              <span key={issue.type} className="rounded-full bg-background/50 px-2 py-0.5 text-[11px]">
+                {issue.type === 'unexpected-break' ? 'Unexpected pause' : 'Missing pause'}
+              </span>
+            ))}
+          </div>
+        )}
+      </summary>
+
+      <div className="border-t border-current/15 bg-background/35 px-3 py-3 space-y-3 text-foreground">
+        {(start || duration) && (
+          <p className="text-[11px] text-foreground/40">
+            {start ? `Starts at ${start}` : null}
+            {start && duration ? ' · ' : null}
+            {duration ? `Duration ${duration}` : null}
+          </p>
+        )}
+
+        {word.syllables.length > 0 && (
+          <div className="space-y-1.5">
+            <p className="text-[11px] uppercase tracking-wider text-foreground/40">Syllables</p>
+            <div className="flex flex-wrap gap-1.5">
+              {word.syllables.map((syllable, index) => (
+                <span key={`${syllable.syllable}-${index}`} className="rounded-lg border border-foreground/10 bg-foreground/[0.03] px-2 py-1 text-xs text-foreground/70">
+                  {syllable.syllable} <span className="text-foreground/40">{Math.round(syllable.accuracyScore)}</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {word.phonemes.length > 0 && (
+          <div className="space-y-1.5">
+            <p className="text-[11px] uppercase tracking-wider text-foreground/40">Phonemes</p>
+            <div className="space-y-1.5">
+              {word.phonemes.map((phoneme, index) => {
+                const likelySpoken = phoneme.nBestPhonemes[0]
+                return (
+                  <div key={`${phoneme.phoneme}-${index}`} className="rounded-lg border border-foreground/10 bg-foreground/[0.03] px-2.5 py-2 text-xs">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <span className="text-foreground/70">Expected <span className="font-medium text-foreground">{phoneme.phoneme}</span></span>
+                      <span className="text-foreground/50">Score {Math.round(phoneme.accuracyScore)}</span>
+                      {likelySpoken && (
+                        <span className={likelySpoken.phoneme === phoneme.phoneme ? 'text-emerald-700' : 'text-red-700'}>
+                          Heard <span className="font-medium">{likelySpoken.phoneme}</span>
+                        </span>
+                      )}
+                    </div>
+                    {phoneme.nBestPhonemes.length > 0 && (
+                      <p className="mt-1 text-[11px] text-foreground/40">
+                        Candidates: {phoneme.nBestPhonemes.map((candidate) => `${candidate.phoneme} ${Math.round(candidate.score)}`).join(' · ')}
+                      </p>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {word.syllables.length === 0 && word.phonemes.length === 0 && (
+          <p className="text-xs text-foreground/40">Azure did not return a syllable or phoneme breakdown for this word.</p>
+        )}
+      </div>
+    </details>
   )
 }
 
@@ -2297,16 +2516,118 @@ interface PronResult {
   lexical?: string | null
   confidence?: number
   snr?: number
-  words: { word: string; accuracyScore: number; errorType: string }[]
+  words: PronWord[]
+}
+
+interface PronWord {
+  word: string
+  accuracyScore: number
+  errorType: string
+  offset?: number
+  duration?: number
+  syllables: PronSyllable[]
+  phonemes: PronPhoneme[]
+  prosody?: PronWordProsody
+}
+
+interface PronSyllable {
+  syllable: string
+  grapheme?: string
+  accuracyScore: number
+  offset?: number
+  duration?: number
+}
+
+interface PronPhoneme {
+  phoneme: string
+  accuracyScore: number
+  offset?: number
+  duration?: number
+  nBestPhonemes: PronPhonemeCandidate[]
+}
+
+interface PronPhonemeCandidate {
+  phoneme: string
+  score: number
+}
+
+interface PronWordProsody {
+  breakErrorTypes: string[]
+  unexpectedBreakConfidence?: number
+  missingBreakConfidence?: number
+  breakLength?: number
+  intonationErrorTypes: string[]
+  monotoneConfidence?: number
+  wordPitchSlopeConfidence?: number
+  syllablePitchDeltaConfidence?: number
+}
+
+interface ProsodyBreakIssue {
+  type: 'unexpected-break' | 'missing-break'
+  word: string
+  confidence?: number
+}
+
+interface AzureFeedback {
+  Prosody?: {
+    Break?: {
+      ErrorTypes?: string[]
+      UnexpectedBreak?: { Confidence?: number }
+      MissingBreak?: { Confidence?: number }
+      BreakLength?: number
+    }
+    Intonation?: {
+      ErrorTypes?: string[]
+      Monotone?: {
+        Confidence?: number
+        WordPitchSlopeConfidence?: number
+        SyllablePitchDeltaConfidence?: number
+      }
+    }
+  }
+}
+
+interface AzureSyllable {
+  Syllable: string
+  Grapheme?: string
+  AccuracyScore?: number
+  Offset?: number
+  Duration?: number
+  PronunciationAssessment?: {
+    AccuracyScore?: number
+  }
+}
+
+interface AzurePhoneme {
+  Phoneme: string
+  AccuracyScore?: number
+  Offset?: number
+  Duration?: number
+  NBestPhonemes?: AzurePhonemeCandidate[]
+  PronunciationAssessment?: {
+    AccuracyScore?: number
+    NBestPhonemes?: AzurePhonemeCandidate[]
+  }
+}
+
+interface AzurePhonemeCandidate {
+  Phoneme: string
+  Score: number
 }
 
 interface AzureWord {
   Word: string
   AccuracyScore?: number
   ErrorType?: string
+  Offset?: number
+  Duration?: number
+  Feedback?: AzureFeedback
+  Syllables?: AzureSyllable[]
+  Phonemes?: AzurePhoneme[]
   PronunciationAssessment?: {
-    AccuracyScore: number
-    ErrorType: string
+    AccuracyScore?: number
+    ErrorType?: string
+    Feedback?: AzureFeedback
   }
 }
 
