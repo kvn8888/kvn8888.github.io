@@ -1790,8 +1790,6 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
 }
 
 /* ─── Pronunciation Panel ─── */
-const PROSODY_BREAK_CONFIDENCE_THRESHOLD = 0.75
-
 function normalizeAzureWord(word: AzureWord): PronWord {
   const assessment = word.PronunciationAssessment
   const prosody = (assessment?.Feedback ?? word.Feedback)?.Prosody
@@ -1839,18 +1837,18 @@ function getProsodyBreakIssues(word: PronWord): ProsodyBreakIssue[] {
   const unexpectedBreakConfidence = word.prosody?.unexpectedBreakConfidence
   const missingBreakConfidence = word.prosody?.missingBreakConfidence
 
+  // Azure's REST response can report high raw break confidence values even
+  // when ErrorTypes is ["None"]. Only surface pause guidance for explicit labels.
   if (
     word.errorType === 'UnexpectedBreak' ||
-    word.prosody?.breakErrorTypes.includes('UnexpectedBreak') ||
-    (unexpectedBreakConfidence != null && unexpectedBreakConfidence > PROSODY_BREAK_CONFIDENCE_THRESHOLD)
+    word.prosody?.breakErrorTypes.includes('UnexpectedBreak')
   ) {
     issues.push({ type: 'unexpected-break', word: word.word, confidence: unexpectedBreakConfidence })
   }
 
   if (
     word.errorType === 'MissingBreak' ||
-    word.prosody?.breakErrorTypes.includes('MissingBreak') ||
-    (missingBreakConfidence != null && missingBreakConfidence > PROSODY_BREAK_CONFIDENCE_THRESHOLD)
+    word.prosody?.breakErrorTypes.includes('MissingBreak')
   ) {
     issues.push({ type: 'missing-break', word: word.word, confidence: missingBreakConfidence })
   }
@@ -2260,7 +2258,8 @@ function formatAzureTime(value?: number): string | null {
 }
 
 function formatConfidence(value?: number): string {
-  return value == null ? 'reported by Azure' : `${Math.round(value * 100)}% confidence`
+  if (value == null) return 'reported by Azure'
+  return `${Math.round(Math.min(Math.max(value, 0), 1) * 100)}% confidence`
 }
 
 function ProsodyFeedback({ words }: { words: PronWord[] }) {
@@ -2275,7 +2274,7 @@ function ProsodyFeedback({ words }: { words: PronWord[] }) {
       </div>
 
       {breakIssues.length === 0 && !monotoneDetected && (
-        <p className="text-sm text-emerald-700">No actionable prosody issues crossed Azure&apos;s recommended confidence threshold.</p>
+        <p className="text-sm text-emerald-700">Azure did not explicitly label any actionable pause or intonation issues.</p>
       )}
 
       {breakIssues.map((issue, index) => (
@@ -2301,7 +2300,7 @@ function ProsodyFeedback({ words }: { words: PronWord[] }) {
       )}
 
       <p className="text-[11px] text-foreground/35">
-        Pause suggestions use Azure&apos;s recommended {PROSODY_BREAK_CONFIDENCE_THRESHOLD.toFixed(2)} confidence threshold.
+        Pause suggestions appear only when Azure explicitly labels a missing or unexpected break.
       </p>
     </div>
   )
