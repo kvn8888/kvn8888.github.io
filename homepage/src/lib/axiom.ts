@@ -12,6 +12,14 @@ interface ServerEvent {
 const DEFAULT_AXIOM_URL = 'https://api.axiom.co'
 const AXIOM_TIMEOUT_MS = 2_500
 
+function getAxiomQueryUrl(configuredUrl?: string) {
+  const baseUrl = (configuredUrl || DEFAULT_AXIOM_URL).replace(/\/+$/, '')
+  const path = baseUrl === DEFAULT_AXIOM_URL
+    ? '/v1/datasets/_apl?format=legacy'
+    : '/v1/query/_apl?format=legacy'
+  return `${baseUrl}${path}`
+}
+
 function writeConsoleEvent(event: ServerEvent) {
   const payload = {
     event: event.event ?? 'server.event',
@@ -119,7 +127,7 @@ export async function queryServerEvents(args: {
 
   const apl = args.buildApl(dataset)
   const response = await fetch(
-    `${(configuredUrl || DEFAULT_AXIOM_URL).replace(/\/+$/, '')}/v1/query/_apl?format=legacy`,
+    getAxiomQueryUrl(configuredUrl),
     {
       method: 'POST',
       headers: {
