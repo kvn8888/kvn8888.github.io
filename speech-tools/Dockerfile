@@ -20,17 +20,21 @@ RUN npm run build
 # Start fresh to keep the final image small — only copy compiled JS and prod deps
 FROM node:20-slim AS runner
 
-# Install ffmpeg (for audio splitting) and ffprobe (bundled with ffmpeg)
+# Install ffmpeg (for audio splitting), Python, and the Praat acoustic analyzer.
 # --no-install-recommends keeps the image lean
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg python3 python3-pip && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+
+COPY requirements.txt ./
+RUN pip3 install --break-system-packages --no-cache-dir -r requirements.txt
 
 # Copy only what's needed to run the service
 COPY package.json ./
 RUN npm install --omit=dev
 
 COPY --from=builder /app/dist ./dist
+COPY scripts/ ./scripts/
 
 # Render sets PORT automatically; default to 8080 if running locally
 ENV PORT=8080

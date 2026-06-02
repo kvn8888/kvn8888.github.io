@@ -36,12 +36,15 @@ const modalityLabels: Record<Tab, string> = {
 
 export default function SpeechLabPage({ hidePronunciation }: { hidePronunciation?: boolean } = {}) {
   const visibleTabs = hidePronunciation ? tabs.filter((t) => t.id !== 'pronunciation') : tabs
-  const [activeTab, setActiveTab] = useState<Tab>(() => {
-    if (typeof window === 'undefined') return 'tts'
+  const [activeTab, setActiveTab] = useState<Tab>('tts')
+
+  useEffect(() => {
     const saved = localStorage.getItem('speech-lab-tab')
-    if (saved && ['tts', 'stt', 'pronunciation'].includes(saved)) return saved as Tab
-    return 'tts'
-  })
+    if (saved && ['tts', 'stt', 'pronunciation'].includes(saved)) {
+      const savedTab = saved as Tab
+      setActiveTab(hidePronunciation && savedTab === 'pronunciation' ? 'tts' : savedTab)
+    }
+  }, [hidePronunciation])
 
   // Persist active tab to localStorage
   useEffect(() => { localStorage.setItem('speech-lab-tab', activeTab) }, [activeTab])
@@ -1790,6 +1793,12 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
 }
 
 /* ─── Pronunciation Panel ─── */
+const DELIVERY_ANALYSIS_URL = 'https://speech-tools.onrender.com/analyze-delivery'
+const AZURE_TIME_UNITS_PER_SECOND = 10_000_000
+const PHRASE_BREAK_SECONDS = 0.45
+const LONG_PAUSE_SECONDS = 0.9
+const FILLER_WORDS = new Set(['um', 'uh', 'erm', 'hmm', 'like', 'basically', 'actually'])
+
 function normalizeAzureWord(word: AzureWord): PronWord {
   const assessment = word.PronunciationAssessment
   const prosody = (assessment?.Feedback ?? word.Feedback)?.Prosody
@@ -1860,6 +1869,152 @@ function hasMonotoneFeedback(word: PronWord): boolean {
   return word.errorType === 'Monotone' || Boolean(word.prosody?.intonationErrorTypes.includes('Monotone'))
 }
 
+function getPronWordStartSec(word: PronWord): number | null {
+  return word.offset == null ? null : word.offset / AZURE_TIME_UNITS_PER_SECOND
+}
+
+function getPronWordEndSec(word: PronWord): number | null {
+  const start = getPronWordStartSec(word)
+  return start == null || word.duration == null ? null : start + word.duration / AZURE_TIME_UNITS_PER_SECOND
+}
+
+async function fetchDeliveryAnalysis(audioBlob: Blob): Promise<RawDeliveryAnalysis> {
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), 90_000)
+  const formData = new FormData()
+  formData.append('audio', audioBlob, 'delivery.wav')
+
+  try {
+    const res = await fetch(DELIVERY_ANALYSIS_URL, {
+      method: 'POST',
+      body: formData,
+      signal: controller.signal,
+    })
+    if (!res.ok) throw new Error(`Delivery analysis failed (HTTP ${res.status})`)
+    return await res.json() as RawDeliveryAnalysis
+  } finally {
+    window.clearTimeout(timeout)
+  }
+}
+
+function buildDeliveryAnalysis(raw: RawDeliveryAnalysis, words: PronWord[]): DeliveryAnalysis {
+  const timedWords = words
+    .map((word) => ({ word, startSec: getPronWordStartSec(word), endSec: getPronWordEndSec(word) }))
+    .filter((item): item is { word: PronWord; startSec: number; endSec: number } => item.startSec != null && item.endSec != null)
+  const firstWord = timedWords[0]
+  const lastWord = timedWords[timedWords.length - 1]
+  const spokenSpanSec = firstWord && lastWord ? Math.max(lastWord.endSec - firstWord.startSec, 0.5) : raw.summary.voicedDurationSec
+  const speakingRateWpm = timedWords.length > 0 && spokenSpanSec > 0
+    ? Math.round(timedWords.length / spokenSpanSec * 60)
+    : null
+  const phrases: DeliveryPhrase[] = []
+
+  for (const item of timedWords) {
+    const current = phrases[phrases.length - 1]
+    if (!current || item.startSec - current.endSec >= PHRASE_BREAK_SECONDS) {
+      phrases.push({
+        text: item.word.word,
+        startSec: item.startSec,
+        endSec: item.endSec,
+        wordCount: 1,
+        wpm: 0,
+      })
+      continue
+    }
+    current.text += ` ${item.word.word}`
+    current.endSec = item.endSec
+    current.wordCount += 1
+  }
+
+  for (const phrase of phrases) {
+    phrase.wpm = Math.round(phrase.wordCount / Math.max(phrase.endSec - phrase.startSec, 0.5) * 60)
+  }
+
+  const insights: DeliveryInsight[] = raw.acousticInsights
+    .filter((insight) => insight.code !== 'long-pause')
+    .map((insight) => ({
+      category: 'prosody',
+      severity: insight.severity,
+      message: insight.message,
+    }))
+
+  for (let index = 1; index < timedWords.length; index += 1) {
+    const previous = timedWords[index - 1]
+    const current = timedWords[index]
+    const pauseSec = current.startSec - previous.endSec
+    if (pauseSec >= LONG_PAUSE_SECONDS) {
+      insights.push({
+        category: 'fluency',
+        severity: 'improve',
+        message: `You paused ${pauseSec.toFixed(1)}s before "${current.word.word}". Try connecting that phrase more smoothly.`,
+      })
+    }
+  }
+
+  if (speakingRateWpm != null && speakingRateWpm > 180) {
+    insights.push({
+      category: 'fluency',
+      severity: 'improve',
+      message: `Your average pace was ${speakingRateWpm} WPM. Slow down slightly so key phrases have room to land.`,
+    })
+  } else if (speakingRateWpm != null && speakingRateWpm < 100) {
+    insights.push({
+      category: 'fluency',
+      severity: 'consider',
+      message: `Your average pace was ${speakingRateWpm} WPM. Try linking short phrases together to create more forward momentum.`,
+    })
+  }
+
+  const fastestPhrase = phrases.reduce<DeliveryPhrase | null>(
+    (fastest, phrase) => !fastest || phrase.wpm > fastest.wpm ? phrase : fastest,
+    null
+  )
+  if (
+    fastestPhrase &&
+    speakingRateWpm != null &&
+    fastestPhrase.wordCount >= 3 &&
+    fastestPhrase.wpm > Math.max(170, speakingRateWpm * 1.25)
+  ) {
+    insights.push({
+      category: 'fluency',
+      severity: 'consider',
+      message: `The phrase "${fastestPhrase.text}" accelerated to about ${fastestPhrase.wpm} WPM. Practice it once with a steadier pace.`,
+    })
+  }
+
+  const fillerCounts = new Map<string, number>()
+  for (const { word } of timedWords) {
+    const normalized = word.word.toLowerCase().replace(/[^a-z']/g, '')
+    if (FILLER_WORDS.has(normalized)) fillerCounts.set(normalized, (fillerCounts.get(normalized) ?? 0) + 1)
+  }
+  if (fillerCounts.size > 0) {
+    const summary = Array.from(fillerCounts.entries()).map(([word, count]) => `"${word}" ×${count}`).join(', ')
+    insights.push({
+      category: 'fluency',
+      severity: 'consider',
+      message: `Review filler words: ${summary}. Replacing them with a brief intentional pause can make the delivery clearer.`,
+    })
+  }
+
+  if (insights.length === 0) {
+    insights.push({
+      category: 'overall',
+      severity: 'strength',
+      message: 'Your pacing and acoustic variation were balanced in this recording. Keep the same delivery and compare across a longer sample.',
+    })
+  }
+
+  const priority = { improve: 0, consider: 1, strength: 2 }
+  insights.sort((a, b) => priority[a.severity] - priority[b.severity])
+
+  return {
+    ...raw,
+    speakingRateWpm,
+    phrases,
+    insights: insights.slice(0, 5),
+  }
+}
+
 function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
   const [referenceText, setReferenceText] = useState('')
   const [referenceSource, setReferenceSource] = useState<'manual' | 'transcription'>('transcription')
@@ -1876,6 +2031,9 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
   const [recording, setRecording] = useState(false)
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null)
   const [result, setResult] = useState<PronResult | null>(null)
+  const [deliveryLoading, setDeliveryLoading] = useState(false)
+  const [deliveryError, setDeliveryError] = useState<string | null>(null)
+  const [selectedWord, setSelectedWord] = useState<PronWord | null>(null)
 
   const handleAssess = async (audioBlob: Blob, overrideReferenceText?: string) => {
     const resolvedReferenceText = (overrideReferenceText ?? referenceText).trim()
@@ -1886,9 +2044,17 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
     setLoading(true)
     setError(null)
     setResult(null)
+    setSelectedWord(null)
+    setDeliveryLoading(true)
+    setDeliveryError(null)
 
     try {
       const wavBlob = await convertRecordedBlobToWav(audioBlob)
+      const deliveryPromise = fetchDeliveryAnalysis(wavBlob)
+        .then((analysis) => ({ analysis }))
+        .catch((deliveryFailure: unknown) => ({
+          error: deliveryFailure instanceof Error ? deliveryFailure.message : 'Delivery analysis failed',
+        }))
       const formData = new FormData()
       formData.append('audio', wavBlob, 'pronunciation.wav')
       formData.append('referenceText', resolvedReferenceText)
@@ -1940,6 +2106,13 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
           words: words.map(normalizeAzureWord),
         }
         setResult(nextResult)
+        void deliveryPromise.then((outcome) => {
+          if ('error' in outcome) {
+            setDeliveryError(outcome.error)
+            return
+          }
+          setResult((current) => current ? { ...current, delivery: buildDeliveryAnalysis(outcome.analysis, current.words) } : current)
+        }).finally(() => setDeliveryLoading(false))
         saveSpeechHistory({
           modality: 'pronunciation',
           title: `Pronunciation · ${language}`,
@@ -1953,6 +2126,7 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
         })
         onHistorySaved()
       } else {
+        setDeliveryLoading(false)
         const recognitionStatus = data.RecognitionStatus
         const recognizedText = (nbestTop?.Display || data.DisplayText)?.trim()
         if (recognitionStatus || recognizedText) {
@@ -1969,6 +2143,7 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
         }
       }
     } catch (err) {
+      setDeliveryLoading(false)
       setError(err instanceof Error ? err.message : 'Unknown error')
     } finally {
       setLoading(false)
@@ -2223,19 +2398,23 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
             <ProsodyFeedback words={result.words} />
           )}
 
+          <DeliveryAnalysisPanel analysis={result.delivery} loading={deliveryLoading} error={deliveryError} />
+
           {/* Word-level breakdown */}
           {result.words.length > 0 && (
             <div className="space-y-2">
               <p className="text-xs text-foreground/40 uppercase tracking-wider font-medium">Word Breakdown</p>
-              <div className="grid gap-2 sm:grid-cols-2">
+              <div className="flex flex-wrap gap-2">
                 {result.words.map((w, i) => (
-                  <PronunciationWordDetails key={`${w.word}-${i}`} word={w} />
+                  <PronunciationWordChip key={`${w.word}-${i}`} word={w} onClick={() => setSelectedWord(w)} />
                 ))}
               </div>
             </div>
           )}
         </div>
       )}
+
+      {selectedWord && <PronunciationWordModal word={selectedWord} onClose={() => setSelectedWord(null)} />}
 
       {/* Service Limits */}
       <details className="group">
@@ -2266,16 +2445,14 @@ function ProsodyFeedback({ words }: { words: PronWord[] }) {
   const breakIssues = words.flatMap(getProsodyBreakIssues)
   const monotoneDetected = words.some(hasMonotoneFeedback)
 
+  if (breakIssues.length === 0 && !monotoneDetected) return null
+
   return (
     <div className="rounded-xl bg-foreground/[0.02] border border-foreground/10 p-3 space-y-2.5">
       <div>
         <p className="text-xs text-foreground/40 uppercase tracking-wider font-medium">Prosody Feedback</p>
         <p className="text-xs text-foreground/40 mt-0.5">English (US) guidance for pauses and intonation.</p>
       </div>
-
-      {breakIssues.length === 0 && !monotoneDetected && (
-        <p className="text-sm text-emerald-700">Azure did not explicitly label any actionable pause or intonation issues.</p>
-      )}
 
       {breakIssues.map((issue, index) => (
         <div
@@ -2306,9 +2483,163 @@ function ProsodyFeedback({ words }: { words: PronWord[] }) {
   )
 }
 
-function PronunciationWordDetails({ word }: { word: PronWord }) {
-  const start = formatAzureTime(word.offset)
-  const duration = formatAzureTime(word.duration)
+function DeliveryAnalysisPanel({ analysis, loading, error }: { analysis?: DeliveryAnalysis; loading: boolean; error: string | null }) {
+  if (loading) {
+    return (
+      <div className="rounded-xl bg-foreground/[0.02] border border-foreground/10 px-3 py-3 flex items-center gap-2 text-sm text-foreground/50">
+        <span className="material-symbols-outlined animate-spin text-lg">progress_activity</span>
+        Measuring pitch, pacing, and pauses…
+      </div>
+    )
+  }
+
+  if (!analysis) {
+    return error ? (
+      <div className="rounded-xl bg-foreground/[0.02] border border-foreground/10 px-3 py-2.5 text-xs text-foreground/50">
+        Delivery measurements are temporarily unavailable. Azure pronunciation scores are still shown.
+      </div>
+    ) : null
+  }
+
+  return (
+    <div className="rounded-xl bg-foreground/[0.02] border border-foreground/10 p-3 space-y-3">
+      <div>
+        <p className="text-xs text-foreground/40 uppercase tracking-wider font-medium">Actionable Delivery Analysis</p>
+        <p className="text-xs text-foreground/40 mt-0.5">Praat acoustic measurements combined with Azure word timing.</p>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <DeliveryMetric label="Speaking Rate" value={analysis.speakingRateWpm != null ? `${analysis.speakingRateWpm} WPM` : 'n/a'} />
+        <DeliveryMetric label="Pitch Range" value={analysis.pitch.rangeSemitones != null ? `${analysis.pitch.rangeSemitones.toFixed(1)} st` : 'n/a'} />
+        <DeliveryMetric label="Internal Pauses" value={`${analysis.summary.pauseCount}`} />
+        <DeliveryMetric label="Volume Range" value={analysis.intensity.rangeDb != null ? `${analysis.intensity.rangeDb.toFixed(1)} dB` : 'n/a'} />
+      </div>
+
+      <div className="space-y-1.5">
+        {analysis.insights.map((insight, index) => (
+          <div
+            key={`${insight.category}-${index}`}
+            className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-sm ${
+              insight.severity === 'strength'
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                : insight.severity === 'improve'
+                  ? 'bg-amber-50 border-amber-200 text-amber-700'
+                  : 'bg-foreground/[0.03] border-foreground/10 text-foreground/65'
+            }`}
+          >
+            <span className="material-symbols-outlined text-lg">
+              {insight.category === 'fluency' ? 'speed' : insight.category === 'prosody' ? 'graphic_eq' : 'check_circle'}
+            </span>
+            <p>{insight.message}</p>
+          </div>
+        ))}
+      </div>
+
+      {analysis.phrases.length > 1 && (
+        <div className="space-y-2">
+          <p className="text-[11px] uppercase tracking-wider text-foreground/40">Phrase Pace Timeline</p>
+          <div className="flex gap-1 h-2">
+            {analysis.phrases.map((phrase, index) => (
+              <div
+                key={`${phrase.startSec}-${index}`}
+                className={`rounded-full ${phrase.wpm > 180 ? 'bg-amber-400' : 'bg-emerald-400'}`}
+                style={{ flexGrow: Math.max(phrase.endSec - phrase.startSec, 0.5) }}
+                title={`${phrase.text} · ${phrase.wpm} WPM`}
+              />
+            ))}
+          </div>
+          <div className="grid gap-1 sm:grid-cols-2">
+            {analysis.phrases.map((phrase, index) => (
+              <p key={`${phrase.text}-${index}`} className="text-xs text-foreground/50 truncate" title={phrase.text}>
+                <span className="text-foreground/35">{index + 1}.</span> {phrase.text} <span className="text-foreground/35">· {phrase.wpm} WPM</span>
+              </p>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <details className="group">
+        <summary className="text-xs text-foreground/40 cursor-pointer hover:text-foreground/60 transition-colors select-none">
+          Acoustic charts
+        </summary>
+        <div className="mt-3 space-y-3">
+          <DeliveryChart
+            label="Pitch contour"
+            unit="semitones from your median"
+            points={analysis.pitch.series.map((point) => ({ timeSec: point.timeSec, value: point.semitones }))}
+            pauses={analysis.pauses}
+            durationSec={analysis.summary.durationSec}
+          />
+          <DeliveryChart
+            label="Intensity contour"
+            unit="dB"
+            points={analysis.intensity.series.map((point) => ({ timeSec: point.timeSec, value: point.db }))}
+            pauses={analysis.pauses}
+            durationSec={analysis.summary.durationSec}
+          />
+        </div>
+      </details>
+    </div>
+  )
+}
+
+function DeliveryMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg bg-foreground/[0.025] border border-foreground/8 px-2.5 py-2">
+      <p className="text-[11px] text-foreground/40">{label}</p>
+      <p className="text-sm font-medium text-foreground/75 mt-0.5">{value}</p>
+    </div>
+  )
+}
+
+function DeliveryChart({
+  label,
+  unit,
+  points,
+  pauses,
+  durationSec,
+}: {
+  label: string
+  unit: string
+  points: Array<{ timeSec: number; value?: number | null }>
+  pauses: DeliveryPause[]
+  durationSec: number
+}) {
+  const width = 720
+  const height = 140
+  const padding = 14
+  const finitePoints = points.filter((point): point is { timeSec: number; value: number } => point.value != null && Number.isFinite(point.value))
+  const values = finitePoints.map((point) => point.value)
+  const min = values.length > 0 ? Math.min(...values) : 0
+  const max = values.length > 0 ? Math.max(...values) : 1
+  const range = Math.max(max - min, 1)
+  const chartDuration = Math.max(durationSec, 0.1)
+  const coordinates = finitePoints.map((point) => {
+    const x = padding + point.timeSec / chartDuration * (width - padding * 2)
+    const y = height - padding - (point.value - min) / range * (height - padding * 2)
+    return `${x.toFixed(1)},${y.toFixed(1)}`
+  }).join(' ')
+
+  return (
+    <div className="rounded-lg bg-background/40 border border-foreground/8 px-2.5 py-2">
+      <div className="flex items-center justify-between gap-3 mb-1">
+        <p className="text-xs text-foreground/60">{label}</p>
+        <p className="text-[11px] text-foreground/35">{unit}</p>
+      </div>
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-32" role="img" aria-label={label}>
+        <line x1={padding} x2={width - padding} y1={height / 2} y2={height / 2} className="stroke-foreground/10" strokeWidth="1" />
+        {pauses.map((pause, index) => {
+          const x = padding + pause.startSec / chartDuration * (width - padding * 2)
+          const pauseWidth = Math.max(2, pause.durationSec / chartDuration * (width - padding * 2))
+          return <rect key={`${pause.startSec}-${index}`} x={x} y={padding} width={pauseWidth} height={height - padding * 2} rx="3" className="fill-amber-400/20" />
+        })}
+        {coordinates && <polyline points={coordinates} fill="none" className="stroke-emerald-500" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />}
+      </svg>
+    </div>
+  )
+}
+
+function PronunciationWordChip({ word, onClick }: { word: PronWord; onClick: () => void }) {
   const breakIssues = getProsodyBreakIssues(word)
   const hasPronunciationError = word.errorType !== 'None' && !['UnexpectedBreak', 'MissingBreak', 'Monotone'].includes(word.errorType)
   const style = hasPronunciationError
@@ -2322,30 +2653,75 @@ function PronunciationWordDetails({ word }: { word: PronWord }) {
           : 'bg-red-50 border-red-200 text-red-700'
 
   return (
-    <details className={`group rounded-xl border ${style}`}>
-      <summary className="list-none cursor-pointer px-3 py-2 [&::-webkit-details-marker]:hidden">
-        <div className="flex items-center justify-between gap-2">
-          <div className="min-w-0">
-            <span className="text-sm font-medium">{word.word}</span>
-            <span className="ml-1.5 text-xs opacity-60">{Math.round(word.accuracyScore)}</span>
-          </div>
-          <span className="material-symbols-outlined text-base transition-transform group-open:rotate-180">expand_more</span>
-        </div>
-        {(word.errorType !== 'None' || breakIssues.length > 0) && (
-          <div className="flex flex-wrap gap-1 mt-1.5">
-            {word.errorType !== 'None' && (
-              <span className="rounded-full bg-background/50 px-2 py-0.5 text-[11px]">{word.errorType}</span>
-            )}
-            {breakIssues.map((issue) => (
-              <span key={issue.type} className="rounded-full bg-background/50 px-2 py-0.5 text-[11px]">
-                {issue.type === 'unexpected-break' ? 'Unexpected pause' : 'Missing pause'}
-              </span>
-            ))}
-          </div>
-        )}
-      </summary>
+    <button
+      type="button"
+      onClick={onClick}
+      className={`group relative px-3 py-1.5 rounded-xl text-sm font-medium border transition-all hover:-translate-y-0.5 cursor-pointer ${style}`}
+    >
+      {word.word}
+      <span className="ml-1.5 text-xs opacity-60">{Math.round(word.accuracyScore)}</span>
+      <span className="pointer-events-none absolute z-20 hidden group-hover:block group-focus-visible:block bottom-full left-1/2 -translate-x-1/2 mb-2 w-max max-w-64 rounded-lg bg-glass backdrop-blur-md border border-glass-border px-2.5 py-2 text-left text-[11px] text-foreground/70 shadow-lg">
+        {word.syllables.length > 0
+          ? <>Syllables: {word.syllables.map((syllable) => `${syllable.syllable} ${Math.round(syllable.accuracyScore)}`).join(' · ')}</>
+          : 'Click for phoneme details'}
+      </span>
+    </button>
+  )
+}
 
-      <div className="border-t border-current/15 bg-background/35 px-3 py-3 space-y-3 text-foreground">
+function PronunciationWordModal({ word, onClose }: { word: PronWord; onClose: () => void }) {
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [onClose])
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center px-4">
+      <button type="button" aria-label="Close word details" className="absolute inset-0 bg-background/60 backdrop-blur-xl cursor-default" onClick={onClose} />
+      <div role="dialog" aria-modal="true" aria-label={`${word.word} pronunciation details`} className="relative w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-2xl bg-glass backdrop-blur-xl border border-glass-border shadow-xl p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs text-foreground/40 uppercase tracking-wider">Word Details</p>
+            <h3 className="text-xl font-medium text-foreground mt-0.5">
+              {word.word} <span className="text-sm text-foreground/40">{Math.round(word.accuracyScore)}</span>
+            </h3>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-full bg-foreground/5 hover:bg-foreground/10 p-2 text-foreground/50 transition-colors cursor-pointer" aria-label="Close">
+            <span className="material-symbols-outlined text-lg block">close</span>
+          </button>
+        </div>
+        <div className="mt-4">
+          <PronunciationWordDetailBody word={word} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function PronunciationWordDetailBody({ word }: { word: PronWord }) {
+  const start = formatAzureTime(word.offset)
+  const duration = formatAzureTime(word.duration)
+  const breakIssues = getProsodyBreakIssues(word)
+
+  return (
+    <div className="space-y-3 text-foreground">
+      {(word.errorType !== 'None' || breakIssues.length > 0) && (
+        <div className="flex flex-wrap gap-1">
+          {word.errorType !== 'None' && (
+            <span className="rounded-full bg-foreground/5 px-2 py-0.5 text-[11px] text-foreground/60">{word.errorType}</span>
+          )}
+          {breakIssues.map((issue) => (
+            <span key={issue.type} className="rounded-full bg-foreground/5 px-2 py-0.5 text-[11px] text-foreground/60">
+              {issue.type === 'unexpected-break' ? 'Unexpected pause' : 'Missing pause'}
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div className="rounded-xl border border-foreground/10 bg-foreground/[0.02] px-3 py-3 space-y-3">
         {(start || duration) && (
           <p className="text-[11px] text-foreground/40">
             {start ? `Starts at ${start}` : null}
@@ -2400,7 +2776,7 @@ function PronunciationWordDetails({ word }: { word: PronWord }) {
           <p className="text-xs text-foreground/40">Azure did not return a syllable or phoneme breakdown for this word.</p>
         )}
       </div>
-    </details>
+    </div>
   )
 }
 
@@ -2516,6 +2892,65 @@ interface PronResult {
   confidence?: number
   snr?: number
   words: PronWord[]
+  delivery?: DeliveryAnalysis
+}
+
+interface DeliveryPoint {
+  timeSec: number
+  semitones?: number | null
+  db?: number | null
+}
+
+interface DeliveryPause {
+  startSec: number
+  endSec: number
+  durationSec: number
+}
+
+interface RawDeliveryAnalysis {
+  version: number
+  summary: {
+    durationSec: number
+    voicedDurationSec: number
+    pauseCount: number
+    totalPauseSec: number
+    longPauseCount: number
+  }
+  pitch: {
+    medianHz: number | null
+    rangeSemitones: number | null
+    stddevSemitones: number | null
+    endingDeltaSemitones: number | null
+    series: DeliveryPoint[]
+  }
+  intensity: {
+    rangeDb: number | null
+    stddevDb: number | null
+    series: DeliveryPoint[]
+  }
+  speechSegments: Array<{ startSec: number; endSec: number; durationSec: number }>
+  pauses: DeliveryPause[]
+  acousticInsights: Array<{ code: string; severity: 'improve' | 'consider'; message: string }>
+}
+
+interface DeliveryAnalysis extends RawDeliveryAnalysis {
+  speakingRateWpm: number | null
+  phrases: DeliveryPhrase[]
+  insights: DeliveryInsight[]
+}
+
+interface DeliveryPhrase {
+  text: string
+  startSec: number
+  endSec: number
+  wordCount: number
+  wpm: number
+}
+
+interface DeliveryInsight {
+  category: 'fluency' | 'prosody' | 'overall'
+  severity: 'improve' | 'consider' | 'strength'
+  message: string
 }
 
 interface PronWord {

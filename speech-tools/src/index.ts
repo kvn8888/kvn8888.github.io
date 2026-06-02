@@ -19,6 +19,7 @@ import express, { Request, Response } from "express";
 import multer from "multer";
 import { runDiarize } from "./diarize.js";
 import { runTranscribe, isSupportedTranscribeModel } from "./transcribe.js";
+import { analyzeDelivery } from "./delivery.js";
 import type { SseEvent } from "./types.js";
 import { logger } from "./logger.js";
 
@@ -136,6 +137,31 @@ app.post("/transcribe", upload.single("audio"), async (req: Request, res: Respon
     send({ type: "error", message: String(err) });
   } finally {
     res.end();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /analyze-delivery — return Praat + VAD acoustic coaching measurements
+// ---------------------------------------------------------------------------
+app.post("/analyze-delivery", upload.single("audio"), async (req: Request, res: Response): Promise<void> => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+
+  if (!req.file) {
+    res.status(400).json({ error: "No audio file provided. Send as multipart field 'audio'." });
+    return;
+  }
+
+  const reqLog = logger.child({ file: req.file.originalname, sizeBytes: req.file.size });
+  reqLog.info("delivery analysis request received");
+  const reqStart = Date.now();
+
+  try {
+    const analysis = await analyzeDelivery(req.file.buffer, req.file.originalname);
+    reqLog.info({ durationMs: Date.now() - reqStart }, "delivery analysis complete");
+    res.json(analysis);
+  } catch (err) {
+    reqLog.error({ err: String(err), durationMs: Date.now() - reqStart }, "delivery analysis error");
+    res.status(500).json({ error: "Delivery analysis failed" });
   }
 });
 
