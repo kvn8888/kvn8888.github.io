@@ -2179,6 +2179,7 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
 
       if (assessment) {
         const nextResult = {
+          requestId: data._requestId ?? null,
           accuracyScore: assessment.AccuracyScore,
           fluencyScore: assessment.FluencyScore,
           completenessScore: assessment.CompletenessScore,
@@ -2655,6 +2656,11 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
               {result.words.some(isOmittedPronunciationWord) && (
                 <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700">
                   Words labeled <span className="font-medium">omitted</span> were not aligned to recognized audio. Azure does not provide a valid pronunciation score for omitted words. For recordings over 30 seconds, use a shorter script until continuous assessment is added.
+                  {result.requestId && (
+                    <span className="block mt-1 text-[11px] text-amber-700/70">
+                      Tracking ID: <span className="font-mono">{result.requestId}</span>
+                    </span>
+                  )}
                 </div>
               )}
               <div className="flex flex-wrap gap-2">
@@ -3179,6 +3185,7 @@ type PronunciationRetryAction =
   | { type: 'recording' }
 
 interface PronResult {
+  requestId?: string | null
   pronScore: number
   accuracyScore: number
   fluencyScore: number

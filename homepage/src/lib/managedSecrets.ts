@@ -193,7 +193,12 @@ export const MANAGED_SECRET_GROUPS: ManagedSecretGroup[] = [
     icon: 'troubleshoot',
     keys: [
       { key: 'AXIOM_TOKEN', description: 'Axiom API token with dataset ingest access' },
-      { key: 'AXIOM_DATASET', description: 'Axiom dataset for structured Vercel API errors', inputType: 'text' },
+      {
+        key: 'AXIOM_QUERY_TOKEN',
+        description: 'Optional Axiom advanced API token with query access',
+        note: 'Recommended for owner-only pronunciation log queries. Falls back to AXIOM_TOKEN when unset.',
+      },
+      { key: 'AXIOM_DATASET', description: 'Axiom dataset for structured Vercel API diagnostics', inputType: 'text' },
       {
         key: 'AXIOM_URL',
         description: 'Optional Axiom API or edge base URL',
