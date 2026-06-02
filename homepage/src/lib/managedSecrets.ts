@@ -189,6 +189,20 @@ export const MANAGED_SECRET_GROUPS: ManagedSecretGroup[] = [
     ],
   },
   {
+    label: 'Observability',
+    icon: 'troubleshoot',
+    keys: [
+      { key: 'AXIOM_TOKEN', description: 'Axiom API token with dataset ingest access' },
+      { key: 'AXIOM_DATASET', description: 'Axiom dataset for structured Vercel API errors', inputType: 'text' },
+      {
+        key: 'AXIOM_URL',
+        description: 'Optional Axiom API or edge base URL',
+        inputType: 'text',
+        note: 'Defaults to https://api.axiom.co when unset.',
+      },
+    ],
+  },
+  {
     label: 'Automation',
     icon: 'sync_alt',
     keys: [

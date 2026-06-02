@@ -356,6 +356,28 @@ function ttsPayloadToBlob(audio: string, mimeType: string): Blob {
   return new Blob([bytes], { type: mimeType || 'audio/mpeg' })
 }
 
+class SpeechLabRequestError extends Error {
+  requestId?: string
+
+  constructor(message: string, requestId?: string) {
+    super(message)
+    this.name = 'SpeechLabRequestError'
+    this.requestId = requestId
+  }
+}
+
+function speechLabRequestError(data: unknown, fallbackMessage: string): SpeechLabRequestError {
+  const payload = data as { error?: unknown; requestId?: unknown }
+  return new SpeechLabRequestError(
+    typeof payload?.error === 'string' ? payload.error : fallbackMessage,
+    typeof payload?.requestId === 'string' ? payload.requestId : undefined
+  )
+}
+
+function getSpeechLabRequestId(error: unknown): string | null {
+  return error instanceof SpeechLabRequestError ? error.requestId ?? null : null
+}
+
 /* ─── TTS Panel ─── */
 function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
   const [text, setText] = useState('')
@@ -363,6 +385,7 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
   const [instructions, setInstructions] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [errorRequestId, setErrorRequestId] = useState<string | null>(null)
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
   const [batchProgress, setBatchProgress] = useState<{ current: number; total: number } | null>(null)
   const isChirp3Voice = voice.startsWith('chirp3:')
@@ -386,7 +409,7 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
 
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
-      throw new Error(data.error || 'TTS generation failed')
+      throw speechLabRequestError(data, 'TTS generation failed')
     }
 
     const { audio, mimeType, summary, storageUrl } = await res.json()
@@ -399,6 +422,7 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
 
     setLoading(true)
     setError(null)
+    setErrorRequestId(null)
     setAudioUrl(null)
     setBatchProgress(null)
 
@@ -492,6 +516,7 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
       onHistorySaved()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
+      setErrorRequestId(getSpeechLabRequestId(err))
       setBatchProgress(null)
     } finally {
       setLoading(false)
@@ -641,9 +666,23 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
 
       {/* Error */}
       {error && (
-        <div className="px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700 flex items-center gap-2">
-          <span className="material-symbols-outlined text-red-500 text-lg">error</span>
-          {error}
+        <div className="px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700 flex items-start justify-between gap-3">
+          <div className="flex items-start gap-2">
+            <span className="material-symbols-outlined text-red-500 text-lg">error</span>
+            <div>
+              <p>{error}</p>
+              {errorRequestId && <p className="text-xs opacity-70 mt-0.5">Tracking ID: {errorRequestId}</p>}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleGenerate}
+            disabled={loading || !text.trim()}
+            className="shrink-0 inline-flex items-center gap-1 rounded-full border border-red-300 px-3 py-1 text-xs font-medium hover:bg-red-100 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <span className="material-symbols-outlined text-sm">refresh</span>
+            Try Again
+          </button>
         </div>
       )}
 
@@ -2045,6 +2084,7 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
   const [language, setLanguage] = useState('en-US')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [errorRequestId, setErrorRequestId] = useState<string | null>(null)
   const [recording, setRecording] = useState(false)
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null)
   const [result, setResult] = useState<PronResult | null>(null)
@@ -2056,6 +2096,8 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
   const [referenceVoiceAudioUrl, setReferenceVoiceAudioUrl] = useState<string | null>(null)
   const [generatedReferenceVoice, setGeneratedReferenceVoice] = useState<string | null>(null)
   const [loadingMessage, setLoadingMessage] = useState('Assessing pronunciation…')
+  const [lastAssessmentAttempt, setLastAssessmentAttempt] = useState<PronunciationAssessmentAttempt | null>(null)
+  const [retryAction, setRetryAction] = useState<PronunciationRetryAction | null>(null)
   const isReferenceVoiceChirp3 = referenceVoice.startsWith('chirp3:')
 
   useEffect(() => {
@@ -2076,6 +2118,7 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
     }
     setLoading(true)
     setError(null)
+    setErrorRequestId(null)
     setResult(null)
     setSelectedWord(null)
     setDeliveryLoading(true)
@@ -2085,6 +2128,9 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
 
     try {
       const wavBlob = await convertRecordedBlobToWav(audioBlob)
+      const attempt = { audioBlob: wavBlob, referenceText: resolvedReferenceText, subject }
+      setLastAssessmentAttempt(attempt)
+      setRetryAction({ type: 'assessment', attempt })
       const deliveryPromise = fetchDeliveryAnalysis(wavBlob)
         .then((analysis) => ({ analysis }))
         .catch((deliveryFailure: unknown) => ({
@@ -2094,6 +2140,7 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
       formData.append('audio', wavBlob, 'pronunciation.wav')
       formData.append('referenceText', resolvedReferenceText)
       formData.append('language', language)
+      formData.append('source', subject.type)
 
       const res = await fetch('/api/speech/pronunciation', {
         method: 'POST',
@@ -2102,7 +2149,7 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
-        throw new Error(data.error || 'Pronunciation assessment failed')
+        throw speechLabRequestError(data, 'Pronunciation assessment failed')
       }
 
       const data = (await res.json()) as AzurePronunciationResponse
@@ -2141,6 +2188,7 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
           words: words.map(normalizeAzureWord),
         }
         setResult(nextResult)
+        setRetryAction(null)
         void deliveryPromise.then((outcome) => {
           if ('error' in outcome) {
             setDeliveryError(outcome.error)
@@ -2164,6 +2212,7 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
         onHistorySaved()
       } else {
         setDeliveryLoading(false)
+        setErrorRequestId(data._requestId ?? null)
         const recognitionStatus = data.RecognitionStatus
         const recognizedText = (nbestTop?.Display || data.DisplayText)?.trim()
         if (recognitionStatus || recognizedText) {
@@ -2182,6 +2231,7 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
     } catch (err) {
       setDeliveryLoading(false)
       setError(err instanceof Error ? err.message : 'Unknown error')
+      setErrorRequestId(getSpeechLabRequestId(err))
     } finally {
       setLoading(false)
     }
@@ -2196,6 +2246,8 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
 
     setLoading(true)
     setError(null)
+    setErrorRequestId(null)
+    setRetryAction({ type: 'reference-voice' })
     setLoadingMessage('Generating reference voice…')
 
     try {
@@ -2206,12 +2258,13 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
           text: trimmedReferenceText,
           voice: referenceVoice,
           provider: isReferenceVoiceChirp3 ? 'chirp3' : 'gemini',
+          purpose: 'pronunciation-reference-voice',
         }),
       })
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
-        throw new Error(data.error || 'Reference voice generation failed')
+        throw speechLabRequestError(data, 'Reference voice generation failed')
       }
 
       const data = await res.json() as { audio?: string; mimeType?: string }
@@ -2225,6 +2278,7 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
       await handleAssess(wavBlob, trimmedReferenceText, { type: 'reference-voice', voice: referenceVoice })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
+      setErrorRequestId(getSpeechLabRequestId(err))
     } finally {
       setLoading(false)
     }
@@ -2242,7 +2296,7 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
 
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
-      throw new Error(data.error || 'Reference transcription failed')
+      throw speechLabRequestError(data, 'Reference transcription failed')
     }
 
     const data = await res.json()
@@ -2251,6 +2305,22 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
       throw new Error('No transcription text returned for reference')
     }
     return text
+  }
+
+  const transcribeAndAssessRecording = async (audioBlob: Blob) => {
+    setLoading(true)
+    setError(null)
+    setErrorRequestId(null)
+    setRetryAction({ type: 'transcription', audioBlob })
+    try {
+      const nextReferenceText = await transcribeReferenceText(audioBlob)
+      setReferenceText(nextReferenceText)
+      await handleAssess(audioBlob, nextReferenceText)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error')
+      setErrorRequestId(getSpeechLabRequestId(err))
+      setLoading(false)
+    }
   }
 
   const startRecording = async () => {
@@ -2271,18 +2341,7 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
         stream.getTracks().forEach((t) => t.stop())
         const blob = new Blob(chunks, { type: recorder.mimeType || selectedMimeType || 'audio/webm' })
         if (referenceSource === 'transcription') {
-          void (async () => {
-            try {
-              setLoading(true)
-              setError(null)
-              const nextReferenceText = await transcribeReferenceText(blob)
-              setReferenceText(nextReferenceText)
-              await handleAssess(blob, nextReferenceText)
-            } catch (err) {
-              setError(err instanceof Error ? err.message : 'Unknown error')
-              setLoading(false)
-            }
-          })()
+          void transcribeAndAssessRecording(blob)
           return
         }
         void handleAssess(blob)
@@ -2293,6 +2352,8 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
       setRecording(true)
     } catch {
       setError('Microphone access denied')
+      setErrorRequestId(null)
+      setRetryAction({ type: 'recording' })
     }
   }
 
@@ -2301,6 +2362,33 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
       mediaRecorder.stop()
       setRecording(false)
       setMediaRecorder(null)
+    }
+  }
+
+  const retryPronunciationAction = () => {
+    if (!retryAction) return
+    if (retryAction.type === 'assessment') {
+      void handleAssess(retryAction.attempt.audioBlob, retryAction.attempt.referenceText, retryAction.attempt.subject)
+    } else if (retryAction.type === 'reference-voice') {
+      void assessReferenceVoice()
+    } else if (retryAction.type === 'transcription') {
+      void transcribeAndAssessRecording(retryAction.audioBlob)
+    } else {
+      void startRecording()
+    }
+  }
+
+  const retryDeliveryAnalysis = async () => {
+    if (!lastAssessmentAttempt) return
+    setDeliveryLoading(true)
+    setDeliveryError(null)
+    try {
+      const analysis = await fetchDeliveryAnalysis(lastAssessmentAttempt.audioBlob)
+      setResult((current) => current ? { ...current, delivery: buildDeliveryAnalysis(analysis, current.words) } : current)
+    } catch (deliveryFailure) {
+      setDeliveryError(deliveryFailure instanceof Error ? deliveryFailure.message : 'Delivery analysis failed')
+    } finally {
+      setDeliveryLoading(false)
     }
   }
 
@@ -2467,9 +2555,25 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
 
       {/* Error */}
       {error && (
-        <div className="px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700 flex items-center gap-2">
-          <span className="material-symbols-outlined text-red-500 text-lg">error</span>
-          {error}
+        <div className="px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700 flex items-start justify-between gap-3">
+          <div className="flex items-start gap-2">
+            <span className="material-symbols-outlined text-red-500 text-lg">error</span>
+            <div>
+              <p>{error}</p>
+              {errorRequestId && <p className="text-xs opacity-70 mt-0.5">Tracking ID: {errorRequestId}</p>}
+            </div>
+          </div>
+          {retryAction && (
+            <button
+              type="button"
+              onClick={retryPronunciationAction}
+              disabled={loading || recording}
+              className="shrink-0 inline-flex items-center gap-1 rounded-full border border-red-300 px-3 py-1 text-xs font-medium hover:bg-red-100 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <span className="material-symbols-outlined text-sm">refresh</span>
+              Try Again
+            </button>
+          )}
         </div>
       )}
 
@@ -2533,7 +2637,12 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
             <ProsodyFeedback words={result.words} />
           )}
 
-          <DeliveryAnalysisPanel analysis={result.delivery} loading={deliveryLoading} error={deliveryError} />
+          <DeliveryAnalysisPanel
+            analysis={result.delivery}
+            loading={deliveryLoading}
+            error={deliveryError}
+            onRetry={lastAssessmentAttempt ? retryDeliveryAnalysis : undefined}
+          />
 
           {/* Word-level breakdown */}
           {result.words.length > 0 && (
@@ -2618,7 +2727,17 @@ function ProsodyFeedback({ words }: { words: PronWord[] }) {
   )
 }
 
-function DeliveryAnalysisPanel({ analysis, loading, error }: { analysis?: DeliveryAnalysis; loading: boolean; error: string | null }) {
+function DeliveryAnalysisPanel({
+  analysis,
+  loading,
+  error,
+  onRetry,
+}: {
+  analysis?: DeliveryAnalysis
+  loading: boolean
+  error: string | null
+  onRetry?: () => void
+}) {
   if (loading) {
     return (
       <div className="rounded-xl bg-foreground/[0.02] border border-foreground/10 px-3 py-3 flex items-center gap-2 text-sm text-foreground/50">
@@ -2630,8 +2749,18 @@ function DeliveryAnalysisPanel({ analysis, loading, error }: { analysis?: Delive
 
   if (!analysis) {
     return error ? (
-      <div className="rounded-xl bg-foreground/[0.02] border border-foreground/10 px-3 py-2.5 text-xs text-foreground/50">
-        Delivery measurements are temporarily unavailable. Azure pronunciation scores are still shown.
+      <div className="rounded-xl bg-foreground/[0.02] border border-foreground/10 px-3 py-2.5 text-xs text-foreground/50 flex items-center justify-between gap-3">
+        <span>Delivery measurements are temporarily unavailable. Azure pronunciation scores are still shown.</span>
+        {onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="shrink-0 inline-flex items-center gap-1 rounded-full border border-foreground/15 px-3 py-1 font-medium text-foreground/60 hover:bg-foreground/5 hover:text-foreground transition-colors cursor-pointer"
+          >
+            <span className="material-symbols-outlined text-sm">refresh</span>
+            Try Again
+          </button>
+        )}
       </div>
     ) : null
   }
@@ -3019,6 +3148,18 @@ type AssessmentSubject =
   | { type: 'recording' }
   | { type: 'reference-voice'; voice: string }
 
+interface PronunciationAssessmentAttempt {
+  audioBlob: Blob
+  referenceText: string
+  subject: AssessmentSubject
+}
+
+type PronunciationRetryAction =
+  | { type: 'assessment'; attempt: PronunciationAssessmentAttempt }
+  | { type: 'reference-voice' }
+  | { type: 'transcription'; audioBlob: Blob }
+  | { type: 'recording' }
+
 interface PronResult {
   pronScore: number
   accuracyScore: number
@@ -3205,6 +3346,7 @@ interface AzureWord {
 }
 
 interface AzurePronunciationResponse {
+  _requestId?: string
   RecognitionStatus?: string
   DisplayText?: string
   SNR?: number

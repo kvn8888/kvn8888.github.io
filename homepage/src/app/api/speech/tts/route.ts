@@ -1,6 +1,7 @@
 import { auth } from '@/auth'
 import { SignJWT, importPKCS8 } from 'jose'
 import { NextRequest, NextResponse } from 'next/server'
+import { reportServerEvent } from '@/lib/axiom'
 import { getSecret } from '@/lib/secrets'
 import { uploadToS3 } from '@/lib/speechStorage'
 
@@ -151,6 +152,7 @@ async function synthesizeChirp3(text: string, voiceName: string): Promise<{ audi
 /* ── route ── */
 
 export async function POST(req: NextRequest) {
+  const requestId = crypto.randomUUID()
   const session = await auth()
   if (!session) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -158,7 +160,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const apiKey = await getSecret('GEMINI_API_KEY')
-    const { text, voice = 'Gacrux', instructions, provider } = await req.json()
+    const { text, voice = 'Gacrux', instructions, provider, purpose } = await req.json()
     if (!text || typeof text !== 'string') {
       return NextResponse.json({ error: 'Text is required' }, { status: 400 })
     }
@@ -190,7 +192,12 @@ export async function POST(req: NextRequest) {
     }
 
     if (!apiKey) {
-      return NextResponse.json({ error: 'GEMINI_API_KEY not configured' }, { status: 500 })
+      await reportServerEvent({
+        level: 'error',
+        message: 'Gemini TTS configuration missing',
+        data: { requestId, route: '/api/speech/tts', provider: 'gemini', purpose },
+      })
+      return NextResponse.json({ error: 'GEMINI_API_KEY not configured', requestId }, { status: 500 })
     }
 
     // Force audio-only behavior; Gemini TTS can return 400 if prompt is ambiguous
@@ -220,14 +227,32 @@ export async function POST(req: NextRequest) {
 
     if (!res.ok) {
       const err = await res.text()
-      console.error('Gemini TTS error:', err)
-      return NextResponse.json({ error: 'TTS generation failed' }, { status: res.status })
+      await reportServerEvent({
+        level: 'error',
+        message: 'Gemini TTS provider request failed',
+        data: {
+          requestId,
+          route: '/api/speech/tts',
+          provider: 'gemini',
+          purpose,
+          status: res.status,
+          voice,
+          textLength: normalizedText.length,
+          providerBody: err.slice(0, 2_000),
+        },
+      })
+      return NextResponse.json({ error: 'TTS generation failed', requestId, retryable: true }, { status: res.status })
     }
 
     const data = await res.json()
     const audioData = data?.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data
     if (!audioData) {
-      return NextResponse.json({ error: 'No audio in response' }, { status: 500 })
+      await reportServerEvent({
+        level: 'error',
+        message: 'Gemini TTS response contained no audio',
+        data: { requestId, route: '/api/speech/tts', provider: 'gemini', purpose, voice, textLength: normalizedText.length },
+      })
+      return NextResponse.json({ error: 'No audio in response', requestId, retryable: true }, { status: 500 })
     }
 
     // Best-effort: summarize + upload in parallel without blocking the response
@@ -247,11 +272,15 @@ export async function POST(req: NextRequest) {
       ...(storageUrl ? { storageUrl } : {}),
     })
   } catch (error) {
-    console.error('TTS error:', {
-      error,
-      message: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
+    await reportServerEvent({
+      level: 'error',
+      message: 'TTS route failed',
+      data: {
+        requestId,
+        route: '/api/speech/tts',
+        error: error instanceof Error ? error.message : String(error),
+      },
     })
-    return NextResponse.json({ error: 'TTS generation failed' }, { status: 500 })
+    return NextResponse.json({ error: 'TTS generation failed', requestId, retryable: true }, { status: 500 })
   }
 }

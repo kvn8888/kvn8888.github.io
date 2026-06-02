@@ -1,5 +1,6 @@
 import { auth } from '@/auth'
 import { NextRequest, NextResponse } from 'next/server'
+import { reportServerEvent } from '@/lib/axiom'
 import { getSecret } from '@/lib/secrets'
 
 type PronunciationResponse = {
@@ -22,6 +23,14 @@ function hasPronunciationAssessment(data: PronunciationResponse): boolean {
     data.PronunciationAssessment ||
     (typeof nbestTop?.AccuracyScore === 'number' && typeof nbestTop?.PronScore === 'number')
   )
+}
+
+function pronunciationErrorResponse(error: string, status: number, requestId: string) {
+  return NextResponse.json({ error, requestId, retryable: true }, { status })
+}
+
+function truncateProviderBody(body: string) {
+  return body.slice(0, 2_000)
 }
 
 async function postPronunciationRequest(args: {
@@ -47,6 +56,7 @@ async function postPronunciationRequest(args: {
 }
 
 export async function POST(req: NextRequest) {
+  const requestId = crypto.randomUUID()
   const session = await auth()
   if (!session) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -55,10 +65,12 @@ export async function POST(req: NextRequest) {
   const speechKey = await getSecret('AZURE_SPEECH_KEY')
   const speechRegion = await getSecret('AZURE_SPEECH_REGION')
   if (!speechKey || !speechRegion) {
-    return NextResponse.json(
-      { error: 'AZURE_SPEECH_KEY or AZURE_SPEECH_REGION not configured' },
-      { status: 500 }
-    )
+    await reportServerEvent({
+      level: 'error',
+      message: 'Pronunciation assessment configuration missing',
+      data: { requestId, route: '/api/speech/pronunciation' },
+    })
+    return pronunciationErrorResponse('Azure Speech is not configured', 500, requestId)
   }
 
   try {
@@ -66,10 +78,11 @@ export async function POST(req: NextRequest) {
     const audioFile = formData.get('audio') as File | null
     const referenceText = formData.get('referenceText') as string | null
     const language = (formData.get('language') as string) || 'en-US'
+    const source = (formData.get('source') as string) || 'recording'
 
     if (!audioFile || !referenceText) {
       return NextResponse.json(
-        { error: 'Audio file and reference text are required' },
+        { error: 'Audio file and reference text are required', requestId },
         { status: 400 }
       )
     }
@@ -103,27 +116,46 @@ export async function POST(req: NextRequest) {
 
     if (!res.ok) {
       const err = await res.text()
-      console.error('Azure Pronunciation error:', {
-        status: res.status,
-        statusText: res.statusText,
-        language,
-        contentType,
-        audioSizeBytes: audioBuffer.length,
-        referenceTextLength: referenceText.length,
-        body: err,
+      await reportServerEvent({
+        level: 'error',
+        message: 'Azure pronunciation provider request failed',
+        data: {
+          requestId,
+          route: '/api/speech/pronunciation',
+          provider: 'azure-speech',
+          source,
+          speechRegion,
+          status: res.status,
+          statusText: res.statusText,
+          language,
+          contentType,
+          audioSizeBytes: audioBuffer.length,
+          referenceTextLength: referenceText.length,
+          providerBody: truncateProviderBody(err),
+        },
       })
-      return NextResponse.json({ error: 'Pronunciation assessment failed' }, { status: res.status })
+      const message = res.status === 429
+        ? 'Azure Speech rate limit reached. Try again shortly.'
+        : 'Pronunciation assessment failed'
+      return pronunciationErrorResponse(message, res.status, requestId)
     }
 
     const data = (await res.json()) as PronunciationResponse
 
     if (!hasPronunciationAssessment(data) && data.RecognitionStatus === 'Success') {
-      console.warn('Azure Pronunciation returned Success without assessment data; retrying with basic dimension', {
-        language,
-        contentType,
-        audioSizeBytes: audioBuffer.length,
-        displayText: data.DisplayText,
-        hasNBest: Boolean(data.NBest?.length),
+      await reportServerEvent({
+        level: 'warn',
+        message: 'Azure pronunciation returned success without assessment data; retrying basic dimension',
+        data: {
+          requestId,
+          route: '/api/speech/pronunciation',
+          provider: 'azure-speech',
+          source,
+          language,
+          contentType,
+          audioSizeBytes: audioBuffer.length,
+          hasNBest: Boolean(data.NBest?.length),
+        },
       })
 
       const fallbackRes = await postPronunciationRequest({
@@ -145,22 +177,39 @@ export async function POST(req: NextRequest) {
 
       if (!fallbackRes.ok) {
         const fallbackErr = await fallbackRes.text()
-        console.error('Azure Pronunciation fallback request failed:', {
-          status: fallbackRes.status,
-          statusText: fallbackRes.statusText,
-          language,
-          contentType,
-          audioSizeBytes: audioBuffer.length,
-          body: fallbackErr,
+        await reportServerEvent({
+          level: 'error',
+          message: 'Azure pronunciation basic fallback request failed',
+          data: {
+            requestId,
+            route: '/api/speech/pronunciation',
+            provider: 'azure-speech',
+            source,
+            speechRegion,
+            status: fallbackRes.status,
+            statusText: fallbackRes.statusText,
+            language,
+            contentType,
+            audioSizeBytes: audioBuffer.length,
+            referenceTextLength: referenceText.length,
+            providerBody: truncateProviderBody(fallbackErr),
+          },
         })
       } else {
         const fallbackData = (await fallbackRes.json()) as PronunciationResponse
         const fallbackHasAssessment = hasPronunciationAssessment(fallbackData)
-        console.warn('Azure Pronunciation fallback response summary:', {
-          recognitionStatus: fallbackData.RecognitionStatus,
-          displayText: fallbackData.DisplayText,
-          hasAssessment: fallbackHasAssessment,
-          hasNBest: Boolean(fallbackData.NBest?.length),
+        await reportServerEvent({
+          level: fallbackHasAssessment ? 'info' : 'warn',
+          message: 'Azure pronunciation basic fallback response received',
+          data: {
+            requestId,
+            route: '/api/speech/pronunciation',
+            provider: 'azure-speech',
+            source,
+            recognitionStatus: fallbackData.RecognitionStatus,
+            hasAssessment: fallbackHasAssessment,
+            hasNBest: Boolean(fallbackData.NBest?.length),
+          },
         })
 
         if (fallbackHasAssessment) {
@@ -169,6 +218,7 @@ export async function POST(req: NextRequest) {
             _diagnostics: {
               fallbackUsed: true,
               reason: 'Initial response had Success but no pronunciation assessment block',
+              requestId,
             },
           })
         }
@@ -176,21 +226,34 @@ export async function POST(req: NextRequest) {
     }
 
     if (!hasPronunciationAssessment(data)) {
-      console.warn('Azure Pronunciation response missing assessment block after initial request', {
-        recognitionStatus: data.RecognitionStatus,
-        displayText: data.DisplayText,
-        hasNBest: Boolean(data.NBest?.length),
-        language,
-        contentType,
+      await reportServerEvent({
+        level: 'warn',
+        message: 'Azure pronunciation response missing assessment block',
+        data: {
+          requestId,
+          route: '/api/speech/pronunciation',
+          provider: 'azure-speech',
+          source,
+          recognitionStatus: data.RecognitionStatus,
+          hasNBest: Boolean(data.NBest?.length),
+          language,
+          contentType,
+          audioSizeBytes: audioBuffer.length,
+        },
       })
     }
 
-    return NextResponse.json(data)
+    return NextResponse.json({ ...data, _requestId: requestId })
   } catch (error) {
-    console.error('Pronunciation route error:', {
-      error,
-      message: error instanceof Error ? error.message : String(error),
+    await reportServerEvent({
+      level: 'error',
+      message: 'Pronunciation assessment route failed',
+      data: {
+        requestId,
+        route: '/api/speech/pronunciation',
+        error: error instanceof Error ? error.message : String(error),
+      },
     })
-    return NextResponse.json({ error: 'Pronunciation assessment failed' }, { status: 500 })
+    return pronunciationErrorResponse('Pronunciation assessment failed', 500, requestId)
   }
 }
