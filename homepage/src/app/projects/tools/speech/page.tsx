@@ -328,6 +328,34 @@ async function convertRecordedBlobToWav(audioBlob: Blob): Promise<Blob> {
   }
 }
 
+function base64ToBytes(audio: string): Uint8Array<ArrayBuffer> {
+  const raw = atob(audio)
+  const bytes = new Uint8Array(new ArrayBuffer(raw.length))
+  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i)
+  return bytes
+}
+
+/**
+ * Wraps raw PCM bytes in a WAV header.
+ * Gemini TTS returns L16 PCM while Azure pronunciation assessment expects a
+ * standard audio container.
+ */
+function wrapPcmInWav(pcmBytes: Uint8Array, sampleRate = 24000, channels = 1, bitsPerSample = 16): Uint8Array<ArrayBuffer> {
+  const header = new DataView(createWavHeader(pcmBytes.length, sampleRate, channels, bitsPerSample))
+  const out = new Uint8Array(new ArrayBuffer(44 + pcmBytes.length))
+  for (let i = 0; i < 44; i++) out[i] = header.getUint8(i)
+  out.set(pcmBytes, 44)
+  return out
+}
+
+function ttsPayloadToBlob(audio: string, mimeType: string): Blob {
+  const bytes = base64ToBytes(audio)
+  if (mimeType.includes('L16')) {
+    return new Blob([wrapPcmInWav(bytes)], { type: 'audio/wav' })
+  }
+  return new Blob([bytes], { type: mimeType || 'audio/mpeg' })
+}
+
 /* ─── TTS Panel ─── */
 function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
   const [text, setText] = useState('')
@@ -362,22 +390,7 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
     }
 
     const { audio, mimeType, summary, storageUrl } = await res.json()
-    const raw = atob(audio)
-    const bytes = new Uint8Array(new ArrayBuffer(raw.length))
-    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i)
-    return { bytes, mimeType, summary, storageUrl }
-  }
-
-  /**
-   * Wraps raw PCM bytes in a WAV header and returns the full WAV Uint8Array.
-   * Used for Gemini responses which return raw L16 PCM.
-   */
-  const wrapPcmInWav = (pcmBytes: Uint8Array, sampleRate = 24000, channels = 1, bitsPerSample = 16): Uint8Array<ArrayBuffer> => {
-    const header = new DataView(createWavHeader(pcmBytes.length, sampleRate, channels, bitsPerSample))
-    const out = new Uint8Array(new ArrayBuffer(44 + pcmBytes.length))
-    for (let i = 0; i < 44; i++) out[i] = header.getUint8(i)
-    out.set(pcmBytes, 44)
-    return out
+    return { bytes: base64ToBytes(audio), mimeType, summary, storageUrl }
   }
 
   const handleGenerate = async () => {
@@ -1799,6 +1812,10 @@ const PHRASE_BREAK_SECONDS = 0.45
 const LONG_PAUSE_SECONDS = 0.9
 const FILLER_WORDS = new Set(['um', 'uh', 'erm', 'hmm', 'like', 'basically', 'actually'])
 
+function getTtsVoiceLabel(voice: string): string {
+  return voice.replace(/^chirp3:en-US-Chirp3-HD-/, '')
+}
+
 function normalizeAzureWord(word: AzureWord): PronWord {
   const assessment = word.PronunciationAssessment
   const prosody = (assessment?.Feedback ?? word.Feedback)?.Prosody
@@ -2034,8 +2051,24 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
   const [deliveryLoading, setDeliveryLoading] = useState(false)
   const [deliveryError, setDeliveryError] = useState<string | null>(null)
   const [selectedWord, setSelectedWord] = useState<PronWord | null>(null)
+  const [assessmentSubject, setAssessmentSubject] = useState<AssessmentSubject>({ type: 'recording' })
+  const [referenceVoice, setReferenceVoice] = useState('Gacrux')
+  const [referenceVoiceAudioUrl, setReferenceVoiceAudioUrl] = useState<string | null>(null)
+  const [generatedReferenceVoice, setGeneratedReferenceVoice] = useState<string | null>(null)
+  const [loadingMessage, setLoadingMessage] = useState('Assessing pronunciation…')
+  const isReferenceVoiceChirp3 = referenceVoice.startsWith('chirp3:')
 
-  const handleAssess = async (audioBlob: Blob, overrideReferenceText?: string) => {
+  useEffect(() => {
+    return () => {
+      if (referenceVoiceAudioUrl) URL.revokeObjectURL(referenceVoiceAudioUrl)
+    }
+  }, [referenceVoiceAudioUrl])
+
+  const handleAssess = async (
+    audioBlob: Blob,
+    overrideReferenceText?: string,
+    subject: AssessmentSubject = { type: 'recording' }
+  ) => {
     const resolvedReferenceText = (overrideReferenceText ?? referenceText).trim()
     if (!resolvedReferenceText) {
       setError('Reference text is required')
@@ -2047,6 +2080,8 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
     setSelectedWord(null)
     setDeliveryLoading(true)
     setDeliveryError(null)
+    setAssessmentSubject(subject)
+    setLoadingMessage(subject.type === 'reference-voice' ? 'Assessing reference voice…' : 'Assessing pronunciation…')
 
     try {
       const wavBlob = await convertRecordedBlobToWav(audioBlob)
@@ -2122,6 +2157,8 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
             accuracyScore: nextResult.accuracyScore,
             fluencyScore: nextResult.fluencyScore,
             prosodyScore: nextResult.prosodyScore,
+            source: subject.type,
+            ...(subject.type === 'reference-voice' ? { voice: subject.voice } : {}),
           },
         })
         onHistorySaved()
@@ -2144,6 +2181,49 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
       }
     } catch (err) {
       setDeliveryLoading(false)
+      setError(err instanceof Error ? err.message : 'Unknown error')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const assessReferenceVoice = async () => {
+    const trimmedReferenceText = referenceText.trim()
+    if (!trimmedReferenceText) {
+      setError('Reference text is required before generating a reference voice')
+      return
+    }
+
+    setLoading(true)
+    setError(null)
+    setLoadingMessage('Generating reference voice…')
+
+    try {
+      const res = await fetch('/api/speech/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: trimmedReferenceText,
+          voice: referenceVoice,
+          provider: isReferenceVoiceChirp3 ? 'chirp3' : 'gemini',
+        }),
+      })
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || 'Reference voice generation failed')
+      }
+
+      const data = await res.json() as { audio?: string; mimeType?: string }
+      if (!data.audio || !data.mimeType) {
+        throw new Error('Reference voice generation returned no audio')
+      }
+
+      const wavBlob = await convertRecordedBlobToWav(ttsPayloadToBlob(data.audio, data.mimeType))
+      setReferenceVoiceAudioUrl(URL.createObjectURL(wavBlob))
+      setGeneratedReferenceVoice(referenceVoice)
+      await handleAssess(wavBlob, trimmedReferenceText, { type: 'reference-voice', voice: referenceVoice })
+    } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
     } finally {
       setLoading(false)
@@ -2300,21 +2380,60 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
         </select>
       </div>
 
-      {/* Record button */}
-      <button
-        onClick={recording ? stopRecording : startRecording}
-        disabled={loading || (referenceSource === 'manual' && !referenceText.trim())}
-        className={`inline-flex items-center gap-2 px-6 py-2.5 rounded-full font-medium text-sm transition-all cursor-pointer ${
-          recording
-            ? 'bg-red-500 text-white hover:bg-red-600'
-            : 'bg-foreground text-background hover:opacity-90'
-        } disabled:opacity-40 disabled:cursor-not-allowed`}
-      >
-        <span className="material-symbols-outlined text-lg">
-          {recording ? 'stop' : 'mic'}
-        </span>
-        {recording ? 'Stop & Assess' : 'Record Pronunciation'}
-      </button>
+      {/* Reference voice baseline */}
+      <div className="space-y-1.5">
+        <label className="text-sm font-medium text-foreground/70">Reference Voice Baseline</label>
+        <select
+          value={referenceVoice}
+          onChange={(e) => setReferenceVoice(e.target.value)}
+          className="w-full rounded-xl bg-foreground/[0.03] border border-foreground/10 px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20 transition-all appearance-none cursor-pointer"
+        >
+          <optgroup label="Gemini 2.5 Flash Voices">
+            {geminiVoices.map((voice) => (
+              <option key={voice.name} value={voice.name}>
+                {voice.name} — {voice.style}
+              </option>
+            ))}
+          </optgroup>
+          <optgroup label="Chirp 3 HD Voices">
+            {chirp3Voices.map((voice) => (
+              <option key={voice.name} value={`chirp3:${voice.name}`}>
+                {voice.name.replace('en-US-Chirp3-HD-', '')} — {voice.style}
+              </option>
+            ))}
+          </optgroup>
+        </select>
+        <p className="text-xs text-foreground/40">
+          Generate this voice and score it against the same text to establish a provider baseline.
+        </p>
+      </div>
+
+      {/* Assessment actions */}
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          onClick={recording ? stopRecording : startRecording}
+          disabled={loading || (referenceSource === 'manual' && !referenceText.trim())}
+          className={`inline-flex items-center gap-2 px-6 py-2.5 rounded-full font-medium text-sm transition-all cursor-pointer ${
+            recording
+              ? 'bg-red-500 text-white hover:bg-red-600'
+              : 'bg-foreground text-background hover:opacity-90'
+          } disabled:opacity-40 disabled:cursor-not-allowed`}
+        >
+          <span className="material-symbols-outlined text-lg">
+            {recording ? 'stop' : 'mic'}
+          </span>
+          {recording ? 'Stop & Assess' : 'Record Pronunciation'}
+        </button>
+
+        <button
+          onClick={assessReferenceVoice}
+          disabled={loading || recording || !referenceText.trim()}
+          className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full border border-foreground/15 bg-foreground/[0.03] text-foreground/70 font-medium text-sm hover:bg-foreground/[0.08] hover:text-foreground transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <span className="material-symbols-outlined text-lg">record_voice_over</span>
+          Assess Reference Voice
+        </button>
+      </div>
 
       {/* Recording indicator */}
       {recording && (
@@ -2331,7 +2450,18 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
       {loading && (
         <div className="flex items-center gap-2 text-foreground/40 text-sm">
           <span className="material-symbols-outlined animate-spin text-lg">progress_activity</span>
-          Assessing pronunciation…
+          {loadingMessage}
+        </div>
+      )}
+
+      {/* Generated reference voice playback */}
+      {referenceVoiceAudioUrl && generatedReferenceVoice && (
+        <div className="rounded-xl bg-foreground/[0.02] border border-foreground/10 px-3 py-2.5 space-y-2">
+          <div>
+            <p className="text-xs text-foreground/40 uppercase tracking-wider font-medium">Generated Reference Voice</p>
+            <p className="text-xs text-foreground/40 mt-0.5">{getTtsVoiceLabel(generatedReferenceVoice)} · Use this as a listening baseline, then record your own attempt.</p>
+          </div>
+          <audio controls src={referenceVoiceAudioUrl} className="w-full" />
         </div>
       )}
 
@@ -2349,6 +2479,11 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
           <div className="rounded-xl bg-foreground/[0.03] border border-foreground/10 p-3 space-y-2">
             <p className="text-xs text-foreground/40 uppercase tracking-wider font-medium">Recognition Snapshot</p>
             <p className="text-sm text-foreground/70">Recognized: <span className="text-foreground font-medium">{result.displayText || '—'}</span></p>
+            <p className="text-xs text-foreground/45">
+              Source: {assessmentSubject.type === 'reference-voice'
+                ? `Generated reference voice · ${getTtsVoiceLabel(assessmentSubject.voice)}`
+                : 'Microphone recording'}
+            </p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs text-foreground/50">
               <div className="rounded-lg bg-foreground/[0.02] border border-foreground/8 px-2.5 py-1.5">Status: {result.recognitionStatus}</div>
               <div className="rounded-lg bg-foreground/[0.02] border border-foreground/8 px-2.5 py-1.5">Confidence: {result.confidence != null ? result.confidence.toFixed(3) : 'n/a'}</div>
@@ -2880,6 +3015,10 @@ function ScoreCard({ label, score, tooltip }: { label: string; score: number; to
 }
 
 /* ─── Types ─── */
+type AssessmentSubject =
+  | { type: 'recording' }
+  | { type: 'reference-voice'; voice: string }
+
 interface PronResult {
   pronScore: number
   accuracyScore: number
