@@ -1897,6 +1897,10 @@ function normalizeAzureWord(word: AzureWord): PronWord {
   }
 }
 
+function isOmittedPronunciationWord(word: PronWord): boolean {
+  return word.errorType === 'Omission'
+}
+
 function getProsodyBreakIssues(word: PronWord): ProsodyBreakIssue[] {
   const issues: ProsodyBreakIssue[] = []
   const unexpectedBreakConfidence = word.prosody?.unexpectedBreakConfidence
@@ -2648,6 +2652,11 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
           {result.words.length > 0 && (
             <div className="space-y-2">
               <p className="text-xs text-foreground/40 uppercase tracking-wider font-medium">Word Breakdown</p>
+              {result.words.some(isOmittedPronunciationWord) && (
+                <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700">
+                  Words labeled <span className="font-medium">omitted</span> were not aligned to recognized audio. Azure does not provide a valid pronunciation score for omitted words. For recordings over 30 seconds, use a shorter script until continuous assessment is added.
+                </div>
+              )}
               <div className="flex flex-wrap gap-2">
                 {result.words.map((w, i) => (
                   <PronunciationWordChip key={`${w.word}-${i}`} word={w} onClick={() => setSelectedWord(w)} />
@@ -2667,7 +2676,7 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
         </summary>
         <div className="mt-2 rounded-lg bg-foreground/[0.02] border border-foreground/5 p-2.5 text-xs text-foreground/40">
           <p className="font-medium text-foreground/50 mb-1">Azure Speech Pronunciation</p>
-          <p>Max audio: 5 minutes per request · WAV format preferred</p>
+          <p>Current short REST assessment: up to 30 seconds · WAV format preferred</p>
           <p>Rate limit: 20 concurrent requests (standard S0 tier)</p>
           <p>Assessment: Phoneme-level scoring with prosody analysis</p>
         </div>
@@ -2906,7 +2915,9 @@ function DeliveryChart({
 function PronunciationWordChip({ word, onClick }: { word: PronWord; onClick: () => void }) {
   const breakIssues = getProsodyBreakIssues(word)
   const hasPronunciationError = word.errorType !== 'None' && !['UnexpectedBreak', 'MissingBreak', 'Monotone'].includes(word.errorType)
-  const style = hasPronunciationError
+  const style = isOmittedPronunciationWord(word)
+    ? 'bg-amber-50 border-amber-200 text-amber-700'
+    : hasPronunciationError
     ? 'bg-red-50 border-red-200 text-red-700'
     : breakIssues.length > 0
       ? 'bg-amber-50 border-amber-200 text-amber-700'
@@ -2923,9 +2934,13 @@ function PronunciationWordChip({ word, onClick }: { word: PronWord; onClick: () 
       className={`group relative px-3 py-1.5 rounded-xl text-sm font-medium border transition-all hover:-translate-y-0.5 cursor-pointer ${style}`}
     >
       {word.word}
-      <span className="ml-1.5 text-xs opacity-60">{Math.round(word.accuracyScore)}</span>
+      <span className="ml-1.5 text-xs opacity-60">
+        {isOmittedPronunciationWord(word) ? 'omitted' : Math.round(word.accuracyScore)}
+      </span>
       <span className="pointer-events-none absolute z-20 hidden group-hover:block group-focus-visible:block bottom-full left-1/2 -translate-x-1/2 mb-2 w-max max-w-64 rounded-lg bg-glass backdrop-blur-md border border-glass-border px-2.5 py-2 text-left text-[11px] text-foreground/70 shadow-lg">
-        {word.syllables.length > 0
+        {isOmittedPronunciationWord(word)
+          ? 'Not aligned to recognized audio'
+          : word.syllables.length > 0
           ? <>Syllables: {word.syllables.map((syllable) => `${syllable.syllable} ${Math.round(syllable.accuracyScore)}`).join(' · ')}</>
           : 'Click for phoneme details'}
       </span>
@@ -2950,7 +2965,10 @@ function PronunciationWordModal({ word, onClose }: { word: PronWord; onClose: ()
           <div>
             <p className="text-xs text-foreground/40 uppercase tracking-wider">Word Details</p>
             <h3 className="text-xl font-medium text-foreground mt-0.5">
-              {word.word} <span className="text-sm text-foreground/40">{Math.round(word.accuracyScore)}</span>
+              {word.word}{' '}
+              <span className="text-sm text-foreground/40">
+                {isOmittedPronunciationWord(word) ? 'omitted' : Math.round(word.accuracyScore)}
+              </span>
             </h3>
           </div>
           <button type="button" onClick={onClose} className="rounded-full bg-foreground/5 hover:bg-foreground/10 p-2 text-foreground/50 transition-colors cursor-pointer" aria-label="Close">
