@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { FFmpeg } from '@ffmpeg/ffmpeg'
 import { fetchFile, toBlobURL } from '@ffmpeg/util'
 import { buildTtsBatches, textSize, createIntlSegmenter } from '@/lib/tts/sentenceSplitter'
@@ -23,6 +23,19 @@ interface HistoryItem {
   createdAt: number
 }
 
+interface HistoryActionRequest {
+  requestId: string
+  action: 'restore' | 'rerun'
+  item: HistoryItem
+}
+
+interface SavedRecording {
+  id: string
+  key: string
+  sizeBytes: number
+  createdAt: string
+}
+
 const tabs: { id: Tab; label: string; shortLabel: string; icon: string }[] = [
   { id: 'tts', label: 'Text to Speech', shortLabel: 'TTS', icon: 'record_voice_over' },
   { id: 'stt', label: 'Transcription', shortLabel: 'STT', icon: 'mic' },
@@ -33,6 +46,7 @@ const modalityLabels: Record<Tab, string> = {
   stt: 'Transcription',
   pronunciation: 'Pronunciation',
 }
+const HISTORY_PAGE_SIZE = 25
 
 export default function SpeechLabPage({ hidePronunciation }: { hidePronunciation?: boolean } = {}) {
   const visibleTabs = hidePronunciation ? tabs.filter((t) => t.id !== 'pronunciation') : tabs
@@ -50,40 +64,65 @@ export default function SpeechLabPage({ hidePronunciation }: { hidePronunciation
   useEffect(() => { localStorage.setItem('speech-lab-tab', activeTab) }, [activeTab])
   const [history, setHistory] = useState<HistoryItem[]>([])
   const [historyError, setHistoryError] = useState<string | null>(null)
+  const [historyNotice, setHistoryNotice] = useState<{ message: string; undoItem?: HistoryItem } | null>(null)
   const [historyFilter, setHistoryFilter] = useState<SpeechModality>('all')
+  const [historySearch, setHistorySearch] = useState('')
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyCursor, setHistoryCursor] = useState<string | null>(null)
+  const [historyHasMore, setHistoryHasMore] = useState(false)
+  const [selectedHistoryItem, setSelectedHistoryItem] = useState<HistoryItem | null>(null)
+  const [historyActionRequest, setHistoryActionRequest] = useState<HistoryActionRequest | null>(null)
   // Safari animation fix — only add blur-reveal classes after mount
   // so Safari doesn't cache the final state on refresh
   const [mounted, setMounted] = useState(false)
   useEffect(() => { setMounted(true) }, [])
 
-  const loadHistory = async () => {
+  const loadHistory = useCallback(async (options: { append?: boolean; cursor?: string | null } = {}) => {
+    setHistoryLoading(true)
     try {
-      const res = await fetch('/api/speech/history', { cache: 'no-store' })
+      const params = new URLSearchParams({
+        limit: String(HISTORY_PAGE_SIZE),
+      })
+      if (historyFilter !== 'all') params.set('modality', historyFilter)
+      if (historySearch.trim()) params.set('q', historySearch.trim())
+      if (options.cursor) params.set('cursor', options.cursor)
+
+      const res = await fetch(`/api/speech/history?${params.toString()}`, { cache: 'no-store' })
       if (!res.ok) {
         setHistoryError('Unable to load history right now.')
         return
       }
       const data = await res.json()
-      setHistory(data.items || [])
+      const items = (data.items || []) as HistoryItem[]
+      setHistory((prev) => options.append ? [...prev, ...items] : items)
+      setHistoryCursor(typeof data.nextCursor === 'string' ? data.nextCursor : null)
+      setHistoryHasMore(Boolean(data.hasMore))
       setHistoryError(null)
     } catch {
       setHistoryError('Unable to load history right now.')
+    } finally {
+      setHistoryLoading(false)
     }
-  }
+  }, [historyFilter, historySearch])
 
   useEffect(() => {
-    loadHistory()
-  }, [])
+    const timeout = window.setTimeout(() => {
+      void loadHistory()
+    }, historySearch.trim() ? 250 : 0)
+    return () => window.clearTimeout(timeout)
+  }, [loadHistory, historySearch])
 
-  const deleteHistory = async (id: string) => {
+  const deleteHistory = async (item: HistoryItem) => {
     try {
       const res = await fetch('/api/speech/history', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id }),
+        body: JSON.stringify({ id: item.id }),
       })
       if (res.ok) {
-        setHistory((prev) => prev.filter((item) => item.id !== id))
+        setHistory((prev) => prev.filter((candidate) => candidate.id !== item.id))
+        setSelectedHistoryItem((current) => current?.id === item.id ? null : current)
+        setHistoryNotice({ message: 'History item deleted.', undoItem: item })
         setHistoryError(null)
       } else {
         setHistoryError('Unable to delete history item.')
@@ -91,6 +130,33 @@ export default function SpeechLabPage({ hidePronunciation }: { hidePronunciation
     } catch {
       setHistoryError('Unable to delete history item.')
     }
+  }
+
+  const undoDeleteHistory = async (item: HistoryItem) => {
+    try {
+      const saved = await saveSpeechHistory({
+        modality: item.modality,
+        title: item.title,
+        content: item.content,
+        metadata: item.metadata ?? undefined,
+      })
+      if (saved) {
+        setHistoryNotice({ message: 'History item restored.' })
+        await loadHistory()
+      }
+    } catch {
+      setHistoryError('Unable to restore deleted history item.')
+    }
+  }
+
+  const requestHistoryAction = (item: HistoryItem, action: HistoryActionRequest['action']) => {
+    setActiveTab(item.modality)
+    setHistoryActionRequest({
+      requestId: `${Date.now()}-${item.id}-${action}`,
+      action,
+      item,
+    })
+    setSelectedHistoryItem(null)
   }
 
   return (
@@ -128,18 +194,40 @@ export default function SpeechLabPage({ hidePronunciation }: { hidePronunciation
 
       {/* Tab content */}
       <div className={`rounded-2xl bg-glass backdrop-blur-sm border border-glass-border overflow-hidden ${mounted ? 'blur-reveal-3' : 'opacity-0'}`}>
-        {activeTab === 'tts' && <TtsPanel onHistorySaved={loadHistory} />}
-        {activeTab === 'stt' && <SttPanel onHistorySaved={loadHistory} />}
-        {activeTab === 'pronunciation' && !hidePronunciation && <PronunciationPanel onHistorySaved={loadHistory} />}
+        {activeTab === 'tts' && (
+          <TtsPanel
+            onHistorySaved={() => loadHistory()}
+            historyActionRequest={historyActionRequest?.item.modality === 'tts' ? historyActionRequest : null}
+          />
+        )}
+        {activeTab === 'stt' && (
+          <SttPanel
+            onHistorySaved={() => loadHistory()}
+            historyActionRequest={historyActionRequest?.item.modality === 'stt' ? historyActionRequest : null}
+          />
+        )}
+        {activeTab === 'pronunciation' && !hidePronunciation && (
+          <PronunciationPanel
+            onHistorySaved={() => loadHistory()}
+            historyActionRequest={historyActionRequest?.item.modality === 'pronunciation' ? historyActionRequest : null}
+          />
+        )}
       </div>
 
       <div className={`rounded-2xl bg-glass backdrop-blur-sm border border-glass-border p-5 space-y-3 ${mounted ? 'blur-reveal-4' : 'opacity-0'}`}>
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div>
             <h3 className="text-sm font-medium text-foreground">History</h3>
-            <p className="text-xs text-foreground/40">Stored in Turso across all speech modalities</p>
+            <p className="text-xs text-foreground/40">Searchable Turso records with restore and diagnostics</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="search"
+              value={historySearch}
+              onChange={(e) => setHistorySearch(e.target.value)}
+              placeholder="Search history…"
+              className="w-40 sm:w-56 rounded-xl bg-foreground/[0.03] border border-foreground/10 px-3 py-1.5 text-xs text-foreground placeholder:text-foreground/30 focus:outline-none focus:ring-2 focus:ring-foreground/15"
+            />
             <select
               value={historyFilter}
               onChange={(e) => setHistoryFilter(e.target.value as SpeechModality)}
@@ -152,47 +240,111 @@ export default function SpeechLabPage({ hidePronunciation }: { hidePronunciation
               {!hidePronunciation && <option value="pronunciation">Pronunciation</option>}
             </select>
             <button
-              onClick={loadHistory}
+              onClick={() => loadHistory()}
+              disabled={historyLoading}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-foreground/5 text-foreground/60 text-xs hover:bg-foreground/10 transition-colors cursor-pointer"
             >
-              <span className="material-symbols-outlined text-sm">refresh</span>
-              Refresh
+              <span className={`material-symbols-outlined text-sm ${historyLoading ? 'animate-spin' : ''}`}>
+                {historyLoading ? 'progress_activity' : 'refresh'}
+              </span>
+              {historyLoading ? 'Loading' : 'Refresh'}
             </button>
           </div>
         </div>
 
         {historyError && <p className="text-xs text-foreground/40">{historyError}</p>}
+        {historyNotice && (
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-foreground/10 bg-foreground/[0.02] px-3 py-2 text-xs text-foreground/50">
+            <span>{historyNotice.message}</span>
+            {historyNotice.undoItem && (
+              <button
+                type="button"
+                onClick={() => undoDeleteHistory(historyNotice.undoItem!)}
+                className="rounded-full bg-foreground/5 px-3 py-1 font-medium text-foreground/60 hover:bg-foreground/10 hover:text-foreground transition-colors cursor-pointer"
+              >
+                Undo
+              </button>
+            )}
+          </div>
+        )}
 
-        <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-          {history
-            .filter((item) => historyFilter === 'all' || item.modality === historyFilter)
-            .map((item) => (
+        <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+          {history.map((item) => {
+            const summary = getHistoryItemSummary(item)
+            return (
               <div key={item.id} className="rounded-xl border border-foreground/10 bg-foreground/[0.02] p-3">
                 <div className="flex items-start justify-between gap-3">
-                  <div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedHistoryItem(item)}
+                    className="min-w-0 flex-1 text-left cursor-pointer"
+                  >
                     <p className="text-sm text-foreground">{item.title}</p>
                     <p className="text-xs text-foreground/40">
                       {modalityLabels[item.modality]} · {new Date(item.createdAt).toLocaleString()}
                     </p>
-                  </div>
-                  <button
-                    onClick={() => deleteHistory(item.id)}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-red-50 text-red-700 text-xs border border-red-200 hover:bg-red-100 transition-colors cursor-pointer"
-                  >
-                    <span className="material-symbols-outlined text-sm">delete</span>
-                    Delete
                   </button>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => requestHistoryAction(item, 'restore')}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-foreground/5 text-foreground/60 text-xs border border-foreground/10 hover:bg-foreground/10 hover:text-foreground transition-colors cursor-pointer"
+                    >
+                      <span className="material-symbols-outlined text-sm">restore</span>
+                      Restore
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedHistoryItem(item)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-foreground/5 text-foreground/60 text-xs border border-foreground/10 hover:bg-foreground/10 hover:text-foreground transition-colors cursor-pointer"
+                    >
+                      <span className="material-symbols-outlined text-sm">open_in_full</span>
+                      Details
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteHistory(item)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-red-50 text-red-700 text-xs border border-red-200 hover:bg-red-100 transition-colors cursor-pointer"
+                    >
+                      <span className="material-symbols-outlined text-sm">delete</span>
+                      Delete
+                    </button>
+                  </div>
                 </div>
+                {summary && <p className="text-xs text-foreground/45 mt-2">{summary}</p>}
                 {item.content && (
                   <p className="text-xs text-foreground/60 mt-2 whitespace-pre-wrap break-words">{item.content}</p>
                 )}
               </div>
-            ))}
-          {history.filter((item) => historyFilter === 'all' || item.modality === historyFilter).length === 0 && (
-            <p className="text-sm text-foreground/40 py-2">No history yet.</p>
+            )
+          })}
+          {history.length === 0 && !historyLoading && (
+            <p className="text-sm text-foreground/40 py-2">
+              {historySearch.trim() ? 'No matching history items.' : 'No history yet.'}
+            </p>
+          )}
+          {historyHasMore && (
+            <button
+              type="button"
+              onClick={() => loadHistory({ append: true, cursor: historyCursor })}
+              disabled={historyLoading}
+              className="w-full rounded-xl border border-foreground/10 bg-foreground/[0.02] px-3 py-2 text-xs font-medium text-foreground/50 hover:bg-foreground/[0.05] hover:text-foreground/70 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {historyLoading ? 'Loading…' : 'Load more'}
+            </button>
           )}
         </div>
       </div>
+
+      {selectedHistoryItem && (
+        <HistoryDetailModal
+          item={selectedHistoryItem}
+          onClose={() => setSelectedHistoryItem(null)}
+          onRestore={() => requestHistoryAction(selectedHistoryItem, 'restore')}
+          onRerun={() => requestHistoryAction(selectedHistoryItem, 'rerun')}
+          onDelete={() => deleteHistory(selectedHistoryItem)}
+        />
+      )}
 
       <div className={`rounded-2xl bg-glass backdrop-blur-sm border border-glass-border p-5 ${mounted ? 'blur-reveal-5' : 'opacity-0'}`}>
         <p className="text-xs text-foreground/40 mb-2">Reference Docs</p>
@@ -260,15 +412,400 @@ const CHIRP3_TEXT_LIMIT_BYTES = 5000
 // @/lib/tts/sentenceSplitter — imported at the top of this file.
 // To swap in wink-nlp: pass createWinkSegmenter() as the third arg to buildTtsBatches().
 
-function saveSpeechHistory(payload: { modality: Tab; title: string; content?: string; metadata?: Record<string, unknown> }) {
-  // History persistence is best-effort and should not block core speech actions.
-  void fetch('/api/speech/history', {
+async function saveSpeechHistory(payload: { modality: Tab; title: string; content?: string; metadata?: Record<string, unknown> }): Promise<HistoryItem | null> {
+  const res = await fetch('/api/speech/history', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
-  }).catch((error) => {
-    console.warn('Failed to save speech history', error)
   })
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error(typeof data.error === 'string' ? data.error : 'Failed to save speech history')
+  }
+
+  const data = await res.json()
+  return (data.item ?? null) as HistoryItem | null
+}
+
+async function uploadSpeechRecording(audioBlob: Blob, filename: string): Promise<SavedRecording | null> {
+  try {
+    const formData = new FormData()
+    formData.append('audio', audioBlob, filename)
+    const res = await fetch('/api/speech/recordings', { method: 'POST', body: formData })
+    if (!res.ok) return null
+    const data = await res.json()
+    return (data.recording ?? null) as SavedRecording | null
+  } catch {
+    return null
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function getHistoryMetadata(item: HistoryItem): Record<string, unknown> {
+  return item.metadata && isRecord(item.metadata) ? item.metadata : {}
+}
+
+function getMetadataString(metadata: Record<string, unknown>, key: string): string | null {
+  const value = metadata[key]
+  return typeof value === 'string' ? value : null
+}
+
+function getMetadataNumber(metadata: Record<string, unknown>, key: string): number | null {
+  const value = metadata[key]
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function getNestedRecord(metadata: Record<string, unknown>, key: string): Record<string, unknown> | null {
+  const value = metadata[key]
+  return isRecord(value) ? value : null
+}
+
+function getHistoryRecording(metadata: Record<string, unknown>): SavedRecording | null {
+  const recording = getNestedRecord(metadata, 'recording')
+  if (!recording) return null
+  const id = getMetadataString(recording, 'id')
+  const key = getMetadataString(recording, 'key')
+  const createdAt = getMetadataString(recording, 'createdAt')
+  const sizeBytes = getMetadataNumber(recording, 'sizeBytes')
+  if (!id || !key || !createdAt || sizeBytes == null) return null
+  return { id, key, createdAt, sizeBytes }
+}
+
+function getHistoryItemSummary(item: HistoryItem): string | null {
+  const metadata = getHistoryMetadata(item)
+  if (item.modality === 'tts') {
+    const provider = getMetadataString(metadata, 'provider')
+    const voice = getMetadataString(metadata, 'voice')
+    const batchCount = getMetadataNumber(metadata, 'batchCount')
+    return [
+      provider ? provider.toUpperCase() : null,
+      voice ? `Voice ${getTtsVoiceLabel(voice)}` : null,
+      batchCount && batchCount > 1 ? `${batchCount} batches` : null,
+    ].filter(Boolean).join(' · ') || null
+  }
+
+  if (item.modality === 'stt') {
+    const model = getMetadataString(metadata, 'model')
+    const segments = getMetadataNumber(metadata, 'segments')
+    const speakers = getMetadataNumber(metadata, 'speakers')
+    return [
+      model,
+      segments != null ? `${segments} segments` : null,
+      speakers != null ? `${speakers} speakers` : null,
+      getHistoryRecording(metadata) ? 'audio saved' : null,
+    ].filter(Boolean).join(' · ') || null
+  }
+
+  const scores = getNestedRecord(metadata, 'scores')
+  const pronScore = getMetadataNumber(scores ?? metadata, scores ? 'pronunciation' : 'pronScore')
+  const issueCounts = getNestedRecord(metadata, 'issueCounts')
+  const issueTotal = issueCounts
+    ? ['omissionCount', 'mispronunciationCount', 'unexpectedBreakCount', 'missingBreakCount', 'monotoneCount']
+        .reduce((total, key) => total + (getMetadataNumber(issueCounts, key) ?? 0), 0)
+    : 0
+
+  return [
+    pronScore != null ? `Overall ${Math.round(pronScore)}` : null,
+    issueTotal > 0 ? `${issueTotal} issues` : 'no labeled issues',
+    getMetadataString(metadata, 'requestId') ? `ID ${getMetadataString(metadata, 'requestId')}` : null,
+  ].filter(Boolean).join(' · ') || null
+}
+
+function copyHistoryText(item: HistoryItem) {
+  const metadata = getHistoryMetadata(item)
+  const recognized = getMetadataString(metadata, 'displayText')
+  const text = item.modality === 'pronunciation' && recognized
+    ? `Reference: ${item.content}\nRecognized: ${recognized}`
+    : item.content
+  void navigator.clipboard.writeText(text || item.title)
+}
+
+function getHistoryPronunciationScores(metadata: Record<string, unknown>) {
+  const scores = getNestedRecord(metadata, 'scores')
+  return {
+    pronScore: getMetadataNumber(scores ?? metadata, scores ? 'pronunciation' : 'pronScore'),
+    accuracyScore: getMetadataNumber(scores ?? metadata, scores ? 'accuracy' : 'accuracyScore'),
+    fluencyScore: getMetadataNumber(scores ?? metadata, scores ? 'fluency' : 'fluencyScore'),
+    completenessScore: getMetadataNumber(scores ?? metadata, scores ? 'completeness' : 'completenessScore'),
+    prosodyScore: getMetadataNumber(scores ?? metadata, scores ? 'prosody' : 'prosodyScore'),
+  }
+}
+
+function isPronWordLike(value: unknown): value is PronWord {
+  if (!isRecord(value)) return false
+  return typeof value.word === 'string' &&
+    typeof value.accuracyScore === 'number' &&
+    typeof value.errorType === 'string' &&
+    Array.isArray(value.syllables) &&
+    Array.isArray(value.phonemes)
+}
+
+function getHistoryPronunciationWords(metadata: Record<string, unknown>): PronWord[] {
+  const words = metadata.words
+  if (!Array.isArray(words)) return []
+  return words.filter(isPronWordLike)
+}
+
+function getHistoryDeliveryAnalysis(metadata: Record<string, unknown>): DeliveryAnalysis | undefined {
+  const delivery = metadata.delivery
+  if (!isRecord(delivery)) return undefined
+  const summary = delivery.summary
+  const pitch = delivery.pitch
+  const intensity = delivery.intensity
+  if (!isRecord(summary) || !isRecord(pitch) || !isRecord(intensity)) return undefined
+  return delivery as unknown as DeliveryAnalysis
+}
+
+function canRerunHistoryItem(item: HistoryItem): boolean {
+  const metadata = getHistoryMetadata(item)
+  if (item.modality === 'tts') return Boolean(item.content.trim())
+  if (item.modality === 'stt') return Boolean(getHistoryRecording(metadata))
+  if (item.modality === 'pronunciation') {
+    const source = getMetadataString(metadata, 'source')
+    return source === 'reference-voice' || Boolean(getHistoryRecording(metadata))
+  }
+  return false
+}
+
+function HistoryDetailModal({
+  item,
+  onClose,
+  onRestore,
+  onRerun,
+  onDelete,
+}: {
+  item: HistoryItem
+  onClose: () => void
+  onRestore: () => void
+  onRerun: () => void
+  onDelete: () => void
+}) {
+  const [selectedWord, setSelectedWord] = useState<PronWord | null>(null)
+  const metadata = getHistoryMetadata(item)
+  const recording = getHistoryRecording(metadata)
+  const canRerun = canRerunHistoryItem(item)
+
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [onClose])
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center px-4">
+      <button type="button" aria-label="Close history details" className="absolute inset-0 bg-background/60 backdrop-blur-xl cursor-default" onClick={onClose} />
+      <div role="dialog" aria-modal="true" aria-label={`${item.title} history details`} className="relative w-full max-w-3xl max-h-[88vh] overflow-y-auto rounded-2xl bg-glass backdrop-blur-xl border border-glass-border shadow-xl p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs text-foreground/40 uppercase tracking-wider">History Details</p>
+            <h3 className="text-xl font-medium text-foreground mt-0.5 break-words">{item.title}</h3>
+            <p className="text-xs text-foreground/40 mt-1">
+              {modalityLabels[item.modality]} · {new Date(item.createdAt).toLocaleString()}
+            </p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-full bg-foreground/5 hover:bg-foreground/10 p-2 text-foreground/50 transition-colors cursor-pointer" aria-label="Close">
+            <span className="material-symbols-outlined text-lg block">close</span>
+          </button>
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={onRestore}
+            className="inline-flex items-center gap-1.5 rounded-full bg-foreground text-background px-4 py-2 text-xs font-medium hover:opacity-90 transition-opacity cursor-pointer"
+          >
+            <span className="material-symbols-outlined text-sm">restore</span>
+            Restore
+          </button>
+          <button
+            type="button"
+            onClick={onRerun}
+            disabled={!canRerun}
+            title={canRerun ? undefined : 'No saved audio or runnable text is available for this item.'}
+            className="inline-flex items-center gap-1.5 rounded-full border border-foreground/15 bg-foreground/[0.03] px-4 py-2 text-xs font-medium text-foreground/60 hover:bg-foreground/[0.08] hover:text-foreground transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <span className="material-symbols-outlined text-sm">replay</span>
+            Rerun
+          </button>
+          <button
+            type="button"
+            onClick={() => copyHistoryText(item)}
+            className="inline-flex items-center gap-1.5 rounded-full border border-foreground/15 bg-foreground/[0.03] px-4 py-2 text-xs font-medium text-foreground/60 hover:bg-foreground/[0.08] hover:text-foreground transition-colors cursor-pointer"
+          >
+            <span className="material-symbols-outlined text-sm">content_copy</span>
+            Copy
+          </button>
+          <button
+            type="button"
+            onClick={onDelete}
+            className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-4 py-2 text-xs font-medium text-red-700 hover:bg-red-100 transition-colors cursor-pointer"
+          >
+            <span className="material-symbols-outlined text-sm">delete</span>
+            Delete
+          </button>
+        </div>
+
+        <div className="mt-5 space-y-4">
+          {item.content && (
+            <div className="rounded-xl border border-foreground/10 bg-foreground/[0.02] p-3">
+              <p className="text-xs text-foreground/40 uppercase tracking-wider font-medium mb-1">
+                {item.modality === 'pronunciation' ? 'Reference Text' : 'Saved Content'}
+              </p>
+              <p className="text-sm leading-relaxed text-foreground/70 whitespace-pre-wrap break-words">{item.content}</p>
+            </div>
+          )}
+
+          {item.modality === 'tts' && <HistoryTtsDetails metadata={metadata} />}
+          {item.modality === 'stt' && <HistorySttDetails metadata={metadata} recording={recording} />}
+          {item.modality === 'pronunciation' && (
+            <HistoryPronunciationDetails metadata={metadata} onSelectWord={setSelectedWord} />
+          )}
+        </div>
+      </div>
+
+      {selectedWord && <PronunciationWordModal word={selectedWord} onClose={() => setSelectedWord(null)} />}
+    </div>
+  )
+}
+
+function HistoryTtsDetails({ metadata }: { metadata: Record<string, unknown> }) {
+  const storageUrl = getMetadataString(metadata, 'storageUrl')
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+      <DeliveryMetric label="Provider" value={getMetadataString(metadata, 'provider') ?? 'n/a'} />
+      <DeliveryMetric label="Voice" value={getMetadataString(metadata, 'voice') ? getTtsVoiceLabel(getMetadataString(metadata, 'voice')!) : 'n/a'} />
+      <DeliveryMetric label="Batches" value={String(getMetadataNumber(metadata, 'batchCount') ?? 1)} />
+      <DeliveryMetric label="MIME" value={getMetadataString(metadata, 'mimeType') ?? 'n/a'} />
+      {storageUrl && (
+        <a href={storageUrl} target="_blank" rel="noreferrer" className="sm:col-span-4 rounded-xl border border-foreground/10 bg-foreground/[0.02] px-3 py-2 text-xs text-foreground/50 hover:text-foreground transition-colors">
+          Open stored audio
+        </a>
+      )}
+    </div>
+  )
+}
+
+function HistorySttDetails({ metadata, recording }: { metadata: Record<string, unknown>; recording: SavedRecording | null }) {
+  const segmentsData = metadata.segmentsData
+  const segments = Array.isArray(segmentsData)
+    ? segmentsData.filter((segment): segment is { start: number; end: number; text: string } =>
+        isRecord(segment) &&
+        typeof segment.start === 'number' &&
+        typeof segment.end === 'number' &&
+        typeof segment.text === 'string'
+      )
+    : []
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <DeliveryMetric label="Model" value={getMetadataString(metadata, 'model') ?? 'n/a'} />
+        <DeliveryMetric label="Segments" value={String(getMetadataNumber(metadata, 'segments') ?? (segments.length || 'n/a'))} />
+        <DeliveryMetric label="Speakers" value={String(getMetadataNumber(metadata, 'speakers') ?? 'n/a')} />
+        <DeliveryMetric label="Audio" value={recording ? formatBytes(recording.sizeBytes) : 'not saved'} />
+      </div>
+      {segments.length > 0 && (
+        <div className="rounded-xl border border-foreground/10 bg-foreground/[0.02] p-3 space-y-1.5">
+          <p className="text-xs text-foreground/40 uppercase tracking-wider font-medium">Segments</p>
+          {segments.slice(0, 40).map((segment, index) => (
+            <p key={`${segment.start}-${index}`} className="text-xs text-foreground/60">
+              <span className="tabular-nums text-foreground/35">{segment.start.toFixed(1)}s-{segment.end.toFixed(1)}s</span>{' '}
+              {segment.text}
+            </p>
+          ))}
+          {segments.length > 40 && <p className="text-xs text-foreground/35">Showing first 40 of {segments.length} segments.</p>}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function HistoryPronunciationDetails({
+  metadata,
+  onSelectWord,
+}: {
+  metadata: Record<string, unknown>
+  onSelectWord: (word: PronWord) => void
+}) {
+  const scores = getHistoryPronunciationScores(metadata)
+  const words = getHistoryPronunciationWords(metadata)
+  const delivery = getHistoryDeliveryAnalysis(metadata)
+  const deliveryError = getMetadataString(metadata, 'deliveryError')
+  const issueCounts = getNestedRecord(metadata, 'issueCounts')
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl bg-foreground/[0.03] border border-foreground/10 p-3 space-y-2">
+        <p className="text-xs text-foreground/40 uppercase tracking-wider font-medium">Recognition Snapshot</p>
+        <p className="text-sm text-foreground/70">
+          Recognized: <span className="text-foreground font-medium">{getMetadataString(metadata, 'displayText') ?? 'n/a'}</span>
+        </p>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs text-foreground/50">
+          <div className="rounded-lg bg-foreground/[0.02] border border-foreground/8 px-2.5 py-1.5">Status: {getMetadataString(metadata, 'recognitionStatus') ?? 'n/a'}</div>
+          <div className="rounded-lg bg-foreground/[0.02] border border-foreground/8 px-2.5 py-1.5">Confidence: {getMetadataNumber(metadata, 'confidence')?.toFixed(3) ?? 'n/a'}</div>
+          <div className="rounded-lg bg-foreground/[0.02] border border-foreground/8 px-2.5 py-1.5">SNR: {getMetadataNumber(metadata, 'snr')?.toFixed(1) ?? 'n/a'}</div>
+          <div className="rounded-lg bg-foreground/[0.02] border border-foreground/8 px-2.5 py-1.5 truncate" title={getMetadataString(metadata, 'lexical') ?? undefined}>Lexical: {getMetadataString(metadata, 'lexical') ?? 'n/a'}</div>
+        </div>
+        {getMetadataString(metadata, 'requestId') && (
+          <p className="text-[11px] text-foreground/35">Tracking ID: <span className="font-mono">{getMetadataString(metadata, 'requestId')}</span></p>
+        )}
+      </div>
+
+      {scores.pronScore != null && (
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+          <ScoreCard label="Overall" score={scores.pronScore} />
+          {scores.accuracyScore != null && <ScoreCard label="Accuracy" score={scores.accuracyScore} />}
+          {scores.fluencyScore != null && <ScoreCard label="Fluency" score={scores.fluencyScore} />}
+          {scores.completenessScore != null && <ScoreCard label="Complete" score={scores.completenessScore} />}
+          {scores.prosodyScore != null && <ScoreCard label="Prosody" score={scores.prosodyScore} />}
+        </div>
+      )}
+
+      {issueCounts && (
+        <div className="flex flex-wrap gap-1.5">
+          {[
+            ['Omissions', 'omissionCount'],
+            ['Mispronounced', 'mispronunciationCount'],
+            ['Missing pauses', 'missingBreakCount'],
+            ['Unexpected pauses', 'unexpectedBreakCount'],
+            ['Monotone', 'monotoneCount'],
+          ].map(([label, key]) => (
+            <span key={key} className="rounded-full bg-foreground/5 px-2.5 py-1 text-xs text-foreground/50">
+              {label}: {getMetadataNumber(issueCounts, key) ?? 0}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {words.length > 0 && <ProsodyFeedback words={words} />}
+
+      <DeliveryAnalysisPanel
+        analysis={delivery}
+        loading={false}
+        error={deliveryError}
+      />
+
+      {words.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs text-foreground/40 uppercase tracking-wider font-medium">Word Breakdown</p>
+          <div className="flex flex-wrap gap-2">
+            {words.map((word, index) => (
+              <PronunciationWordChip key={`${word.word}-${index}`} word={word} onClick={() => onSelectWord(word)} />
+            ))}
+          </div>
+          {metadata.wordsTruncated === true && (
+            <p className="text-xs text-foreground/35">This history item stores the first saved word details only.</p>
+          )}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function audioBufferToWavBlob(audioBuffer: AudioBuffer): Blob {
@@ -379,7 +916,13 @@ function getSpeechLabRequestId(error: unknown): string | null {
 }
 
 /* ─── TTS Panel ─── */
-function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
+function TtsPanel({
+  onHistorySaved,
+  historyActionRequest,
+}: {
+  onHistorySaved: () => Promise<void> | void
+  historyActionRequest?: HistoryActionRequest | null
+}) {
   const [text, setText] = useState('')
   const [voice, setVoice] = useState('Gacrux')
   const [instructions, setInstructions] = useState('')
@@ -395,15 +938,20 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
    * Fetches a single TTS batch from the API and returns the raw audio Uint8Array
    * plus MIME type.  Throws on API errors so the caller can catch and surface them.
    */
-  const fetchTtsBatch = async (batchText: string): Promise<{ bytes: Uint8Array<ArrayBuffer>; mimeType: string; summary?: string; storageUrl?: string }> => {
+  const fetchTtsBatch = async (
+    batchText: string,
+    selectedVoice: string,
+    selectedInstructions: string
+  ): Promise<{ bytes: Uint8Array<ArrayBuffer>; mimeType: string; summary?: string; storageUrl?: string }> => {
+    const useChirp3 = selectedVoice.startsWith('chirp3:')
     const res = await fetch('/api/speech/tts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         text: batchText,
-        voice,
-        provider: isChirp3Voice ? 'chirp3' : 'gemini',
-        ...(!isChirp3Voice && instructions.trim() ? { instructions: instructions.trim() } : {}),
+        voice: selectedVoice,
+        provider: useChirp3 ? 'chirp3' : 'gemini',
+        ...(!useChirp3 && selectedInstructions.trim() ? { instructions: selectedInstructions.trim() } : {}),
       }),
     })
 
@@ -416,8 +964,12 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
     return { bytes: base64ToBytes(audio), mimeType, summary, storageUrl }
   }
 
-  const handleGenerate = async () => {
-    const trimmedText = text.trim()
+  const generateSpeech = async (
+    inputText = text,
+    selectedVoice = voice,
+    selectedInstructions = instructions
+  ) => {
+    const trimmedText = inputText.trim()
     if (!trimmedText) return
 
     setLoading(true)
@@ -427,10 +979,11 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
     setBatchProgress(null)
 
     try {
-      const limit = isChirp3Voice ? CHIRP3_TEXT_LIMIT_BYTES : GEMINI_TEXT_LIMIT
+      const useChirp3 = selectedVoice.startsWith('chirp3:')
+      const limit = useChirp3 ? CHIRP3_TEXT_LIMIT_BYTES : GEMINI_TEXT_LIMIT
       // NLP sentence splitter: pack sentences into batches that maximise usage
       // while staying under the API limit.  Full DSA docs in @/lib/tts/sentenceSplitter.ts
-      const batches = buildTtsBatches(trimmedText, { limit, isChirp3: isChirp3Voice }, _intlSegmenter)
+      const batches = buildTtsBatches(trimmedText, { limit, isChirp3: useChirp3 }, _intlSegmenter)
       const isSingleBatch = batches.length === 1
 
       if (!isSingleBatch) {
@@ -447,7 +1000,7 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
       for (let i = 0; i < batches.length; i++) {
         if (!isSingleBatch) setBatchProgress({ current: i + 1, total: batches.length })
 
-        const { bytes, mimeType, summary, storageUrl } = await fetchTtsBatch(batches[i])
+        const { bytes, mimeType, summary, storageUrl } = await fetchTtsBatch(batches[i], selectedVoice, selectedInstructions)
 
         // Normalize all chunks to WAV PCM so they can be concatenated.
         // L16 raw PCM → wrap in WAV header.
@@ -501,19 +1054,24 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
       setAudioUrl(url)
       setBatchProgress(null)
 
-      saveSpeechHistory({
-        modality: 'tts',
-        title: firstSummary || `TTS · ${voice}`,
-        content: trimmedText.slice(0, 500),
-        metadata: {
-          voice,
-          provider: isChirp3Voice ? 'chirp3' : 'gemini',
-          mimeType: overallMimeType,
-          batchCount: batches.length,
-          ...(firstStorageUrl ? { storageUrl: firstStorageUrl } : {}),
-        },
-      })
-      onHistorySaved()
+      try {
+        const saved = await saveSpeechHistory({
+          modality: 'tts',
+          title: firstSummary || `TTS · ${selectedVoice}`,
+          content: trimmedText,
+          metadata: {
+            voice: selectedVoice,
+            provider: useChirp3 ? 'chirp3' : 'gemini',
+            ...(selectedInstructions.trim() ? { instructions: selectedInstructions.trim() } : {}),
+            mimeType: overallMimeType,
+            batchCount: batches.length,
+            ...(firstStorageUrl ? { storageUrl: firstStorageUrl } : {}),
+          },
+        })
+        if (saved) await onHistorySaved()
+      } catch (historyError) {
+        console.warn('Failed to save TTS history', historyError)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
       setErrorRequestId(getSpeechLabRequestId(err))
@@ -522,6 +1080,30 @@ function TtsPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
       setLoading(false)
     }
   }
+
+  const handleGenerate = async () => {
+    await generateSpeech()
+  }
+
+  useEffect(() => {
+    if (!historyActionRequest) return
+    const item = historyActionRequest.item
+    const metadata = getHistoryMetadata(item)
+    const restoredVoice = getMetadataString(metadata, 'voice') ?? voice
+    const restoredInstructions = getMetadataString(metadata, 'instructions') ?? ''
+
+    setText(item.content)
+    setVoice(restoredVoice)
+    setInstructions(restoredInstructions)
+    setAudioUrl(null)
+    setError(null)
+    setErrorRequestId(null)
+
+    if (historyActionRequest.action === 'rerun') {
+      void generateSpeech(item.content, restoredVoice, restoredInstructions)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [historyActionRequest?.requestId])
 
   return (
     <div className="p-6 space-y-5">
@@ -916,7 +1498,13 @@ async function compressAudioForUpload(blob: Blob, limitBytes: number): Promise<B
   throw new Error(`Audio (${formatBytes(blob.size)}) could not be compressed to fit the ${formatBytes(limitBytes)} provider limit`)
 }
 
-function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
+function SttPanel({
+  onHistorySaved,
+  historyActionRequest,
+}: {
+  onHistorySaved: () => Promise<void> | void
+  historyActionRequest?: HistoryActionRequest | null
+}) {
   const [model, setModelRaw] = useState<SttModel>(() => {
     if (typeof window === 'undefined') return 'voxtral-mini-transcribe-2507'
     const saved = localStorage.getItem('speech-lab-stt-model')
@@ -942,9 +1530,7 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
   const [diarizeProgress, setDiarizeProgress] = useState<{ completed: number; total: number } | null>(null)
 
   // Saved recordings (max 3, stored in S3 for offline retry)
-  const [savedRecordings, setSavedRecordings] = useState<
-    { id: string; key: string; sizeBytes: number; createdAt: string }[]
-  >([])
+  const [savedRecordings, setSavedRecordings] = useState<SavedRecording[]>([])
   const [savingRecording, setSavingRecording] = useState(false)
   // Tracks which recording ID is currently being retried (for loading state)
   const [retryingId, setRetryingId] = useState<string | null>(null)
@@ -974,15 +1560,15 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
   }
 
   // Save a recording blob to S3 (called in parallel with transcription)
-  const saveRecordingToS3 = async (blob: Blob, filename: string) => {
+  const saveRecordingToS3 = async (blob: Blob, filename: string): Promise<SavedRecording | null> => {
     setSavingRecording(true)
     try {
-      const formData = new FormData()
-      formData.append('audio', blob, filename)
-      const res = await fetch('/api/speech/recordings', { method: 'POST', body: formData })
-      if (res.ok) await fetchRecordings() // Refresh the list
+      const recording = await uploadSpeechRecording(blob, filename)
+      if (recording) await fetchRecordings() // Refresh the list
+      return recording
     } catch {
       // Non-fatal — recording still transcribes even if S3 save fails
+      return null
     } finally {
       setSavingRecording(false)
     }
@@ -1022,7 +1608,11 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
   // Handles gpt-4o-transcribe-diarize: sends audio to the Render speech-tools service
   // which chunks it into 10-min segments, processes them in parallel via Azure, and
   // streams SSE events back. Bypasses Vercel entirely (no 60-300s timeout issue).
-  const handleDiarizeTranscribe = async (audioBlob: Blob, uploadFileName: string) => {
+  const handleDiarizeTranscribe = async (
+    audioBlob: Blob,
+    uploadFileName: string,
+    options: { recordingPromise?: Promise<SavedRecording | null>; recording?: SavedRecording | null } = {}
+  ) => {
     setLoading(true)
     setError(null)
     setTranscript(null)
@@ -1117,17 +1707,28 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
               end: s.end,
               text: `[Speaker ${s.speaker}] ${s.text}`,
             })))
-            saveSpeechHistory({
-              modality: 'stt',
-              title: `Diarize · gpt-4o-transcribe-diarize`,
-              content: formatted.slice(0, 1500),
-              metadata: {
-                model: 'gpt-4o-transcribe-diarize',
-                segments: event.totalSegments ?? segs.length,
-                speakers: event.uniqueSpeakers?.length ?? 0,
-              },
-            })
-            onHistorySaved()
+            try {
+              const recording = options.recording ?? await options.recordingPromise?.catch(() => null) ?? null
+              const saved = await saveSpeechHistory({
+                modality: 'stt',
+                title: `Diarize · gpt-4o-transcribe-diarize`,
+                content: formatted,
+                metadata: {
+                  model: 'gpt-4o-transcribe-diarize',
+                  segments: event.totalSegments ?? segs.length,
+                  speakers: event.uniqueSpeakers?.length ?? 0,
+                  segmentsData: segs.slice(0, 500).map((segment) => ({
+                    start: segment.start,
+                    end: segment.end,
+                    text: `[Speaker ${segment.speaker}] ${segment.text}`,
+                  })),
+                  ...(recording ? { recording } : {}),
+                },
+              })
+              if (saved) await onHistorySaved()
+            } catch (historyError) {
+              console.warn('Failed to save diarization history', historyError)
+            }
           } else if (event.type === 'error') {
             throw new Error(event.message ?? event.error ?? 'Diarization failed')
           }
@@ -1155,7 +1756,12 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
    *   - No S3 presign dance for large files (Render multer handles up to 200 MB directly)
    *   - Azure gpt-4o-transcribe streams tokens word-by-word
    */
-  const handleRenderTranscribe = async (audioBlob: Blob, uploadFileName: string) => {
+  const handleRenderTranscribe = async (
+    audioBlob: Blob,
+    uploadFileName: string,
+    options: { modelOverride?: SttModel; recordingPromise?: Promise<SavedRecording | null>; recording?: SavedRecording | null } = {}
+  ) => {
+    const activeModel = options.modelOverride ?? model
     setLoading(true)
     setError(null)
     setTranscript(null)
@@ -1164,7 +1770,7 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
     try {
       const formData = new FormData()
       formData.append('audio', audioBlob, uploadFileName)
-      formData.append('model', model)
+      formData.append('model', activeModel)
 
       const res = await fetch('https://speech-tools.onrender.com/transcribe', {
         method: 'POST',
@@ -1180,6 +1786,7 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
       const decoder = new TextDecoder()
       let buffer = ''
       let runningText = ''
+      let finalSegments: { start: number; end: number; text: string }[] = []
       // For parallel chunked mode: accumulate per-chunk text, keyed by chunk index
       const partialTexts = new Map<number, string>()
       let totalChunks = 1
@@ -1246,6 +1853,7 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
               runningText = event.text
               setTranscript(event.text)
               if (event.segments) {
+                finalSegments = event.segments
                 setSegments(event.segments)
               }
             } else if (event.type === 'error') {
@@ -1260,13 +1868,23 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
       }
 
       if (runningText) {
-        saveSpeechHistory({
-          modality: 'stt',
-          title: `STT · ${model}`,
-          content: runningText.slice(0, 1500),
-          metadata: { model },
-        })
-        onHistorySaved()
+        try {
+          const recording = options.recording ?? await options.recordingPromise?.catch(() => null) ?? null
+          const saved = await saveSpeechHistory({
+            modality: 'stt',
+            title: `STT · ${activeModel}`,
+            content: runningText,
+            metadata: {
+              model: activeModel,
+              segments: finalSegments.length,
+              segmentsData: finalSegments.slice(0, 500),
+              ...(recording ? { recording } : {}),
+            },
+          })
+          if (saved) await onHistorySaved()
+        } catch (historyError) {
+          console.warn('Failed to save transcription history', historyError)
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Transcription failed')
@@ -1275,15 +1893,20 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
     }
   }
 
-  const handleTranscribe = async (audioBlob: Blob, uploadFileName = 'recording.webm') => {
+  const handleTranscribe = async (
+    audioBlob: Blob,
+    uploadFileName = 'recording.webm',
+    options: { modelOverride?: SttModel; recordingPromise?: Promise<SavedRecording | null>; recording?: SavedRecording | null } = {}
+  ) => {
+    const activeModel = options.modelOverride ?? model
     // Diarize model: stream parallel chunks from Render speech-tools /diarize
-    if (model === 'gpt-4o-transcribe-diarize') {
-      await handleDiarizeTranscribe(audioBlob, uploadFileName)
+    if (activeModel === 'gpt-4o-transcribe-diarize') {
+      await handleDiarizeTranscribe(audioBlob, uploadFileName, options)
       return
     }
 
     // All non-diarize STT models go to Render /transcribe (avoids Vercel timeouts).
-    await handleRenderTranscribe(audioBlob, uploadFileName)
+    await handleRenderTranscribe(audioBlob, uploadFileName, options)
   }
 
   const processFile = async (file: File) => {
@@ -1411,9 +2034,10 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
           setCompressing(false)
         }
 
-        // Save to S3 (background, non-blocking) AND transcribe in parallel
-        void saveRecordingToS3(originalBlob, `recording.${extension}`)
-        void handleTranscribe(blob, uploadName)
+        // Save to S3 in parallel and attach the recording metadata to history
+        // when the upload succeeds.
+        const recordingPromise = saveRecordingToS3(originalBlob, `recording.${extension}`)
+        void handleTranscribe(blob, uploadName, { recordingPromise })
       }
 
       setRecordedBytes(0)
@@ -1440,6 +2064,50 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
     const file = e.target.files?.[0]
     if (file) void processFile(file)
   }
+
+  useEffect(() => {
+    if (!historyActionRequest) return
+    const item = historyActionRequest.item
+    const metadata = getHistoryMetadata(item)
+    const historyModel = getMetadataString(metadata, 'model')
+    const restoredModel = historyModel && ['voxtral-mini-transcribe-2507','voxtral-mini-latest','gpt-4o-transcribe','gpt-4o-transcribe-diarize'].includes(historyModel)
+      ? historyModel as SttModel
+      : model
+    const segmentsData = metadata.segmentsData
+    const restoredSegments = Array.isArray(segmentsData)
+      ? segmentsData.filter((segment): segment is { start: number; end: number; text: string } =>
+          isRecord(segment) &&
+          typeof segment.start === 'number' &&
+          typeof segment.end === 'number' &&
+          typeof segment.text === 'string'
+        )
+      : []
+
+    setModel(restoredModel)
+    setTranscript(item.content)
+    setSegments(restoredSegments)
+    setError(null)
+
+    if (historyActionRequest.action === 'rerun') {
+      const recording = getHistoryRecording(metadata)
+      if (!recording) {
+        setError('No saved audio is available for this history item. Restore the transcript or upload the recording again.')
+        return
+      }
+
+      void (async () => {
+        try {
+          const audioRes = await fetch(`/api/speech/recordings/${encodeURIComponent(recording.id)}`)
+          if (!audioRes.ok) throw new Error('Saved recording is no longer available')
+          const blob = await audioRes.blob()
+          await handleTranscribe(blob, recording.id, { modelOverride: restoredModel, recording })
+        } catch (err) {
+          setError(err instanceof Error ? err.message : 'History rerun failed')
+        }
+      })()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [historyActionRequest?.requestId])
 
   return (
     <div className="p-6 space-y-5">
@@ -2016,7 +2684,141 @@ function buildDeliveryAnalysis(raw: RawDeliveryAnalysis, words: PronWord[]): Del
   }
 }
 
-function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
+function countPronunciationIssues(words: PronWord[]) {
+  const counts = {
+    wordCount: words.length,
+    scoredWordCount: 0,
+    omissionCount: 0,
+    mispronunciationCount: 0,
+    unexpectedBreakCount: 0,
+    missingBreakCount: 0,
+    monotoneCount: 0,
+    lowAccuracyCount: 0,
+  }
+
+  for (const word of words) {
+    if (!isOmittedPronunciationWord(word) && Number.isFinite(word.accuracyScore)) {
+      counts.scoredWordCount += 1
+    }
+    if (word.errorType === 'Omission') counts.omissionCount += 1
+    if (word.errorType === 'Mispronunciation') counts.mispronunciationCount += 1
+    if (word.errorType === 'UnexpectedBreak' || word.prosody?.breakErrorTypes.includes('UnexpectedBreak')) counts.unexpectedBreakCount += 1
+    if (word.errorType === 'MissingBreak' || word.prosody?.breakErrorTypes.includes('MissingBreak')) counts.missingBreakCount += 1
+    if (word.errorType === 'Monotone' || word.prosody?.intonationErrorTypes.includes('Monotone')) counts.monotoneCount += 1
+    if (!isOmittedPronunciationWord(word) && word.accuracyScore < SCORE_EXCELLENT) counts.lowAccuracyCount += 1
+  }
+
+  return counts
+}
+
+function trimDeliveryAnalysisForHistory(analysis?: DeliveryAnalysis): DeliveryAnalysis | undefined {
+  if (!analysis) return undefined
+  return {
+    ...analysis,
+    pitch: {
+      ...analysis.pitch,
+      series: analysis.pitch.series.slice(0, 400),
+    },
+    intensity: {
+      ...analysis.intensity,
+      series: analysis.intensity.series.slice(0, 400),
+    },
+    speechSegments: analysis.speechSegments.slice(0, 200),
+    pauses: analysis.pauses.slice(0, 200),
+    phrases: analysis.phrases.slice(0, 200),
+    insights: analysis.insights.slice(0, 10),
+  }
+}
+
+function buildPronunciationHistoryMetadata(args: {
+  result: PronResult
+  referenceText: string
+  language: string
+  subject: AssessmentSubject
+  deliveryError?: string | null
+  recording?: SavedRecording | null
+}) {
+  const { result, referenceText, language, subject, deliveryError, recording } = args
+  const wordsLimit = 220
+  const issueCounts = countPronunciationIssues(result.words)
+
+  return {
+    schemaVersion: 2,
+    requestId: result.requestId ?? null,
+    language,
+    source: subject.type,
+    ...(subject.type === 'reference-voice'
+      ? {
+          voice: subject.voice,
+          ...(subject.storageUrl ? { storageUrl: subject.storageUrl } : {}),
+        }
+      : {}),
+    ...(recording ? { recording } : {}),
+    referenceText,
+    referenceWordCount: referenceText.trim() ? referenceText.trim().split(/\s+/).length : 0,
+    recognitionStatus: result.recognitionStatus,
+    displayText: result.displayText,
+    lexical: result.lexical ?? null,
+    confidence: result.confidence ?? null,
+    snr: result.snr ?? null,
+    scores: {
+      pronunciation: result.pronScore,
+      accuracy: result.accuracyScore,
+      fluency: result.fluencyScore,
+      completeness: result.completenessScore,
+      prosody: result.prosodyScore ?? null,
+    },
+    // Top-level score fields keep old history rows and quick summaries simple.
+    pronScore: result.pronScore,
+    accuracyScore: result.accuracyScore,
+    fluencyScore: result.fluencyScore,
+    completenessScore: result.completenessScore,
+    prosodyScore: result.prosodyScore ?? null,
+    issueCounts,
+    words: result.words.slice(0, wordsLimit),
+    wordsTruncated: result.words.length > wordsLimit,
+    delivery: trimDeliveryAnalysisForHistory(result.delivery),
+    ...(deliveryError ? { deliveryError } : {}),
+  } satisfies Record<string, unknown>
+}
+
+function pronResultFromHistoryItem(item: HistoryItem): PronResult | null {
+  if (item.modality !== 'pronunciation') return null
+  const metadata = getHistoryMetadata(item)
+  const scores = getHistoryPronunciationScores(metadata)
+  if (
+    scores.pronScore == null ||
+    scores.accuracyScore == null ||
+    scores.fluencyScore == null ||
+    scores.completenessScore == null
+  ) {
+    return null
+  }
+
+  return {
+    requestId: getMetadataString(metadata, 'requestId'),
+    pronScore: scores.pronScore,
+    accuracyScore: scores.accuracyScore,
+    fluencyScore: scores.fluencyScore,
+    completenessScore: scores.completenessScore,
+    prosodyScore: scores.prosodyScore ?? undefined,
+    recognitionStatus: getMetadataString(metadata, 'recognitionStatus') ?? 'Unknown',
+    displayText: getMetadataString(metadata, 'displayText') ?? item.content,
+    lexical: getMetadataString(metadata, 'lexical'),
+    confidence: getMetadataNumber(metadata, 'confidence') ?? undefined,
+    snr: getMetadataNumber(metadata, 'snr') ?? undefined,
+    words: getHistoryPronunciationWords(metadata),
+    delivery: getHistoryDeliveryAnalysis(metadata),
+  }
+}
+
+function PronunciationPanel({
+  onHistorySaved,
+  historyActionRequest,
+}: {
+  onHistorySaved: () => Promise<void> | void
+  historyActionRequest?: HistoryActionRequest | null
+}) {
   const [referenceText, setReferenceText] = useState('')
   const [referenceSource, setReferenceSource] = useState<'manual' | 'transcription'>('transcription')
   const [transcriptionModel, setTranscriptionModelRaw] = useState<SttModel>(() => {
@@ -2043,7 +2845,6 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
   const [loadingMessage, setLoadingMessage] = useState('Assessing pronunciation…')
   const [lastAssessmentAttempt, setLastAssessmentAttempt] = useState<PronunciationAssessmentAttempt | null>(null)
   const [retryAction, setRetryAction] = useState<PronunciationRetryAction | null>(null)
-  const isReferenceVoiceChirp3 = referenceVoice.startsWith('chirp3:')
 
   useEffect(() => {
     return () => {
@@ -2054,7 +2855,8 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
   const handleAssess = async (
     audioBlob: Blob,
     overrideReferenceText?: string,
-    subject: AssessmentSubject = { type: 'recording' }
+    subject: AssessmentSubject = { type: 'recording' },
+    options: { recordingPromise?: Promise<SavedRecording | null>; recording?: SavedRecording | null } = {}
   ) => {
     const resolvedReferenceText = (overrideReferenceText ?? referenceText).trim()
     if (!resolvedReferenceText) {
@@ -2135,27 +2937,38 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
         }
         setResult(nextResult)
         setRetryAction(null)
-        void deliveryPromise.then((outcome) => {
+        void deliveryPromise.then(async (outcome) => {
+          let resultForHistory: PronResult = nextResult
+          let deliveryErrorForHistory: string | null = null
           if ('error' in outcome) {
             setDeliveryError(outcome.error)
-            return
+            deliveryErrorForHistory = outcome.error
+          } else {
+            const delivery = buildDeliveryAnalysis(outcome.analysis, nextResult.words)
+            resultForHistory = { ...nextResult, delivery }
+            setResult((current) => current ? { ...current, delivery } : current)
           }
-          setResult((current) => current ? { ...current, delivery: buildDeliveryAnalysis(outcome.analysis, current.words) } : current)
+
+          try {
+            const recording = options.recording ?? await options.recordingPromise?.catch(() => null) ?? null
+            const saved = await saveSpeechHistory({
+              modality: 'pronunciation',
+              title: `Pronunciation · ${language}`,
+              content: resolvedReferenceText,
+              metadata: buildPronunciationHistoryMetadata({
+                result: resultForHistory,
+                referenceText: resolvedReferenceText,
+                language,
+                subject,
+                deliveryError: deliveryErrorForHistory,
+                recording,
+              }),
+            })
+            if (saved) await onHistorySaved()
+          } catch (historyError) {
+            console.warn('Failed to save pronunciation history', historyError)
+          }
         }).finally(() => setDeliveryLoading(false))
-        saveSpeechHistory({
-          modality: 'pronunciation',
-          title: `Pronunciation · ${language}`,
-          content: resolvedReferenceText.slice(0, 300),
-          metadata: {
-            pronScore: nextResult.pronScore,
-            accuracyScore: nextResult.accuracyScore,
-            fluencyScore: nextResult.fluencyScore,
-            prosodyScore: nextResult.prosodyScore,
-            source: subject.type,
-            ...(subject.type === 'reference-voice' ? { voice: subject.voice } : {}),
-          },
-        })
-        onHistorySaved()
       } else {
         setDeliveryLoading(false)
         setErrorRequestId(data._requestId ?? null)
@@ -2183,13 +2996,16 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
     }
   }
 
-  const assessReferenceVoice = async () => {
-    const trimmedReferenceText = referenceText.trim()
+  const assessReferenceVoiceWith = async (inputReferenceText: string, selectedVoice: string) => {
+    const trimmedReferenceText = inputReferenceText.trim()
     if (!trimmedReferenceText) {
       setError('Reference text is required before generating a reference voice')
       return
     }
 
+    const selectedVoiceIsChirp3 = selectedVoice.startsWith('chirp3:')
+    setReferenceText(trimmedReferenceText)
+    setReferenceVoice(selectedVoice)
     setLoading(true)
     setError(null)
     setErrorRequestId(null)
@@ -2202,8 +3018,8 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           text: trimmedReferenceText,
-          voice: referenceVoice,
-          provider: isReferenceVoiceChirp3 ? 'chirp3' : 'gemini',
+          voice: selectedVoice,
+          provider: selectedVoiceIsChirp3 ? 'chirp3' : 'gemini',
           purpose: 'pronunciation-reference-voice',
         }),
       })
@@ -2213,21 +3029,25 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
         throw speechLabRequestError(data, 'Reference voice generation failed')
       }
 
-      const data = await res.json() as { audio?: string; mimeType?: string }
+      const data = await res.json() as { audio?: string; mimeType?: string; storageUrl?: string }
       if (!data.audio || !data.mimeType) {
         throw new Error('Reference voice generation returned no audio')
       }
 
       const wavBlob = await convertRecordedBlobToWav(ttsPayloadToBlob(data.audio, data.mimeType))
       setReferenceVoiceAudioUrl(URL.createObjectURL(wavBlob))
-      setGeneratedReferenceVoice(referenceVoice)
-      await handleAssess(wavBlob, trimmedReferenceText, { type: 'reference-voice', voice: referenceVoice })
+      setGeneratedReferenceVoice(selectedVoice)
+      await handleAssess(wavBlob, trimmedReferenceText, { type: 'reference-voice', voice: selectedVoice, storageUrl: data.storageUrl })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
       setErrorRequestId(getSpeechLabRequestId(err))
     } finally {
       setLoading(false)
     }
+  }
+
+  const assessReferenceVoice = async () => {
+    await assessReferenceVoiceWith(referenceText, referenceVoice)
   }
 
   const transcribeReferenceText = async (audioBlob: Blob) => {
@@ -2253,7 +3073,10 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
     return text
   }
 
-  const transcribeAndAssessRecording = async (audioBlob: Blob) => {
+  const transcribeAndAssessRecording = async (
+    audioBlob: Blob,
+    recordingPromise?: Promise<SavedRecording | null>
+  ) => {
     setLoading(true)
     setError(null)
     setErrorRequestId(null)
@@ -2261,7 +3084,7 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
     try {
       const nextReferenceText = await transcribeReferenceText(audioBlob)
       setReferenceText(nextReferenceText)
-      await handleAssess(audioBlob, nextReferenceText)
+      await handleAssess(audioBlob, nextReferenceText, { type: 'recording' }, { recordingPromise })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
       setErrorRequestId(getSpeechLabRequestId(err))
@@ -2286,11 +3109,13 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
       recorder.onstop = () => {
         stream.getTracks().forEach((t) => t.stop())
         const blob = new Blob(chunks, { type: recorder.mimeType || selectedMimeType || 'audio/webm' })
+        const extension = blob.type.includes('mp4') ? 'm4a' : 'webm'
+        const recordingPromise = uploadSpeechRecording(blob, `pronunciation.${extension}`)
         if (referenceSource === 'transcription') {
-          void transcribeAndAssessRecording(blob)
+          void transcribeAndAssessRecording(blob, recordingPromise)
           return
         }
-        void handleAssess(blob)
+        void handleAssess(blob, undefined, { type: 'recording' }, { recordingPromise })
       }
 
       recorder.start()
@@ -2337,6 +3162,58 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
       setDeliveryLoading(false)
     }
   }
+
+  useEffect(() => {
+    if (!historyActionRequest) return
+    const item = historyActionRequest.item
+    const metadata = getHistoryMetadata(item)
+    const restoredLanguage = getMetadataString(metadata, 'language') ?? language
+    const source = getMetadataString(metadata, 'source')
+    const voice = getMetadataString(metadata, 'voice') ?? referenceVoice
+    const savedResult = pronResultFromHistoryItem(item)
+    const deliveryErrorFromHistory = getMetadataString(metadata, 'deliveryError')
+
+    setReferenceText(item.content)
+    setLanguage(restoredLanguage)
+    setReferenceSource('manual')
+    setReferenceVoice(voice)
+    setSelectedWord(null)
+    setError(null)
+    setErrorRequestId(null)
+    setDeliveryError(deliveryErrorFromHistory)
+    setDeliveryLoading(false)
+    setAssessmentSubject(source === 'reference-voice'
+      ? { type: 'reference-voice', voice, storageUrl: getMetadataString(metadata, 'storageUrl') ?? undefined }
+      : { type: 'recording' }
+    )
+    if (savedResult) setResult(savedResult)
+
+    if (historyActionRequest.action === 'rerun') {
+      if (source === 'reference-voice') {
+        void assessReferenceVoiceWith(item.content, voice)
+        return
+      }
+
+      const recording = getHistoryRecording(metadata)
+      if (!recording) {
+        setError('No saved audio is available for this history item. Restore the diagnostic view or record again.')
+        return
+      }
+
+      void (async () => {
+        try {
+          const audioRes = await fetch(`/api/speech/recordings/${encodeURIComponent(recording.id)}`)
+          if (!audioRes.ok) throw new Error('Saved recording is no longer available')
+          const blob = await audioRes.blob()
+          await handleAssess(blob, item.content, { type: 'recording' }, { recording })
+        } catch (err) {
+          setError(err instanceof Error ? err.message : 'History rerun failed')
+          setErrorRequestId(getSpeechLabRequestId(err))
+        }
+      })()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [historyActionRequest?.requestId])
 
   return (
     <div className="p-6 space-y-5">
@@ -3110,7 +3987,7 @@ function ScoreCard({ label, score, tooltip }: { label: string; score: number; to
 /* ─── Types ─── */
 type AssessmentSubject =
   | { type: 'recording' }
-  | { type: 'reference-voice'; voice: string }
+  | { type: 'reference-voice'; voice: string; storageUrl?: string }
 
 interface PronunciationAssessmentAttempt {
   audioBlob: Blob
