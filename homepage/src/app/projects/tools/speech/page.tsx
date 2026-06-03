@@ -12,7 +12,7 @@ const _intlSegmenter = createIntlSegmenter()
 
 type Tab = 'tts' | 'stt' | 'pronunciation'
 type SpeechModality = Tab | 'all'
-type SttModel = 'voxtral-mini-transcribe-2507' | 'voxtral-mini-latest' | 'gpt-4o-transcribe' | 'gpt-4o-transcribe-diarize' | 'interfaze'
+type SttModel = 'voxtral-mini-transcribe-2507' | 'voxtral-mini-latest' | 'gpt-4o-transcribe' | 'gpt-4o-transcribe-diarize'
 
 interface HistoryItem {
   id: string
@@ -798,13 +798,12 @@ const ACCEPTED_VIDEO_EXTENSIONS = ['mp4', 'm4v', 'mov', 'avi', 'mkv', 'webm', 'o
 const MISTRAL_COMPATIBLE_AUDIO_EXTENSIONS = ['wav', 'webm', 'mp3', 'mpeg', 'mpga', 'ogg', 'flac']
 const MISTRAL_COMPATIBLE_AUDIO_TYPES = ['audio/wav', 'audio/webm', 'audio/mp3', 'audio/mpeg', 'audio/ogg', 'audio/flac']
 // Per-provider audio file size limits for STT APIs
-// Voxtral: 1 GB (Mistral docs), GPT-4o: 25 MB (Azure OpenAI limit), Interfaze: 25 MB (conservative, unconfirmed)
+// Voxtral: 1 GB (Mistral docs), GPT-4o: Render-backed limits.
 const STT_FILE_SIZE_LIMIT_BYTES: Record<SttModel, number> = {
   'voxtral-mini-transcribe-2507': 1024 * 1024 * 1024,
   'voxtral-mini-latest': 1024 * 1024 * 1024,
   'gpt-4o-transcribe': 200 * 1024 * 1024, // Render backend; multer limit is 200 MB
   'gpt-4o-transcribe-diarize': 500 * 1024 * 1024, // Render backend handles chunking; 500 MB is well above any real recording
-  'interfaze': 25 * 1024 * 1024,
 }
 // Vercel serverless functions enforce a 4.5 MB request body limit.
 // We target 4 MB to leave headroom for FormData overhead (field names, boundaries, etc.).
@@ -814,7 +813,6 @@ const STT_DURATION_LIMIT_SECONDS: Record<SttModel, number> = {
   'voxtral-mini-latest': 3 * 60 * 60,
   'gpt-4o-transcribe': 2 * 60 * 60,
   'gpt-4o-transcribe-diarize': 2 * 60 * 60,
-  'interfaze': 2 * 60 * 60,
 }
 
 function formatBytes(bytes: number): string {
@@ -842,10 +840,6 @@ function getFileExtension(fileName: string): string {
 
 function isAzureOpenAiSttModel(model: SttModel): boolean {
   return model.startsWith('gpt-4o')
-}
-
-function isInterfazeSttModel(model: SttModel): boolean {
-  return model === 'interfaze'
 }
 
 function isLikelyAudioFile(file: File): boolean {
@@ -926,7 +920,7 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
   const [model, setModelRaw] = useState<SttModel>(() => {
     if (typeof window === 'undefined') return 'voxtral-mini-transcribe-2507'
     const saved = localStorage.getItem('speech-lab-stt-model')
-    if (saved && ['voxtral-mini-transcribe-2507','voxtral-mini-latest','gpt-4o-transcribe','gpt-4o-transcribe-diarize','interfaze'].includes(saved)) return saved as SttModel
+    if (saved && ['voxtral-mini-transcribe-2507','voxtral-mini-latest','gpt-4o-transcribe','gpt-4o-transcribe-diarize'].includes(saved)) return saved as SttModel
     return 'voxtral-mini-transcribe-2507'
   })
   const setModel = (m: SttModel) => { setModelRaw(m); localStorage.setItem('speech-lab-stt-model', m) }
@@ -1288,50 +1282,8 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
       return
     }
 
-    // All Voxtral + gpt-4o-transcribe models go to Render /transcribe (avoids Vercel timeouts)
-    if (model !== 'interfaze') {
-      await handleRenderTranscribe(audioBlob, uploadFileName)
-      return
-    }
-
-    // interfaze stays on Vercel — small file direct FormData only
-    setLoading(true)
-    setError(null)
-    setTranscript(null)
-    setSegments([])
-
-    try {
-      const formData = new FormData()
-      formData.append('audio', audioBlob, uploadFileName)
-      formData.append('model', model)
-      const res = await fetch('/api/speech/stt', { method: 'POST', body: formData })
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        throw new Error(data.error || 'Transcription failed')
-      }
-
-      const data = await res.json()
-      setTranscript(data.text || '')
-      if (data.segments) {
-        setSegments(data.segments.map((s: { start: number; end: number; text: string }) => ({
-          start: s.start,
-          end: s.end,
-          text: s.text,
-        })))
-      }
-      saveSpeechHistory({
-        modality: 'stt',
-        title: `STT · ${model}`,
-        content: (data.text || '').slice(0, 1500),
-        metadata: { model },
-      })
-      onHistorySaved()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error')
-    } finally {
-      setLoading(false)
-    }
+    // All non-diarize STT models go to Render /transcribe (avoids Vercel timeouts).
+    await handleRenderTranscribe(audioBlob, uploadFileName)
   }
 
   const processFile = async (file: File) => {
@@ -1375,7 +1327,7 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
     let audioBlob: Blob = file
     let uploadName = file.name
 
-    if (!isAzureOpenAiSttModel(model) && !isInterfazeSttModel(model) && !isLikelyMistralCompatibleAudio(file)) {
+    if (!isAzureOpenAiSttModel(model) && !isLikelyMistralCompatibleAudio(file)) {
       try {
         audioBlob = await convertRecordedBlobToWav(file)
         uploadName = `${fileNameWithoutExtension(file.name)}.wav`
@@ -1495,7 +1447,7 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
         <span className="material-symbols-outlined text-foreground/40">mic</span>
         <div>
           <h3 className="font-medium text-foreground">Transcription</h3>
-          <p className="text-xs text-foreground/40">Mistral Voxtral · Azure OpenAI GPT‑4o · Interfaze</p>
+          <p className="text-xs text-foreground/40">Mistral Voxtral · Azure OpenAI GPT‑4o</p>
         </div>
       </div>
 
@@ -1546,17 +1498,6 @@ function SttPanel({ onHistorySaved }: { onHistorySaved: () => void }) {
           >
             <div>GPT‑4o Diarize</div>
             <div className="text-xs opacity-60 mt-0.5">Azure OpenAI with speaker separation</div>
-          </button>
-          <button
-            onClick={() => setModel('interfaze')}
-            className={`flex-1 px-4 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer ${
-              model === 'interfaze'
-                ? 'bg-foreground text-background'
-                : 'bg-foreground/5 text-foreground/50 hover:bg-foreground/10'
-            }`}
-          >
-            <div>Interfaze</div>
-            <div className="text-xs opacity-60 mt-0.5">Interfaze AI multimodal</div>
           </button>
         </div>
       </div>
@@ -2081,7 +2022,7 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
   const [transcriptionModel, setTranscriptionModelRaw] = useState<SttModel>(() => {
     if (typeof window === 'undefined') return 'gpt-4o-transcribe'
     const saved = localStorage.getItem('speech-lab-pron-model')
-    if (saved && ['voxtral-mini-transcribe-2507','voxtral-mini-latest','gpt-4o-transcribe','gpt-4o-transcribe-diarize','interfaze'].includes(saved)) return saved as SttModel
+    if (saved && ['voxtral-mini-transcribe-2507','voxtral-mini-latest','gpt-4o-transcribe','gpt-4o-transcribe-diarize'].includes(saved)) return saved as SttModel
     return 'gpt-4o-transcribe'
   })
   const setTranscriptionModel = (m: SttModel) => { setTranscriptionModelRaw(m); localStorage.setItem('speech-lab-pron-model', m) }
@@ -2432,7 +2373,6 @@ function PronunciationPanel({ onHistorySaved }: { onHistorySaved: () => void }) 
             <option value="gpt-4o-transcribe-diarize">GPT‑4o Transcribe Diarize</option>
             <option value="voxtral-mini-transcribe-2507">Mistral Voxtral Transcribe (2507)</option>
             <option value="voxtral-mini-latest">Mistral Voxtral Mini Latest</option>
-            <option value="interfaze">Interfaze</option>
           </select>
         </div>
       )}

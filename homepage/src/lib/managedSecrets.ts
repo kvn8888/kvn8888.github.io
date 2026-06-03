@@ -77,13 +77,6 @@ export const MANAGED_SECRET_GROUPS: ManagedSecretGroup[] = [
     ],
   },
   {
-    label: 'Interfaze',
-    icon: 'swap_horiz',
-    keys: [
-      { key: 'INTERFAZE_API_KEY', description: 'Interfaze AI API key for multimodal STT transcription' },
-    ],
-  },
-  {
     label: 'Azure',
     icon: 'cloud',
     keys: [

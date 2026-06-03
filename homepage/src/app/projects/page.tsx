@@ -35,12 +35,6 @@ const projectLinks = [
     icon: "document_scanner",
   },
   {
-    title: "Vision",
-    description: "Upload an image and ask anything — OCR, object detection, and more via Interfaze",
-    href: "/projects/vision",
-    icon: "image_search",
-  },
-  {
     title: "Tools",
     description: "Sign-in manager, notes, and project dashboard",
     href: "/tools",
