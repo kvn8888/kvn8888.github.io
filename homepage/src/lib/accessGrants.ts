@@ -68,9 +68,9 @@ export const ACCESS_GRANT_OPTIONS = [
   {
     key: 'project-dashboard',
     label: 'Project Dashboard',
-    description: 'Internal project dashboard.',
+    description: 'Deployment, runtime, integration, and release status for active projects.',
     hubPaths: ['/tools'],
-    pathPrefixes: ['/tools/project-dashboard'],
+    pathPrefixes: ['/tools/project-dashboard', '/api/projects/health'],
   },
   {
     key: 'notes',
