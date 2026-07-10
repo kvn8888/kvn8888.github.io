@@ -10,6 +10,13 @@ export interface AccessGrantOption {
 
 export const ACCESS_GRANT_OPTIONS = [
   {
+    key: 'project-health',
+    label: 'Project Health',
+    description: 'Deployment, runtime, integration, and release status for active projects.',
+    hubPaths: ['/projects'],
+    pathPrefixes: ['/projects/health', '/api/projects/health'],
+  },
+  {
     key: 'usage-monitor',
     label: 'API Usage Monitor',
     description: 'Usage dashboard and its protected billing proxy APIs.',

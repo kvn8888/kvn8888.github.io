@@ -11,6 +11,7 @@ export const config = {
     "/api/coverletter/:path*",
     "/api/speech/:path*",
     "/api/notes/:path*",
+    "/api/projects/:path*",
     "/api/tools/:path*",
   ],
 }

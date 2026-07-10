@@ -55,6 +55,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         pathname.startsWith("/api/coverletter") ||
         pathname.startsWith("/api/speech") ||
         pathname.startsWith("/api/notes") ||
+        pathname.startsWith("/api/projects") ||
         pathname.startsWith("/api/tools")
       const isProtected = isProtectedPage || isProtectedApi
 

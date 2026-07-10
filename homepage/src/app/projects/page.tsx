@@ -5,6 +5,12 @@ import { getEmailAccessGrantKeys } from "@/lib/db"
 
 const projectLinks = [
   {
+    title: "Project Health",
+    description: "Deployment, runtime, integration, and release status across active projects",
+    href: "/projects/health",
+    icon: "deployed_code",
+  },
+  {
     title: "API Usage Monitor",
     description: "Track credits, limits, and burn rate across Tavily, Vercel, and more",
     href: "/projects/usage",
