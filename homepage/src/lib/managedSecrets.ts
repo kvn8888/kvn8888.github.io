@@ -10,6 +10,9 @@ export interface ManagedSecretField {
   strategy?: ManagedSecretStrategy
   inputType?: ManagedSecretInputType
   note?: string
+  repeatable?: {
+    accountLabel: string
+  }
 }
 
 export interface ManagedSecretGroup {
@@ -160,9 +163,12 @@ export const MANAGED_SECRET_GROUPS: ManagedSecretGroup[] = [
     label: 'Usage Monitoring',
     icon: 'monitoring',
     keys: [
-      { key: 'GITHUB_PAT', description: 'GitHub billing API for Codespaces and Copilot usage' },
-      { key: 'GITHUB_USERNAME', description: 'GitHub username for personal billing endpoints' },
-      { key: 'TAVILY_API_KEY', description: 'Tavily search and usage' },
+      {
+        key: 'TAVILY_API_KEY',
+        description: 'Tavily account 1 API key for search and pooled usage',
+        note: 'Use the plus button to add one key per Tavily account. Multiple keys from the same account would duplicate its account-level totals.',
+        repeatable: { accountLabel: 'Tavily' },
+      },
       { key: 'OPENROUTER_API_KEY', description: 'OpenRouter credit usage' },
       { key: 'RENDER_API_KEY', description: 'Render services and bandwidth usage' },
       { key: 'REPLICATE_API_TOKEN', description: 'Replicate account status and usage checks' },
@@ -178,7 +184,28 @@ export const MANAGED_SECRET_GROUPS: ManagedSecretGroup[] = [
         note: 'Bootstrap-only. Vercel injects this into Authorization headers for cron invocations after redeploy.',
       },
       { key: 'ODDS_API_KEY', description: 'The Odds API usage' },
-      { key: 'VENICE_API_KEY', description: 'Venice AI usage' },
+      {
+        key: 'VENICE_API_KEY',
+        description: 'Venice AI account 1 API key for pooled balances and usage',
+        note: 'Use the plus button to add one key per Venice AI account. Multiple keys from the same account would duplicate its balances.',
+        repeatable: { accountLabel: 'Venice AI' },
+      },
+    ],
+  },
+  {
+    label: 'Deprecated',
+    icon: 'history',
+    keys: [
+      {
+        key: 'GITHUB_PAT',
+        description: 'Legacy GitHub billing tracker credential',
+        note: 'Deprecated. Retained only for compatibility with the legacy usage API route.',
+      },
+      {
+        key: 'GITHUB_USERNAME',
+        description: 'Legacy GitHub billing tracker username',
+        note: 'Deprecated. The dashboard and snapshot cron no longer use this value.',
+      },
     ],
   },
   {
@@ -215,6 +242,24 @@ export const MANAGED_SECRET_FIELDS_BY_KEY = new Map(
   MANAGED_SECRET_FIELDS.map((field) => [field.key, field] as const)
 )
 
+export function isRepeatableSecretKey(baseKey: string, key: string) {
+  return key === baseKey || new RegExp(`^${baseKey}_(?:[2-9]|[1-9]\\d+)$`).test(key)
+}
+
 export function getManagedSecretField(key: string) {
-  return MANAGED_SECRET_FIELDS_BY_KEY.get(key)
+  const exact = MANAGED_SECRET_FIELDS_BY_KEY.get(key)
+  if (exact) return exact
+
+  const repeatableField = MANAGED_SECRET_FIELDS.find(
+    (field) => field.repeatable && isRepeatableSecretKey(field.key, key)
+  )
+  if (!repeatableField) return undefined
+
+  const accountNumber = Number(key.slice(repeatableField.key.length + 1))
+  return {
+    ...repeatableField,
+    key,
+    description: `${repeatableField.repeatable?.accountLabel ?? 'Additional'} account ${accountNumber} API key for pooled usage`,
+    note: 'Additional runtime-managed account credential.',
+  }
 }

@@ -24,6 +24,15 @@ interface TavilyUsage {
     paygo_usage: number
     paygo_limit: number | null
   }
+  accountCount: number
+  failedAccountCount: number
+  accounts: {
+    label: string
+    plan: string
+    usage: number
+    limit: number
+  }[]
+  errors: { label: string; status: number }[]
 }
 
 interface VercelUsage {
@@ -121,6 +130,17 @@ interface VeniceUsage {
   consumptionCurrency: string | null
   balances: { diem: number; usd: number }
   diemEpochAllocation: number
+  accountCount: number
+  failedAccountCount: number
+  accounts: {
+    label: string
+    canConsume: boolean
+    currency: string | null
+    diemRemaining: number
+    usdRemaining: number
+    diemAllocation: number
+  }[]
+  errors: { label: string; status: number }[]
   dashboardUrl: string
 }
 
@@ -170,25 +190,6 @@ interface ResendUsage {
   apiKeyCount?: number
   warning?: string
   error?: string
-  dashboardUrl: string
-}
-
-// GitHubUsage holds both Codespaces compute/storage stats and Copilot premium request usage.
-// Both are fetched from the GitHub billing API using a fine-grained PAT.
-interface GitHubUsage {
-  // codespaces is null when no Codespaces activity was found this billing cycle
-  codespaces: {
-    totalMinutes: number            // total compute minutes consumed across all SKUs
-    storageGB: number               // storage used for prebuilds and idle codespaces
-    skuBreakdown: Record<string, number> // minutes grouped by machine type (e.g. "Codespaces Linux 2 core")
-    includedMinutes: number         // Student plan included allocation (10,800 min)
-    includedStorageGB: number       // Student plan included storage (20 GB)
-  } | null
-  // copilot is null when the premium_request/usage endpoint is unavailable
-  copilot: {
-    includedPremiumRequests: number
-    items: { model: string; sku: string; quantity: number; cost: number }[]
-  } | null
   dashboardUrl: string
 }
 
@@ -589,9 +590,6 @@ export default function UsagePage() {
   const [s3Status, setS3Status] = useState<'loading' | 'ok' | 'error'>('loading')
   const [resend, setResend] = useState<ResendUsage | null>(null)
   const [resendStatus, setResendStatus] = useState<'loading' | 'ok' | 'error'>('loading')
-  // GitHub state — covers both Codespaces billing and Copilot premium requests
-  const [github, setGithub] = useState<GitHubUsage | null>(null)
-  const [githubStatus, setGithubStatus] = useState<'loading' | 'ok' | 'error'>('loading')
   const [usageHistory, setUsageHistory] = useState<UsageHistory | null>(null)
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
 
@@ -609,7 +607,6 @@ export default function UsagePage() {
     setReplicateStatus('loading')
     setS3Status('loading')
     setResendStatus('loading')
-    setGithubStatus('loading')
 
     const fetchService = async <T,>(
       url: string,
@@ -643,8 +640,6 @@ export default function UsagePage() {
       fetchService('/api/usage/replicate', setReplicate, setReplicateStatus),
       fetchService('/api/usage/s3', setS3Usage, setS3Status),
       fetchService('/api/usage/resend', setResend, setResendStatus),
-      // Fetches Codespaces billing and Copilot premium request usage in one round-trip
-      fetchService('/api/usage/github', setGithub, setGithubStatus),
       fetchService('/api/usage/history', setUsageHistory, () => {}),
     ])
 
@@ -681,12 +676,46 @@ export default function UsagePage() {
       <ServiceCard
         title="Tavily"
         icon="search"
-        plan={tavily?.account.current_plan}
+        plan={tavily
+          ? tavily.accountCount > 1
+            ? `${tavily.accountCount} accounts`
+            : tavily.account.current_plan
+          : undefined}
         status={tavilyStatus}
         dashboardUrl="https://app.tavily.com/home"
       >
         {tavily ? (
           <>
+            {tavily.accountCount > 1 && (
+              <div className="rounded-xl border border-foreground/10 bg-foreground/[0.025] px-3 py-2.5 space-y-1.5">
+                {tavily.accounts.map((account) => (
+                  <div
+                    key={account.label}
+                    className="flex items-baseline justify-between gap-3 text-xs"
+                  >
+                    <span className="text-foreground/50">
+                      {account.label} · {account.plan}
+                    </span>
+                    <span className="tabular-nums text-foreground/60">
+                      {account.usage.toLocaleString()} / {account.limit.toLocaleString()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {tavily.failedAccountCount > 0 && (
+              <div className="flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-amber-700 dark:text-amber-300">
+                <span className="material-symbols-outlined mt-0.5 text-lg">warning</span>
+                <span className="text-sm">
+                  {tavily.failedAccountCount} account
+                  {tavily.failedAccountCount === 1 ? '' : 's'} could not be read.
+                  Successful accounts are still included.{' '}
+                  {tavily.errors.map((error) => `${error.label} (${error.status})`).join(', ')}
+                </span>
+              </div>
+            )}
+
             <UsageMeter
               label="Total Credits"
               used={tavily.account.plan_usage}
@@ -797,7 +826,7 @@ export default function UsagePage() {
           </>
         ) : tavilyStatus === 'error' ? (
           <p className="text-sm text-foreground/40">
-            Could not fetch Tavily usage. Check TAVILY_API_KEY in env.
+            Could not fetch any Tavily account. Check the pooled API keys in Runtime Secrets.
           </p>
         ) : null}
       </ServiceCard>
@@ -932,236 +961,6 @@ export default function UsagePage() {
         ) : renderStatus === 'error' ? (
           <p className="text-sm text-foreground/40">
             Could not fetch Render data. Check RENDER_API_KEY in env.
-          </p>
-        ) : null}
-      </ServiceCard>
-
-      {/* GitHub — Codespaces billing + Copilot premium requests
-           Requires GITHUB_PAT (fine-grained, "Plan" read permission) and GITHUB_USERNAME in env. */}
-      <ServiceCard
-        title="GitHub"
-        icon="code"
-        plan="Student"
-        status={githubStatus}
-        dashboardUrl="https://github.com/settings/billing/summary"
-      >
-        {github ? (
-          <>
-            {/* ── Codespaces section ────────────────────────────────────────────
-                 Shows how many compute minutes and storage GB have been consumed,
-                 plus a burn-rate projection for the rest of the month. */}
-            <div className="space-y-3">
-              <p className="text-xs text-foreground/40 uppercase tracking-wider font-medium">
-                Codespaces
-              </p>
-
-              {github.codespaces ? (
-                <>
-                  {/* Core hours progress bar (limit = 10,800 min = 180 core hours) */}
-                  <UsageMeter
-                    label="Core Hours"
-                    used={github.codespaces.totalMinutes}
-                    limit={github.codespaces.includedMinutes}
-                    unit="min"
-                  />
-
-                  {/* Storage progress bar (limit = 20 GB for Student plan) */}
-                  <UsageMeter
-                    label="Storage"
-                    used={github.codespaces.storageGB}
-                    limit={github.codespaces.includedStorageGB}
-                    unit="GB"
-                  />
-
-                  {/* Machine-type breakdown — shows which Codespaces SKU was used */}
-                  {Object.keys(github.codespaces.skuBreakdown).length > 0 && (
-                    <div className="space-y-1 pt-1">
-                      {Object.entries(github.codespaces.skuBreakdown).map(([sku, mins]) => (
-                        <div key={sku} className="flex items-baseline justify-between text-xs">
-                          <span className="text-foreground/40 truncate max-w-[150px]">{sku}</span>
-                          <span className="tabular-nums text-foreground/40">{mins.toLocaleString()} min</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Burn rate projection — same formula used across all service cards */}
-                  {(() => {
-                    const { totalMinutes, includedMinutes } = github.codespaces!
-                    const burn = computeBurnProjection({
-                      used: totalMinutes,
-                      limit: includedMinutes,
-                      snapshots: getMetricSnapshotSeries(usageHistory, 'github', 'codespaces_minutes'),
-                    })
-                    if (!burn) return null
-
-                    return (
-                      <div className="pt-2 border-t border-foreground/5 space-y-2">
-                        <div className="flex items-baseline justify-between text-sm">
-                          <span className="text-foreground/50">Remaining</span>
-                          <span className="tabular-nums font-semibold text-foreground">
-                            {burn.remaining.toLocaleString()} min
-                          </span>
-                        </div>
-                        <div className="flex items-baseline justify-between text-sm">
-                          <span className="text-foreground/50">Daily Burn Rate</span>
-                          <span className="tabular-nums text-foreground/60">
-                            ~{Math.round(burn.dailyRate).toLocaleString()} min/day
-                          </span>
-                        </div>
-                        <UsageTrendComparisonRow
-                          comparison={computeUsageTrendComparison({
-                            used: totalMinutes,
-                            snapshots: getMetricSnapshotSeries(usageHistory, 'github', 'codespaces_minutes'),
-                          })}
-                          formatValue={(value) => `${Math.round(value).toLocaleString()} min`}
-                        />
-                        <div className="flex items-baseline justify-between text-sm">
-                          <span className="text-foreground/50">Projected This Cycle</span>
-                          <span
-                            className={`tabular-nums font-medium ${
-                              burn.willBurnOut ? 'text-red-600' : 'text-foreground/60'
-                            }`}
-                          >
-                            {Math.round(burn.projected).toLocaleString()} / {includedMinutes.toLocaleString()}
-                          </span>
-                        </div>
-                        {burn.willBurnOut && (
-                          <div className="mt-2 px-3 py-2 rounded-xl bg-red-50 border border-red-200 flex items-center gap-2">
-                            <span className="material-symbols-outlined text-red-500 text-lg">warning</span>
-                            <span className="text-sm text-red-700">
-                              At current pace, Codespaces minutes will run out
-                              {burn.burnOutDate
-                                ? ` on ${burn.burnOutDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
-                                : ' before cycle end'}. {burn.daysRemaining} days remaining.
-                            </span>
-                          </div>
-                        )}
-                        {!burn.willBurnOut && burn.daysRemaining > 0 && (
-                          <div className="mt-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-2">
-                            <span className="material-symbols-outlined text-emerald-500 text-lg">check_circle</span>
-                            <span className="text-sm text-emerald-700">
-                              On track — projected to use{' '}
-                              {((burn.projected / includedMinutes) * 100).toFixed(0)}% by cycle end.
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })()}
-                </>
-              ) : (
-                <p className="text-sm text-foreground/40">No Codespaces usage in the active cycle.</p>
-              )}
-            </div>
-
-            {/* ── Copilot Premium Requests section ────────────────────────────
-                 Premium requests are calls to higher-cost models (e.g. Claude 3.5, o1).
-                 With Copilot Pro (Student plan), these are included at no extra charge
-                 up to the monthly allowance. */}
-            <div className="pt-3 border-t border-foreground/5 space-y-2">
-              <p className="text-xs text-foreground/40 uppercase tracking-wider font-medium">
-                Copilot Premium Requests
-              </p>
-
-              {github.copilot && (() => {
-                const totalRequests = github.copilot.items.reduce((sum, item) => sum + item.quantity, 0)
-                const burn = computeBurnProjection({
-                  used: totalRequests,
-                  limit: github.copilot.includedPremiumRequests,
-                  snapshots: getMetricSnapshotSeries(usageHistory, 'github', 'copilot_premium_requests'),
-                })
-
-                return (
-                  <>
-                    <UsageMeter
-                      label="Premium Requests"
-                      used={totalRequests}
-                      limit={github.copilot.includedPremiumRequests}
-                      unit="req"
-                    />
-
-                    {burn && (
-                      <div className="pt-2 border-t border-foreground/5 space-y-2">
-                        <div className="flex items-baseline justify-between text-sm">
-                          <span className="text-foreground/50">Remaining</span>
-                          <span className="tabular-nums font-semibold text-foreground">
-                            {burn.remaining.toLocaleString()} req
-                          </span>
-                        </div>
-                        <div className="flex items-baseline justify-between text-sm">
-                          <span className="text-foreground/50">Daily Burn Rate</span>
-                          <span className="tabular-nums text-foreground/60">
-                            ~{Math.round(burn.dailyRate).toLocaleString()} req/day
-                          </span>
-                        </div>
-                        <UsageTrendComparisonRow
-                          comparison={computeUsageTrendComparison({
-                            used: totalRequests,
-                            snapshots: getMetricSnapshotSeries(usageHistory, 'github', 'copilot_premium_requests'),
-                          })}
-                          formatValue={(value) => `${Math.round(value).toLocaleString()} req`}
-                        />
-                        <div className="flex items-baseline justify-between text-sm">
-                          <span className="text-foreground/50">Projected This Cycle</span>
-                          <span className={`tabular-nums font-medium ${burn.willBurnOut ? 'text-red-600' : 'text-foreground/60'}`}>
-                            {Math.round(burn.projected).toLocaleString()} / {github.copilot.includedPremiumRequests.toLocaleString()}
-                          </span>
-                        </div>
-                        {burn.willBurnOut && (
-                          <div className="mt-2 px-3 py-2 rounded-xl bg-red-50 border border-red-200 flex items-center gap-2">
-                            <span className="material-symbols-outlined text-red-500 text-lg">warning</span>
-                            <span className="text-sm text-red-700">
-                              At current pace, premium requests will run out
-                              {burn.burnOutDate
-                                ? ` on ${burn.burnOutDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
-                                : ' before cycle end'}. {burn.daysRemaining} days remaining.
-                            </span>
-                          </div>
-                        )}
-                        {!burn.willBurnOut && burn.daysRemaining > 0 && (
-                          <div className="mt-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-2">
-                            <span className="material-symbols-outlined text-emerald-500 text-lg">check_circle</span>
-                            <span className="text-sm text-emerald-700">
-                              On track — projected to use {((burn.projected / github.copilot.includedPremiumRequests) * 100).toFixed(0)}% by cycle end.
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </>
-                )
-              })()}
-
-              {github.copilot && github.copilot.items.length > 0 ? (
-                <div className="space-y-1">
-                  {/* One row per model showing request count and net cost (usually $0 on Student plan) */}
-                  {github.copilot.items.map((item, i) => (
-                    <div key={i} className="flex items-baseline justify-between text-sm">
-                      <span className="text-foreground/50 truncate max-w-[160px]">{item.model}</span>
-                      <div className="flex items-baseline gap-3 text-right shrink-0">
-                        <span className="tabular-nums text-foreground/60">
-                          {item.quantity.toLocaleString()} req
-                        </span>
-                        {item.cost > 0 && (
-                          <span className="tabular-nums text-foreground/40 text-xs">
-                            ${item.cost.toFixed(4)}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-foreground/40">No premium usage in the active cycle.</p>
-              )}
-
-              <p className="text-xs text-foreground/30 italic">Free with Copilot Pro (Student).</p>
-            </div>
-          </>
-        ) : githubStatus === 'error' ? (
-          <p className="text-sm text-foreground/40">
-            Could not fetch GitHub data. Check GITHUB_PAT and GITHUB_USERNAME in env.
           </p>
         ) : null}
       </ServiceCard>
@@ -1668,12 +1467,46 @@ export default function UsagePage() {
       <ServiceCard
         title="Venice AI"
         icon="smart_toy"
-        plan={venice?.consumptionCurrency || undefined}
+        plan={venice
+          ? venice.accountCount > 1
+            ? `${venice.accountCount} accounts`
+            : venice.consumptionCurrency || undefined
+          : undefined}
         status={veniceStatus}
         dashboardUrl={venice?.dashboardUrl || 'https://venice.ai/settings/api'}
       >
         {venice ? (
           <>
+            {venice.accountCount > 1 && (
+              <div className="rounded-xl border border-foreground/10 bg-foreground/[0.025] px-3 py-2.5 space-y-1.5">
+                {venice.accounts.map((account) => (
+                  <div
+                    key={account.label}
+                    className="flex items-baseline justify-between gap-3 text-xs"
+                  >
+                    <span className="text-foreground/50">
+                      {account.label} · {account.currency ?? 'No currency'}
+                    </span>
+                    <span className="tabular-nums text-foreground/60">
+                      {account.diemRemaining.toFixed(1)} / {account.diemAllocation.toFixed(1)} DIEM
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {venice.failedAccountCount > 0 && (
+              <div className="flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-amber-700 dark:text-amber-300">
+                <span className="material-symbols-outlined mt-0.5 text-lg">warning</span>
+                <span className="text-sm">
+                  {venice.failedAccountCount} account
+                  {venice.failedAccountCount === 1 ? '' : 's'} could not be read.
+                  Successful balances are still included.{' '}
+                  {venice.errors.map((error) => `${error.label} (${error.status})`).join(', ')}
+                </span>
+              </div>
+            )}
+
             <UsageMeter
               label="DIEM Balance"
               used={(venice.diemEpochAllocation ?? 0) - (venice.balances?.diem ?? 0)}
@@ -1758,7 +1591,7 @@ export default function UsagePage() {
           </>
         ) : veniceStatus === 'error' ? (
           <p className="text-sm text-foreground/40">
-            Could not fetch Venice AI data. Check VENICE_API_KEY in env.
+            Could not fetch any Venice AI account. Check the pooled API keys in Runtime Secrets.
           </p>
         ) : null}
       </ServiceCard>

@@ -154,18 +154,31 @@ export async function GET() {
 
   const overrides = await listSecretOverrides()
   const vercelEnvKeys = await listVercelEnvKeys()
+  const configuredKeys = new Set([
+    ...MANAGED_SECRET_FIELDS.map((field) => field.key),
+    ...overrides.map((override) => override.key),
+    ...Object.keys(process.env),
+    ...(vercelEnvKeys ? [...vercelEnvKeys] : []),
+  ])
+  const managedKeys = [...configuredKeys].filter((key) => getManagedSecretField(key))
   const statuses = Object.fromEntries(
-    MANAGED_SECRET_FIELDS.map((field) => [
-      field.key,
-      {
-        envSet: vercelEnvKeys ? vercelEnvKeys.has(field.key) : Boolean(process.env[field.key]),
-        envStatusSource: vercelEnvKeys ? 'vercel' : 'runtime',
-        strategy: field.strategy ?? 'runtime-override',
-      },
-    ])
+    managedKeys.map((key) => {
+      const field = getManagedSecretField(key)!
+      return [
+        key,
+        {
+          envSet: vercelEnvKeys ? vercelEnvKeys.has(key) : Boolean(process.env[key]),
+          envStatusSource: vercelEnvKeys ? 'vercel' : 'runtime',
+          strategy: field.strategy ?? 'runtime-override',
+        },
+      ]
+    })
   )
 
-  return NextResponse.json({ overrides, statuses })
+  return NextResponse.json({
+    overrides: overrides.filter((override) => getManagedSecretField(override.key)),
+    statuses,
+  })
 }
 
 export async function POST(req: NextRequest) {
@@ -194,7 +207,10 @@ export async function POST(req: NextRequest) {
   }
 
   const field = getManagedSecretField(key)
-  const strategy: ManagedSecretStrategy = field?.strategy ?? 'runtime-override'
+  if (!field) {
+    return NextResponse.json({ error: 'Secret key is not in the managed registry' }, { status: 400 })
+  }
+  const strategy: ManagedSecretStrategy = field.strategy ?? 'runtime-override'
 
   try {
     const vercelSync = await syncSecretToVercel(key, value)
@@ -227,6 +243,9 @@ export async function DELETE(req: NextRequest) {
   const key = searchParams.get('key')
   if (!key) {
     return NextResponse.json({ error: 'key query param is required' }, { status: 400 })
+  }
+  if (!getManagedSecretField(key)) {
+    return NextResponse.json({ error: 'Secret key is not in the managed registry' }, { status: 400 })
   }
 
   try {

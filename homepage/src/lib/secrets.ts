@@ -77,6 +77,47 @@ export async function getSecret(key: string): Promise<string | undefined> {
   return process.env[key]
 }
 
+function isPooledSecretKey(baseKey: string, key: string) {
+  return key === baseKey || new RegExp(`^${baseKey}_(?:[2-9]|[1-9]\\d+)$`).test(key)
+}
+
+function pooledSecretKeyOrder(baseKey: string, key: string) {
+  if (key === baseKey) return 1
+  return Number(key.slice(baseKey.length + 1))
+}
+
+/**
+ * Resolve a primary credential plus numbered account credentials such as
+ * TAVILY_API_KEY_2. Runtime overrides and deployment env vars participate in
+ * the same pool, and duplicate secret values are ignored to avoid double-counting.
+ */
+export async function getSecretPool(
+  baseKey: string
+): Promise<Array<{ key: string; value: string }>> {
+  const overrides = await listSecretOverrides()
+  const keys = new Set<string>([baseKey])
+
+  for (const key of Object.keys(process.env)) {
+    if (isPooledSecretKey(baseKey, key)) keys.add(key)
+  }
+  for (const override of overrides) {
+    if (isPooledSecretKey(baseKey, override.key)) keys.add(override.key)
+  }
+
+  const resolved = await Promise.all(
+    [...keys]
+      .sort((a, b) => pooledSecretKeyOrder(baseKey, a) - pooledSecretKeyOrder(baseKey, b))
+      .map(async (key) => ({ key, value: await getSecret(key) }))
+  )
+
+  const seenValues = new Set<string>()
+  return resolved.flatMap(({ key, value }) => {
+    if (!value || seenValues.has(value)) return []
+    seenValues.add(value)
+    return [{ key, value }]
+  })
+}
+
 export async function setSecretOverride(
   key: string,
   value: string,

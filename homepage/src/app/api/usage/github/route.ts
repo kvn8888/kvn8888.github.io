@@ -3,8 +3,12 @@ import { NextResponse } from "next/server"
 import {
   collectGithubUsage,
   getUsageCollectorErrorResponse,
-  persistUsageSnapshots,
 } from '@/lib/usageCollectors'
+
+const DEPRECATION_HEADERS = {
+  Deprecation: 'true',
+  Link: '</projects/usage>; rel="successor-version"',
+}
 
 export async function GET() {
   const session = await auth()
@@ -14,16 +18,15 @@ export async function GET() {
 
   try {
     const result = await collectGithubUsage()
-
-    try {
-      await persistUsageSnapshots(result.snapshots)
-    } catch {
-      // Snapshot failures should not block the live usage response.
-    }
-
-    return NextResponse.json(result.payload)
+    return NextResponse.json(
+      { ...result.payload, deprecated: true },
+      { headers: DEPRECATION_HEADERS }
+    )
   } catch (error) {
     const response = getUsageCollectorErrorResponse(error, 'Failed to fetch GitHub usage')
-    return NextResponse.json(response.body, { status: response.status })
+    return NextResponse.json(response.body, {
+      status: response.status,
+      headers: DEPRECATION_HEADERS,
+    })
   }
 }

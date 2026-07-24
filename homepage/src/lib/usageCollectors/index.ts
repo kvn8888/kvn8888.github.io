@@ -1,6 +1,5 @@
 import { collectAzureUsage } from './azure'
 import { collectGcpUsage } from './gcp'
-import { collectGithubUsage } from './github'
 import { collectOddsUsage } from './odds'
 import { UsageCollectionResult } from './shared'
 import { collectTavilyUsage } from './tavily'
@@ -14,7 +13,6 @@ export interface UsageSnapshotCollector {
 
 export const usageSnapshotCollectors: UsageSnapshotCollector[] = [
   { id: 'tavily', collect: collectTavilyUsage },
-  { id: 'github', collect: collectGithubUsage },
   { id: 'azure', collect: collectAzureUsage },
   { id: 'gcp', collect: collectGcpUsage },
   { id: 'turso', collect: collectTursoUsage },
@@ -24,6 +22,7 @@ export const usageSnapshotCollectors: UsageSnapshotCollector[] = [
 
 export { collectAzureUsage } from './azure'
 export { collectGcpUsage } from './gcp'
+// Deprecated compatibility export. GitHub is no longer an active dashboard or cron collector.
 export { collectGithubUsage } from './github'
 export { collectOddsUsage } from './odds'
 export { persistUsageSnapshots, getUsageCollectorErrorResponse, UsageCollectorError, type UsageCollectionResult, type UsageSnapshotWrite } from './shared'

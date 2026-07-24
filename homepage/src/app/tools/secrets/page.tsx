@@ -3,6 +3,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   MANAGED_SECRET_GROUPS,
+  isRepeatableSecretKey,
+  type ManagedSecretField,
+  type ManagedSecretGroup,
   type ManagedSecretStrategy,
 } from '@/lib/managedSecrets'
 
@@ -16,6 +19,10 @@ interface SecretStatus {
   envSet: boolean
   envStatusSource: 'vercel' | 'runtime'
   strategy: ManagedSecretStrategy
+}
+
+interface DisplaySecretField extends ManagedSecretField {
+  repeatableBaseKey?: string
 }
 
 export default function SecretsPage() {
@@ -119,6 +126,55 @@ export default function SecretsPage() {
     setInputValue('')
   }
 
+  const knownKeys = new Set([
+    ...Object.keys(statuses),
+    ...overrides.map((override) => override.key),
+    ...(pendingKey ? [pendingKey] : []),
+  ])
+
+  function getVisibleFields(group: ManagedSecretGroup): DisplaySecretField[] {
+    return group.keys.flatMap((field) => {
+      if (!field.repeatable) return [field]
+
+      const accountKeys = new Set([field.key])
+      for (const key of knownKeys) {
+        if (isRepeatableSecretKey(field.key, key)) accountKeys.add(key)
+      }
+
+      return [...accountKeys]
+        .sort((a, b) => {
+          const accountA = a === field.key ? 1 : Number(a.slice(field.key.length + 1))
+          const accountB = b === field.key ? 1 : Number(b.slice(field.key.length + 1))
+          return accountA - accountB
+        })
+        .map((key) => {
+          if (key === field.key) {
+            return { ...field, repeatableBaseKey: field.key }
+          }
+
+          const accountNumber = Number(key.slice(field.key.length + 1))
+          return {
+            ...field,
+            key,
+            description: `${field.repeatable?.accountLabel ?? 'Additional'} account ${accountNumber} API key for pooled usage`,
+            note: 'Additional runtime-managed account credential.',
+            repeatableBaseKey: field.key,
+          }
+        })
+    })
+  }
+
+  function addAccount(baseKey: string) {
+    const accountNumbers = [...knownKeys]
+      .filter((key) => isRepeatableSecretKey(baseKey, key))
+      .map((key) => key === baseKey ? 1 : Number(key.slice(baseKey.length + 1)))
+      .filter(Number.isFinite)
+    const nextAccount = Math.max(1, ...accountNumbers) + 1
+
+    setPendingKey(`${baseKey}_${nextAccount}`)
+    setInputValue('')
+  }
+
   return (
     <div>
       {/* Header */}
@@ -169,16 +225,17 @@ export default function SecretsPage() {
 
               {/* Keys list */}
               <div className="divide-y divide-glass-border">
-                {group.keys.map((item) => {
+                {getVisibleFields(group).map((item) => {
                   const meta = overrideMap.get(item.key)
                   const status = statuses[item.key]
                   const isEditing = pendingKey === item.key
                   const strategy = status?.strategy ?? item.strategy ?? 'runtime-override'
                   const inputType = item.inputType ?? 'password'
+                  const isRepeatableBase = item.repeatableBaseKey === item.key
 
                   return (
                     <div key={item.key} className="px-6 py-4">
-                      <div className="flex items-start justify-between gap-4">
+                      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
                             <code className="text-sm font-mono font-medium text-foreground">
@@ -221,7 +278,17 @@ export default function SecretsPage() {
                         </div>
 
                         {!isEditing && (
-                          <div className="flex items-center gap-2 flex-shrink-0">
+                          <div className="flex items-center gap-2 flex-shrink-0 self-end sm:self-auto">
+                            {isRepeatableBase && (
+                              <button
+                                onClick={() => addAccount(item.key)}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-glass border border-glass-border text-foreground/60 hover:text-foreground hover:border-glass-border-hover text-sm transition-all cursor-pointer"
+                                title={`Add another ${item.repeatable?.accountLabel ?? 'service'} account`}
+                              >
+                                <span className="material-symbols-outlined text-base">add</span>
+                                <span className="hidden sm:inline">Account</span>
+                              </button>
+                            )}
                             <button
                               onClick={() => {
                                 setPendingKey(item.key)
@@ -265,7 +332,7 @@ export default function SecretsPage() {
 
                       {/* Inline edit form */}
                       {isEditing && (
-                        <div className="mt-3 flex gap-2">
+                        <div className="mt-3 flex flex-col sm:flex-row gap-2">
                           <input
                             type={inputType === 'password' ? 'password' : inputType}
                             value={inputValue}
