@@ -95,6 +95,18 @@ interface AzureUsage {
 }
 
 interface TursoUsage {
+  plan: {
+    id: string | null
+    name: string | null
+    timeline: string | null
+    overages: boolean | null
+    billingPeriodStart: string | null
+    billingPeriodEnd: string | null
+  }
+  status: {
+    blockedReads: boolean
+    blockedWrites: boolean
+  }
   usage: {
     rows_read: number
     rows_written: number
@@ -104,7 +116,19 @@ interface TursoUsage {
     locations: number
     bytes_synced: number
   }
-  limits: Record<string, number>
+  limits: {
+    rows_read: number | null
+    rows_written: number | null
+    storage_bytes: number | null
+    databases: number | null
+    groups: number | null
+    locations: number | null
+    bytes_synced: number | null
+  }
+  unlimited: {
+    databases: boolean
+  }
+  limitsSource: 'provider' | 'unavailable'
   databases: { uuid: string; rows_read: number; rows_written: number; storage_bytes: number }[]
   dashboardUrl: string
 }
@@ -477,6 +501,25 @@ function UsageMeter({
       )}
     </div>
   )
+}
+
+function formatTursoPlanName(plan: string | null | undefined): string {
+  if (!plan) return 'Plan unavailable'
+  return plan
+    .split(/[-_\s]+/)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
+}
+
+function formatTursoBillingDate(value: string | null): string | null {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(date)
 }
 
 /**
@@ -1478,12 +1521,63 @@ export default function UsagePage() {
       <ServiceCard
         title="Turso"
         icon="database"
-        plan="Starter"
+        plan={formatTursoPlanName(turso?.plan.name)}
         status={tursoStatus}
         dashboardUrl={turso?.dashboardUrl || 'https://turso.tech/app'}
       >
         {turso ? (
           <>
+            {(turso.status.blockedReads || turso.status.blockedWrites) && (
+              <div className="flex items-start gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-red-700 dark:text-red-300">
+                <span className="material-symbols-outlined mt-0.5 text-lg">block</span>
+                <div className="text-sm">
+                  <div className="font-medium">Turso has restricted this organization</div>
+                  <div className="mt-0.5 opacity-80">
+                    {turso.status.blockedReads && turso.status.blockedWrites
+                      ? 'Reads and writes are blocked.'
+                      : turso.status.blockedReads
+                        ? 'Reads are blocked.'
+                        : 'Writes are blocked.'}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="rounded-xl border border-foreground/10 bg-foreground/[0.025] px-3 py-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                <span className="text-foreground/50">Provider-reported plan</span>
+                <span className="font-medium text-foreground/70">
+                  {formatTursoPlanName(turso.plan.name)}
+                  {turso.plan.timeline ? ` · ${formatTursoPlanName(turso.plan.timeline)}` : ''}
+                </span>
+              </div>
+              {formatTursoBillingDate(turso.plan.billingPeriodEnd) && (
+                <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <span className="text-foreground/40">Billing period ends</span>
+                  <span className="tabular-nums text-foreground/55">
+                    {formatTursoBillingDate(turso.plan.billingPeriodEnd)}
+                  </span>
+                </div>
+              )}
+              {turso.plan.overages !== null && (
+                <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <span className="text-foreground/40">Overages</span>
+                  <span className="text-foreground/55">
+                    {turso.plan.overages ? 'Enabled' : 'Disabled'}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {turso.limitsSource === 'unavailable' && (
+              <div className="flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-amber-700 dark:text-amber-300">
+                <span className="material-symbols-outlined mt-0.5 text-lg">info</span>
+                <span className="text-sm">
+                  Usage is live, but Turso&apos;s plan quotas are temporarily unavailable.
+                </span>
+              </div>
+            )}
+
             <UsageMeter
               label="Rows Read"
               used={turso.usage.rows_read}
@@ -1497,7 +1591,17 @@ export default function UsagePage() {
             <UsageMeter
               label="Storage"
               used={Math.round(turso.usage.storage_bytes / 1_000_000)}
-              limit={Math.round(turso.limits.storage_bytes / 1_000_000)}
+              limit={turso.limits.storage_bytes === null
+                ? null
+                : Math.round(turso.limits.storage_bytes / 1_000_000)}
+              unit="MB"
+            />
+            <UsageMeter
+              label="Data Synced"
+              used={Math.round(turso.usage.bytes_synced / 1_000_000)}
+              limit={turso.limits.bytes_synced === null
+                ? null
+                : Math.round(turso.limits.bytes_synced / 1_000_000)}
               unit="MB"
             />
 
@@ -1505,23 +1609,35 @@ export default function UsagePage() {
               <div className="flex items-baseline justify-between text-sm">
                 <span className="text-foreground/50">Databases</span>
                 <span className="tabular-nums text-foreground/60">
-                  {turso.usage.databases} / {turso.limits.databases}
+                  {turso.usage.databases}
+                  {turso.unlimited.databases
+                    ? ' / Unlimited'
+                    : turso.limits.databases !== null
+                      ? ` / ${turso.limits.databases.toLocaleString()}`
+                      : ''}
                 </span>
               </div>
-              {turso.usage.bytes_synced > 0 && (
-                <div className="flex items-baseline justify-between text-sm">
-                  <span className="text-foreground/50">Bytes Synced</span>
-                  <span className="tabular-nums text-foreground/60">
-                    {(turso.usage.bytes_synced / 1_000_000).toFixed(1)} MB
-                  </span>
-                </div>
-              )}
+              <div className="flex items-baseline justify-between text-sm">
+                <span className="text-foreground/50">Groups</span>
+                <span className="tabular-nums text-foreground/60">
+                  {turso.usage.groups}
+                  {turso.limits.groups !== null ? ` / ${turso.limits.groups.toLocaleString()}` : ''}
+                </span>
+              </div>
+              <div className="flex items-baseline justify-between text-sm">
+                <span className="text-foreground/50">Locations</span>
+                <span className="tabular-nums text-foreground/60">
+                  {turso.usage.locations}
+                  {turso.limits.locations !== null ? ` / ${turso.limits.locations.toLocaleString()}` : ''}
+                </span>
+              </div>
             </div>
 
             {/* Burn rate projection (rows read) */}
             {(() => {
               const used = turso.usage.rows_read
               const limit = turso.limits.rows_read
+              if (limit === null) return null
               const burn = computeBurnProjection({
                 used,
                 limit,
