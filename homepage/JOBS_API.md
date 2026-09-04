@@ -3,7 +3,6 @@
 The tracker uses the same `/api/jobs` endpoints for the browser UI and agents.
 Agent support becomes available after deploying this change and setting `JOBS_API_KEY`.
 Use the canonical API base `https://www.kevinc.dev` directly. The apex domain redirects, and some clients drop authentication headers when following a redirect to another hostname.
-Use the canonical API base `https://www.kevinc.dev` directly. The apex domain redirects, and some clients drop authentication headers when following a redirect to another hostname.
 
 ## Setup
 
