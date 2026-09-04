@@ -2,6 +2,8 @@
 
 The tracker uses the same `/api/jobs` endpoints for the browser UI and agents.
 Agent support becomes available after deploying this change and setting `JOBS_API_KEY`.
+Use the canonical API base `https://www.kevinc.dev` directly. The apex domain redirects, and some clients drop authentication headers when following a redirect to another hostname.
+Use the canonical API base `https://www.kevinc.dev` directly. The apex domain redirects, and some clients drop authentication headers when following a redirect to another hostname.
 
 ## Setup
 
@@ -16,7 +18,7 @@ This is one shared tracker key. It grants read, create, and update access to the
 ## Create an application
 
 ```bash
-curl --fail-with-body https://kevinc.dev/api/jobs \
+curl --fail-with-body https://www.kevinc.dev/api/jobs \
   -H "Authorization: Bearer $JOBS_API_KEY" \
   -H 'Content-Type: application/json' \
   -H 'Idempotency-Key: example-company-intern-2026-09-04' \
@@ -50,7 +52,7 @@ If a record is edited later, retrying its original insert still returns the orig
 ## List and search
 
 ```bash
-curl --fail-with-body 'https://kevinc.dev/api/jobs?q=Example&limit=50&offset=0' \
+curl --fail-with-body 'https://www.kevinc.dev/api/jobs?q=Example&limit=50&offset=0' \
   -H "Authorization: Bearer $JOBS_API_KEY"
 ```
 
@@ -59,7 +61,7 @@ Returns `{"jobs":[...],"total":1}`. `q` searches company names; `limit` defaults
 ## Update an application
 
 ```bash
-curl --fail-with-body -X PATCH https://kevinc.dev/api/jobs/123 \
+curl --fail-with-body -X PATCH https://www.kevinc.dev/api/jobs/123 \
   -H "Authorization: Bearer $JOBS_API_KEY" \
   -H 'Content-Type: application/json' \
   --data '{"interviewed":true}'
