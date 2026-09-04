@@ -1,3 +1,5 @@
+import { isJobsAgentRequest, matchesJobsApiKey } from "@/lib/jobsApiKey"
+import { getSecret } from "@/lib/secrets"
 import NextAuth from "next-auth"
 import Google from "next-auth/providers/google"
 import { NextResponse } from "next/server"
@@ -45,6 +47,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     async authorized({ auth, request }) {
       const { nextUrl } = request
       const pathname = nextUrl.pathname
+      if (isJobsAgentRequest(pathname, request.method) && request.headers.has('authorization')) {
+        const valid = matchesJobsApiKey(request.headers.get('authorization'), await getSecret('JOBS_API_KEY'))
+        return valid || NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      }
       const isProtectedPage =
         pathname.startsWith("/projects") || pathname.startsWith("/tools")
       const isProtectedApi =

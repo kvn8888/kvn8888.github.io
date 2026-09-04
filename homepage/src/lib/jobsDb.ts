@@ -65,6 +65,8 @@ export async function ensureJobsSchema(db: Client) {
         resume_type TEXT,
         location TEXT,
         work_mode TEXT,
+        request_key TEXT,
+        request_hash TEXT,
         interviewed INTEGER NOT NULL DEFAULT 0,
         created_at TEXT DEFAULT (datetime('now'))
       );
@@ -76,16 +78,22 @@ export async function ensureJobsSchema(db: Client) {
         ON job_applications(company);
     `)
 
-    // Migration for DBs predating location/work_mode. SQLite has no ADD COLUMN IF NOT EXISTS,
+    // Migration for DBs predating location/work_mode or agent retry metadata. SQLite has no ADD COLUMN IF NOT EXISTS,
     // so check PRAGMA table_info and add only missing columns.
     const info = await db.execute(`PRAGMA table_info(job_applications)`)
     const existingCols = new Set(info.rows.map((r) => String(r.name)))
-    if (!existingCols.has('location')) {
-      await db.execute(`ALTER TABLE job_applications ADD COLUMN location TEXT`)
+    for (const column of ['location', 'work_mode', 'request_key', 'request_hash']) {
+      if (!existingCols.has(column)) {
+        try {
+          await db.execute(`ALTER TABLE job_applications ADD COLUMN ${column} TEXT`)
+        } catch (error) {
+          // Another cold-start request may have added it after our schema read.
+          const current = await db.execute('PRAGMA table_info(job_applications)')
+          if (!current.rows.some(row => row.name === column)) throw error
+        }
+      }
     }
-    if (!existingCols.has('work_mode')) {
-      await db.execute(`ALTER TABLE job_applications ADD COLUMN work_mode TEXT`)
-    }
+    await db.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_job_applications_request_key ON job_applications(request_key)')
   } catch (error) {
     console.error('Failed to initialize job_applications schema', {
       error,

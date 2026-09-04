@@ -204,6 +204,7 @@ export const MANAGED_SECRET_GROUPS: ManagedSecretGroup[] = [
     label: 'Automation',
     icon: 'sync_alt',
     keys: [
+      { key: 'JOBS_API_KEY', description: 'Tracker-only agent API key (at least 32 characters)' },
       { key: 'SHEETS_WEBHOOK_URL', description: 'Optional Google Sheets webhook for job tracker dual writes' },
     ],
   },
