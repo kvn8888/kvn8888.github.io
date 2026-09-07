@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect } from 'react'
+import JobBrowser from './JobBrowser'
 
 type Tab = 'add' | 'browse' | 'stats'
 
@@ -35,21 +36,6 @@ interface ParsedJob {
   description: string
   location: string
   work_mode: string
-}
-
-interface JobApplication {
-  id: number
-  company: string
-  role: string
-  date: string
-  source: string | null
-  type: string | null
-  cover_letter: string | null
-  resume_type: string | null
-  interviewed: boolean
-  description: string | null
-  location: string | null
-  work_mode: string | null
 }
 
 interface Stats {
@@ -321,195 +307,6 @@ function AddTab() {
 
 // ─── Browse Tab ───────────────────────────────────────────────────────────────
 
-function BrowseTab() {
-  const [query, setQuery] = useState('')
-  const [jobs, setJobs] = useState<JobApplication[]>([])
-  const [total, setTotal] = useState(0)
-  const [offset, setOffset] = useState(0)
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [expandedId, setExpandedId] = useState<number | null>(null)
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const LIMIT = 20
-
-  const fetchJobs = useCallback(async (q: string, off: number, replace: boolean) => {
-    setIsLoading(true)
-    setError(null)
-    try {
-      const params = new URLSearchParams({ limit: String(LIMIT), offset: String(off) })
-      if (q) params.set('q', q)
-      const res = await fetch(`/api/jobs?${params}`)
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Fetch failed')
-      setJobs((prev) => (replace ? data.jobs : [...prev, ...data.jobs]))
-      setTotal(data.total)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load jobs')
-    } finally {
-      setIsLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    fetchJobs('', 0, true)
-  }, [fetchJobs])
-
-  const handleSearch = (q: string) => {
-    setQuery(q)
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => {
-      setOffset(0)
-      fetchJobs(q, 0, true)
-    }, 300)
-  }
-
-  const loadMore = () => {
-    const newOffset = offset + LIMIT
-    setOffset(newOffset)
-    fetchJobs(query, newOffset, false)
-  }
-
-  const toggleInterviewed = async (job: JobApplication) => {
-    const newVal = !job.interviewed
-    // Optimistic update
-    setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, interviewed: newVal } : j)))
-    try {
-      const res = await fetch(`/api/jobs/${job.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ interviewed: newVal ? 1 : 0 }),
-      })
-      if (!res.ok) throw new Error()
-    } catch {
-      // Revert
-      setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, interviewed: job.interviewed } : j)))
-    }
-  }
-
-  return (
-    <div className="p-5 space-y-4">
-      {/* Search */}
-      <div className="relative">
-        <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-foreground/30 text-lg pointer-events-none">
-          search
-        </span>
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => handleSearch(e.target.value)}
-          placeholder="Search by company…"
-          className="w-full bg-foreground/5 border border-glass-border rounded-xl pl-10 pr-4 py-3 text-foreground placeholder:text-foreground/30 focus:border-glass-border-hover focus:outline-none text-sm"
-        />
-      </div>
-
-      {error && (
-        <div className="flex items-center gap-2 text-sm text-red-500">
-          <span className="material-symbols-outlined text-base">error</span>
-          {error}
-        </div>
-      )}
-
-      {/* Results */}
-      {jobs.length === 0 && !isLoading ? (
-        <div className="text-center py-10 space-y-2">
-          <span className="material-symbols-outlined text-4xl text-foreground/20">work_off</span>
-          <p className="text-sm text-foreground/40">No applications found.</p>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {jobs.map((job) => (
-            <div
-              key={job.id}
-              className="rounded-xl border border-glass-border bg-foreground/[0.02] overflow-hidden"
-            >
-              <div
-                className="flex items-center gap-3 p-3 cursor-pointer hover:bg-foreground/5 transition-colors"
-                onClick={() => setExpandedId(expandedId === job.id ? null : job.id)}
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm font-medium text-foreground truncate">{job.company}</span>
-                    {job.interviewed && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-xs border border-emerald-200">
-                        <span className="material-symbols-outlined text-xs">check</span>
-                        Interviewed
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-foreground/50 mt-0.5 truncate">
-                    {job.role}
-                    {job.type ? ` · ${job.type}` : ''}
-                    {job.resume_type ? ` · ${job.resume_type}` : ''}
-                    {job.location ? ` · ${job.location}` : ''}
-                    {job.work_mode ? ` · ${job.work_mode}` : ''}
-                  </p>
-                </div>
-                <div className="text-right shrink-0">
-                  <p className="text-xs text-foreground/40">{job.date}</p>
-                  {job.source && <p className="text-xs text-foreground/30">{job.source}</p>}
-                </div>
-                <span className="material-symbols-outlined text-foreground/20 text-lg shrink-0">
-                  {expandedId === job.id ? 'expand_less' : 'expand_more'}
-                </span>
-              </div>
-
-              {expandedId === job.id && (
-                <div className="border-t border-glass-border p-3 space-y-3 bg-foreground/[0.01]">
-                  {job.description && (
-                    <p className="text-xs text-foreground/60 whitespace-pre-wrap">{job.description}</p>
-                  )}
-                  {job.cover_letter && job.cover_letter !== 'no' && job.cover_letter !== '' && (
-                    <div>
-                      <p className="text-xs text-foreground/40 mb-1">Cover letter</p>
-                      <p className="text-xs text-foreground/60 whitespace-pre-wrap">
-                        {job.cover_letter === 'yes' ? 'Yes' : job.cover_letter}
-                      </p>
-                    </div>
-                  )}
-                  <button
-                    onClick={() => toggleInterviewed(job)}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors cursor-pointer border ${
-                      job.interviewed
-                        ? 'bg-foreground/5 text-foreground/60 border-glass-border hover:bg-foreground/10'
-                        : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
-                    }`}
-                  >
-                    <span className="material-symbols-outlined text-sm">
-                      {job.interviewed ? 'remove_circle' : 'check_circle'}
-                    </span>
-                    {job.interviewed ? 'Mark as not interviewed' : 'Mark as interviewed'}
-                  </button>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {isLoading && (
-        <div className="flex justify-center py-4">
-          <span className="material-symbols-outlined text-foreground/30 animate-spin">progress_activity</span>
-        </div>
-      )}
-
-      {!isLoading && jobs.length > 0 && jobs.length < total && (
-        <button
-          onClick={loadMore}
-          className="w-full py-2.5 rounded-xl bg-foreground/5 border border-glass-border text-sm text-foreground/60 hover:bg-foreground/10 transition-colors cursor-pointer"
-        >
-          Load more ({total - jobs.length} remaining)
-        </button>
-      )}
-
-      {!isLoading && jobs.length > 0 && (
-        <p className="text-center text-xs text-foreground/30">
-          Showing {jobs.length} of {total}
-        </p>
-      )}
-    </div>
-  )
-}
-
 // ─── Stats Tab ────────────────────────────────────────────────────────────────
 
 function StatsTab() {
@@ -653,7 +450,7 @@ export default function ResumeTool() {
       {/* Content */}
       <div className={`rounded-2xl bg-glass backdrop-blur-sm border border-glass-border overflow-hidden ${mounted ? 'blur-reveal-3' : 'opacity-0'}`}>
         {activeTab === 'add' && <AddTab />}
-        {activeTab === 'browse' && <BrowseTab />}
+        {activeTab === 'browse' && <JobBrowser />}
         {activeTab === 'stats' && <StatsTab />}
       </div>
     </div>

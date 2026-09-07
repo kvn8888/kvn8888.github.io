@@ -99,7 +99,7 @@ All fields below are accepted by POST and PATCH. Omitted values remain null on c
 | `blocker` | Text, 50,000 characters | What prevented progress |
 | `evidence_refs` | Text, 50,000 characters | Paths, URLs, or a JSON-serialized reference list; whitespace is preserved |
 
-`other_details` and `evidence_refs` are omitted from GET /api/jobs lists. Read the complete record with `GET /api/jobs/{id}` (same Bearer key), which returns `{"job":{...}}`. Other new fields appear in both list and detail responses. Existing `cover_letter` remains available with its 50,000-character limit; put larger letters or bundles in `other_details`. These are API/database fields; the browser UI does not yet provide editors for them.
+`other_details` and `evidence_refs` are omitted from GET /api/jobs lists. Read the complete record with `GET /api/jobs/{id}` (same Bearer key), which returns `{"job":{...}}`. Other new fields appear in both list and detail responses. Existing `cover_letter` remains available with its 50,000-character limit; put larger letters or bundles in `other_details`. The browser Browse tab displays these fields when an application is expanded; editing these fields remains available through PATCH.
 
 Example body for `PATCH /api/jobs/123` to enrich an existing tracker entry:
 

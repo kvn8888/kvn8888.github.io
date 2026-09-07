@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
       sql: `SELECT id, company, role, date, source, type, cover_letter, resume_type, interviewed, description, location, work_mode, ${jobSummaryExtraFields.join(', ')}
             FROM job_applications
             ${whereClause}
-            ORDER BY date DESC
+            ORDER BY date DESC, id DESC
             LIMIT ? OFFSET ?`,
       args: params,
     })
