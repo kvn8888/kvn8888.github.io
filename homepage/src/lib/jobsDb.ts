@@ -1,3 +1,4 @@
+import { jobExtraTextFields } from './jobExtraFields'
 import { createClient, type Client } from '@libsql/client'
 import { getSecret } from './secrets'
 
@@ -82,10 +83,10 @@ export async function ensureJobsSchema(db: Client) {
     // so check PRAGMA table_info and add only missing columns.
     const info = await db.execute(`PRAGMA table_info(job_applications)`)
     const existingCols = new Set(info.rows.map((r) => String(r.name)))
-    for (const column of ['location', 'work_mode', 'request_key', 'request_hash']) {
+    for (const column of ['location', 'work_mode', 'request_key', 'request_hash', ...jobExtraTextFields, 'duration_seconds']) {
       if (!existingCols.has(column)) {
         try {
-          await db.execute(`ALTER TABLE job_applications ADD COLUMN ${column} TEXT`)
+          await db.execute(`ALTER TABLE job_applications ADD COLUMN ${column} ${column === 'duration_seconds' ? 'REAL' : 'TEXT'}`)
         } catch (error) {
           // Another cold-start request may have added it after our schema read.
           const current = await db.execute('PRAGMA table_info(job_applications)')

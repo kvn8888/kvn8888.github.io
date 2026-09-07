@@ -91,6 +91,40 @@ test('tracker authentication, writes, retries, and browser compatibility', async
     assert.equal((await insert()).status, 200)
     assert.equal((await db.execute('SELECT interviewed FROM job_applications')).rows[0].interviewed, 1)
     assert.equal((await PATCH(request('PATCH', '/api/jobs/999', { interviewed: true }), { params: Promise.resolve({ id: '999' }) })).status, 404)
+    const detail = load('src/app/api/jobs/[id]/route.ts').GET
+    const extra = { ...payload, status: 'blocked', external_id: 'scout:attempt-52',
+      started_at: '2026-09-07T11:00:00-04:00', completed_at: null, duration_seconds: 0,
+      other_details: '  '+ 'x'.repeat(999996) + '  ', evidence_refs: '["receipt.png"]', blocker: 'MFA required' }
+    const added = await insert(extra, 'extra-fields')
+    assert.equal(added.status, 201)
+    const extraId = String((await added.json()).id)
+    const read = async () => (await (await detail(request('GET', `/api/jobs/${extraId}`), { params: Promise.resolve({ id: extraId }) })).json()).job
+    let saved = await read()
+    for (const [field, value] of Object.entries(extra)) assert.deepEqual(saved[field], value)
+    assert.equal(saved.request_key, undefined)
+    assert.equal((await insert(extra, 'extra-fields')).status, 200)
+    assert.equal((await insert({ ...extra, duration_seconds: 1 }, 'extra-fields')).status, 409)
+    assert.equal((await insert({ ...payload, other_details: 'x'.repeat(1000001) }, 'oversize')).status, 400)
+    for (const invalid of [-1, '12', {}, true]) assert.equal((await insert({ ...payload, duration_seconds: invalid }, 'bad-duration')).status, 400)
+    assert.equal((await insert({ ...payload, started_at: '2026-02-30T00:00:00Z' }, 'bad-time')).status, 400)
+    const changed = await PATCH(request('PATCH', `/api/jobs/${extraId}`, { other_details: null, duration_seconds: null, status: 'submitted' }), { params: Promise.resolve({ id: extraId }) })
+    assert.equal(changed.status, 200)
+    saved = await read()
+    assert.equal(saved.other_details, null)
+    assert.equal(saved.duration_seconds, null)
+    assert.equal(saved.status, 'submitted')
+    assert.equal(saved.blocker, extra.blocker)
+    const summaries = await (await GET(request('GET', '/api/jobs'))).json()
+    assert.equal('other_details' in summaries.jobs[0], false)
+    assert.equal('evidence_refs' in summaries.jobs[0], false)
+    assert.equal((await detail(request('GET', '/api/jobs/999'), { params: Promise.resolve({ id: '999' }) })).status, 404)
+    assert.equal((await detail(request('GET', `/api/jobs/${extraId}`, undefined, { Authorization: 'Bearer wrong' }), { params: Promise.resolve({ id: extraId }) })).status, 401)
+    // A previously deployed payload hash remains valid after adding optional columns.
+    const { createHash } = require('node:crypto')
+    const legacyFields = ['company','role','description','date','source','type','cover_letter','resume_type','location','work_mode']
+    const legacyHash = createHash('sha256').update(JSON.stringify(legacyFields.map(f => [f,payload[f] || null]))).digest('hex')
+    await db.execute({ sql: 'UPDATE job_applications SET request_hash = ? WHERE id = ?', args: [legacyHash,id] })
+    assert.equal((await insert()).status, 200)
     // Existing UI sends interviewed as 0/1 and inserts without a retry key.
     session = { user: { email: 'owner@example.com' } }
     assert.equal((await POST(request('POST', '/api/jobs', payload, { Authorization: 'Bearer wrong' }))).status, 401)

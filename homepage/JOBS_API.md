@@ -82,3 +82,39 @@ The optional Google Sheets mirror is best effort and runs only for newly inserte
 ## Local verification
 
 Run `node --test tests/jobs-api.test.cjs` from `homepage/`. Tests execute real route handlers and SQL against a temporary local database, with authentication and secret providers replaced. They do not access the production database or send the Sheets webhook. Proxy callback checks verify key scoping; browser session/grant behavior uses the existing authorization path.
+
+## Optional agent results (September 2026)
+
+All fields below are accepted by POST and PATCH. Omitted values remain null on creation; PATCH only changes supplied fields. Send null to clear a field. Missing measurements must remain null, never estimated or filled with zero. Zero is a real measured duration.
+
+| Field | Type / limit | Meaning |
+| --- | --- | --- |
+| `other_details` | Text, 1,000,000 characters | Freeform notes, full cover letters, Markdown, or serialized JSON; whitespace is preserved |
+| `status` | Text, 2,000 characters | Freeform outcome, e.g. submitted, blocked, failed, skipped, in_progress |
+| `application_url` | Text, 2,000 characters | Posting or ATS application URL |
+| `external_id` | Text, 2,000 characters | Agent's source record ID; not a unique key or automatic upsert |
+| `agent_model` | Text, 2,000 characters | Actual recorded model name, if known |
+| `started_at`, `completed_at`, `submitted_at` | ISO 8601 timestamp or null | Include timezone, e.g. `2026-09-07T11:59:00-04:00` |
+| `duration_seconds` | Nonnegative finite number or null | Measured duration in seconds; fractions allowed |
+| `blocker` | Text, 50,000 characters | What prevented progress |
+| `evidence_refs` | Text, 50,000 characters | Paths, URLs, or a JSON-serialized reference list; whitespace is preserved |
+
+`other_details` and `evidence_refs` are omitted from GET /api/jobs lists. Read the complete record with `GET /api/jobs/{id}` (same Bearer key), which returns `{"job":{...}}`. Other new fields appear in both list and detail responses. Existing `cover_letter` remains available with its 50,000-character limit; put larger letters or bundles in `other_details`. These are API/database fields; the browser UI does not yet provide editors for them.
+
+Example body for `PATCH /api/jobs/123` to enrich an existing tracker entry:
+
+```json
+{
+  "external_id": "job-scout:attempt-52",
+  "status": "submitted",
+  "submitted_at": "2026-09-07T11:59:00-04:00",
+  "duration_seconds": null,
+  "blocker": null,
+  "evidence_refs": "[\"/home/pi/Documents/Job-Scout/receipts/attempt-52.png\"]",
+  "other_details": "## Cover letter\nDear hiring team, ...\n\n## Additional notes\nATS receipt confirmed."
+}
+```
+
+Use PATCH for historical records that already have tracker IDs. For records without IDs, POST still requires company, role, and a stable Idempotency-Key. Reusing an old insertion key with newly added details produces 409; enrich that existing entry with PATCH instead. New fields participate in retry conflict detection, while retries of pre-extension payloads retain their original hash.
+
+These fields describe the latest stored attempt/outcome, not a separate attempt-history table. Preserve multiple attempts as serialized JSON in `other_details` when needed. The existing Sheets mirror still receives only its original field set; the new details are stored in the tracker database.

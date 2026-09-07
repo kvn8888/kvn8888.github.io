@@ -1,3 +1,4 @@
+import { jobSummaryExtraFields } from '@/lib/jobExtraFields'
 import { getJobsIdentity } from '@/lib/jobsRequestAuth'
 import { insertJob, validateJobInput, validateIdempotencyKey, JobInputError, JobConflictError } from '@/lib/jobWrites'
 import { ensureJobsSchema, getJobsDb } from '@/lib/jobsDb'
@@ -24,7 +25,7 @@ export async function GET(req: NextRequest) {
     const params = q ? [q, limit, offset] : [limit, offset]
 
     const rows = await db.execute({
-      sql: `SELECT id, company, role, date, source, type, cover_letter, resume_type, interviewed, description, location, work_mode
+      sql: `SELECT id, company, role, date, source, type, cover_letter, resume_type, interviewed, description, location, work_mode, ${jobSummaryExtraFields.join(', ')}
             FROM job_applications
             ${whereClause}
             ORDER BY date DESC
@@ -38,6 +39,7 @@ export async function GET(req: NextRequest) {
     })
 
     const jobs = rows.rows.map((r) => ({
+      ...Object.fromEntries(jobSummaryExtraFields.map(field => [field, r[field] ?? null])),
       id: Number(r.id),
       company: r.company,
       role: r.role,

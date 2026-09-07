@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto'
+import { jobExtraTextLimits, jobExtraTextFields, jobExtraFields } from './jobExtraFields'
 import type { Client } from '@libsql/client'
 
 const textFields = ['company', 'role', 'description', 'date', 'source', 'type', 'cover_letter', 'resume_type', 'location', 'work_mode'] as const
-export type JobInput = Partial<Record<typeof textFields[number], string | null>> & { interviewed?: boolean }
+export type JobInput = Partial<Record<typeof textFields[number] | typeof jobExtraTextFields[number], string | null>> & { interviewed?: boolean; duration_seconds?: number | null }
 export class JobInputError extends Error {}
 export class JobConflictError extends Error {}
 
@@ -10,17 +11,26 @@ export function validateJobInput(body: unknown, patch = false): JobInput {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new JobInputError('Expected a JSON object')
   const input = body as Record<string, unknown>
   const output: JobInput = {}
-  const allowed: readonly string[] = patch ? [...textFields, 'interviewed'] : textFields
+  const allowed: readonly string[] = [...textFields, ...jobExtraFields, ...(patch ? ['interviewed'] : [])]
   for (const [key, value] of Object.entries(input)) {
     if (!allowed.includes(key)) throw new JobInputError(`Unknown field: ${key}`)
+    if (key === 'duration_seconds') {
+      if (value !== null && (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > Number.MAX_SAFE_INTEGER)) throw new JobInputError('duration_seconds must be a nonnegative finite number or null')
+      output.duration_seconds = value as number | null
+      continue
+    }
     if (key === 'interviewed') {
       if (typeof value !== 'boolean' && value !== 0 && value !== 1) throw new JobInputError('interviewed must be a boolean or 0/1')
       output.interviewed = Boolean(value)
       continue
     }
     if (value !== null && typeof value !== 'string') throw new JobInputError(`${key} must be a string or null`)
-    if (typeof value === 'string' && value.length > (['description', 'cover_letter'].includes(key) ? 50000 : 2000)) throw new JobInputError(`${key} is too long`)
-    output[key as typeof textFields[number]] = typeof value === 'string' ? value.trim() : null
+    const limit = jobExtraTextLimits[key as keyof typeof jobExtraTextLimits] ?? (['description', 'cover_letter'].includes(key) ? 50000 : 2000)
+    if (typeof value === 'string' && value.length > limit) throw new JobInputError(`${key} is too long`)
+    if (typeof value === 'string' && ['started_at', 'completed_at', 'submitted_at'].includes(key) &&
+      (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(value) || !Number.isFinite(Date.parse(value)) ||
+        new Date(value.slice(0, 10)).toISOString().slice(0, 10) !== value.slice(0, 10))) throw new JobInputError(`${key} must be an ISO 8601 timestamp with a timezone or null`)
+    output[key as typeof textFields[number] | typeof jobExtraTextFields[number]] = typeof value === 'string' ? (['other_details', 'evidence_refs'].includes(key) ? value : value.trim()) : null
   }
   for (const key of ['company', 'role'] as const) {
     if ((!patch || key in output) && !output[key]) throw new JobInputError(`${key} is required`)
@@ -41,13 +51,19 @@ export function validateIdempotencyKey(key: string | null): string | null {
 /** Store retry metadata in the inserted row so a single atomic INSERT handles concurrency. */
 export async function insertJob(db: Client, input: JobInput, key: string | null) {
   // Hash explicit input, not the default date, so retries across midnight still match.
-  const canonical = textFields.map(field => [field, input[field] || null])
+  const canonical: [string, string | number | null][] = textFields.map(field => [field, input[field] || null])
+  // Keep legacy hashes unchanged when new fields are omitted or null.
+  for (const field of jobExtraFields) {
+    const value = input[field] ?? null
+    if (value !== null && value !== '') canonical.push([field, value])
+  }
+  const fields = [...textFields, ...jobExtraFields]
   const hash = createHash('sha256').update(JSON.stringify(canonical)).digest('hex')
   const result = await db.execute({
-    sql: `INSERT INTO job_applications (${textFields.join(', ')}, request_key, request_hash)
-          VALUES (${textFields.map(() => '?').join(', ')}, ?, ?)
+    sql: `INSERT INTO job_applications (${fields.join(', ')}, request_key, request_hash)
+          VALUES (${fields.map(() => '?').join(', ')}, ?, ?)
           ON CONFLICT(request_key) DO NOTHING RETURNING id`,
-    args: [...textFields.map(field => field === 'date' ? input.date || new Date().toISOString().slice(0, 10) : input[field] || null), key, key ? hash : null],
+    args: [...fields.map(field => field === 'date' ? input.date || new Date().toISOString().slice(0, 10) : input[field] === '' ? null : input[field] ?? null), key, key ? hash : null],
   })
   if (result.rows.length) return { id: Number(result.rows[0].id), replayed: false }
   const previous = await db.execute({

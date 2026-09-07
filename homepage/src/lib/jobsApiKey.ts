@@ -3,7 +3,7 @@ import { createHash, timingSafeEqual } from 'node:crypto'
 /** Deliberately excludes parsing, stats, other APIs, and protected pages. */
 export function isJobsAgentRequest(pathname: string, method: string): boolean {
   return (pathname === '/api/jobs' && ['GET', 'POST'].includes(method)) ||
-    (/^\/api\/jobs\/[1-9]\d*$/.test(pathname) && method === 'PATCH')
+    (/^\/api\/jobs\/[1-9]\d*$/.test(pathname) && ['GET', 'PATCH'].includes(method))
 }
 
 export function matchesJobsApiKey(header: string | null, configured: string | undefined): boolean {
