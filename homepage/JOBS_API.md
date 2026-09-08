@@ -122,3 +122,9 @@ These fields describe the latest stored attempt/outcome, not a separate attempt-
 ## Collection opportunities
 
 Use [JOB_COLLECTION_API.md](JOB_COLLECTION_API.md) for the separate collection table, status lifecycle, claim/version protocol, extension and reader credentials, and URL export. Collected opportunities remain in that table after applying; submitted captures continue to use this application API.
+
+## Applied-only site view
+
+The website Browse tab requests `GET /api/jobs?view=applied`; its pagination totals and `/api/jobs/stats` use the same filter. This includes `submitted` and `applied` (case/outer whitespace insensitive), plus legacy application rows with null/blank status from before status tracking existed. Explicit blocked, skipped, captcha, submitted_unverified, pending, and other statuses are excluded even when submitted_at is populated. No rows are changed or deleted.
+
+Agents retain the existing unfiltered `GET /api/jobs` default (`view=all`), and can still read individual records by ID. The collection API is unaffected. Prefer recording non-submitted work in `job_collection` and marking confirmed submissions in `job_applications` with status submitted/applied.

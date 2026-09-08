@@ -1,3 +1,4 @@
+import { appliedJobsPredicate } from '@/lib/appliedJobs'
 import { auth } from '@/auth'
 import { ensureJobsSchema, getJobsDb } from '@/lib/jobsDb'
 import { NextResponse } from 'next/server'
@@ -33,18 +34,18 @@ export async function GET() {
     const monthStart = `${today.slice(0, 7)}-01`
 
     const [totalRes, todayRes, weekRes, lastWeekRes, monthRes] = await Promise.all([
-      db.execute({ sql: 'SELECT COUNT(*) as cnt FROM job_applications', args: [] }),
-      db.execute({ sql: `SELECT COUNT(*) as cnt FROM job_applications WHERE date = ?`, args: [today] }),
+      db.execute({ sql: `SELECT COUNT(*) as cnt FROM job_applications WHERE ${appliedJobsPredicate}`, args: [] }),
+      db.execute({ sql: `SELECT COUNT(*) as cnt FROM job_applications WHERE ${appliedJobsPredicate} AND date = ?`, args: [today] }),
       db.execute({
-        sql: `SELECT COUNT(*) as cnt FROM job_applications WHERE date >= ?`,
+        sql: `SELECT COUNT(*) as cnt FROM job_applications WHERE ${appliedJobsPredicate} AND date >= ?`,
         args: [thisMonday],
       }),
       db.execute({
-        sql: `SELECT COUNT(*) as cnt FROM job_applications WHERE date >= ? AND date <= ?`,
+        sql: `SELECT COUNT(*) as cnt FROM job_applications WHERE ${appliedJobsPredicate} AND date >= ? AND date <= ?`,
         args: [lastMondayISO, lastSundayISO],
       }),
       db.execute({
-        sql: `SELECT COUNT(*) as cnt FROM job_applications WHERE date >= ?`,
+        sql: `SELECT COUNT(*) as cnt FROM job_applications WHERE ${appliedJobsPredicate} AND date >= ?`,
         args: [monthStart],
       }),
     ])

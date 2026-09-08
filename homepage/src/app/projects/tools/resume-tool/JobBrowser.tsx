@@ -129,7 +129,7 @@ export default function JobBrowser() {
 
   useEffect(() => {
     const controller = new AbortController()
-    const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String((selection.page - 1) * PAGE_SIZE), q: selection.query })
+    const params = new URLSearchParams({ view: 'applied', limit: String(PAGE_SIZE), offset: String((selection.page - 1) * PAGE_SIZE), q: selection.query })
     fetch(`/api/jobs?${params}`, { signal: controller.signal }).then(async response => {
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || 'Could not load applications')

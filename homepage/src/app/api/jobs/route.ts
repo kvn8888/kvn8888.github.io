@@ -1,3 +1,4 @@
+import { appliedJobsPredicate } from '@/lib/appliedJobs'
 import { jobSummaryExtraFields } from '@/lib/jobExtraFields'
 import { getJobsIdentity } from '@/lib/jobsRequestAuth'
 import { insertJob, validateJobInput, validateIdempotencyKey, JobInputError, JobConflictError } from '@/lib/jobWrites'
@@ -11,6 +12,8 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url)
   const q = searchParams.get('q') || ''
+  const view = searchParams.get('view') || 'all'
+  if (!['all', 'applied'].includes(view)) return NextResponse.json({ error: 'view must be all or applied' }, { status: 400 })
   const limit = Math.min(Number(searchParams.get('limit') || '50'), 200)
   const offset = Number(searchParams.get('offset') || '0')
   if (!Number.isSafeInteger(limit) || limit < 1 || !Number.isSafeInteger(offset) || offset < 0) {
@@ -21,7 +24,8 @@ export async function GET(req: NextRequest) {
     const db = await getJobsDb()
     await ensureJobsSchema(db)
 
-    const whereClause = q ? `WHERE company LIKE '%' || ? || '%'` : ''
+    const conditions = [view === 'applied' ? appliedJobsPredicate : null, q ? `company LIKE '%' || ? || '%'` : null].filter(Boolean)
+    const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
     const params = q ? [q, limit, offset] : [limit, offset]
 
     const rows = await db.execute({

@@ -136,6 +136,26 @@ test('tracker authentication, writes, retries, and browser compatibility', async
     const concurrent = await Promise.all(Array.from({ length: 5 }, () => insert(payload, 'concurrent')))
     assert.equal(concurrent.filter(response => response.status === 201).length, 1)
     assert.equal(concurrent.filter(response => response.status === 200).length, 4)
+    // The site view and stats exclude non-submissions before counting/pagination.
+    const today = new Date().toISOString().slice(0, 10)
+    const statuses = [null, '', 'submitted', 'applied', ' SUBMITTED ', 'blocked', 'skipped', 'captcha', 'submitted_unverified', 'pending']
+    for (const status of statuses) await db.execute({ sql: 'INSERT INTO job_applications (company,role,date,status,submitted_at) VALUES (?, ?, ?, ?, ?)', args: ['Filter Fixture','Intern',today,status,'2026-09-08T00:00:00Z'] })
+    const appliedList = await (await GET(request('GET', '/api/jobs?view=applied&q=Filter%20Fixture&limit=2'))).json()
+    assert.equal(appliedList.total,5)
+    assert.equal(appliedList.jobs.length,2)
+    const nextApplied = await (await GET(request('GET', '/api/jobs?view=applied&q=Filter%20Fixture&limit=2&offset=2'))).json()
+    assert.equal(nextApplied.total,5)
+    assert.ok(nextApplied.jobs.every(job => !appliedList.jobs.some(first => first.id === job.id)))
+    const allFixture = await (await GET(request('GET','/api/jobs?q=Filter%20Fixture'))).json()
+    assert.equal(allFixture.total,10)
+    assert.equal((await GET(request('GET','/api/jobs?view=unknown'))).status,400)
+    const filtered = await (await GET(request('GET','/api/jobs?view=applied&limit=200'))).json()
+    assert.ok(filtered.jobs.every(job => !job.status?.trim() || ['submitted','applied'].includes(job.status.trim().toLowerCase())))
+    session = {user:{email:'owner@example.com'}}
+    const stats = await (await load('src/app/api/jobs/stats/route.ts').GET()).json()
+    assert.equal(stats.total,filtered.total)
+    assert.equal(stats.today,filtered.jobs.filter(job => job.date === today).length)
+    session = null
     // A failed insert does not reserve its key; the key can subsequently be used.
     await db.execute("CREATE TRIGGER fail_insert BEFORE INSERT ON job_applications WHEN NEW.company = 'Fail' BEGIN SELECT RAISE(ABORT, 'test failure'); END")
     const { insertJob } = load('src/lib/jobWrites.ts')
