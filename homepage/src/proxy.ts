@@ -8,6 +8,7 @@ export const config = {
     "/api/secrets/:path*",
     "/api/usage/:path*",
     "/api/jobs/:path*",
+    "/api/job-collection/:path*",
     "/api/coverletter/:path*",
     "/api/speech/:path*",
     "/api/notes/:path*",

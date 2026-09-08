@@ -78,7 +78,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = validateJobInput(await req.json())
     const key = validateIdempotencyKey(req.headers.get('idempotency-key'))
-    if (userEmail === 'tracker-agent' && !key) throw new JobInputError('Idempotency-Key is required for agent inserts')
+    if (['tracker-agent', 'tracker-extension'].includes(userEmail) && !key) throw new JobInputError('Idempotency-Key is required for agent inserts')
     const { company, role, description, type, source, cover_letter, resume_type, date, location, work_mode } = body
     const jobDate = date || new Date().toISOString().slice(0, 10)
     const db = await getJobsDb()

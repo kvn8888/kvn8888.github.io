@@ -12,7 +12,7 @@ Use the canonical API base `https://www.kevinc.dev` directly. The apex domain re
 
 Keys must be at least 32 characters. An unset, empty, or shorter configured key disables agent access. Replace the configured key to rotate it; an empty runtime override disables it. Deleting an override falls back to any environment value.
 
-This is one shared tracker key. It grants read, create, and update access to the shared application tracker. It grants no delete access, job parsing, statistics, other APIs, or protected pages. Browser users still use their existing Google sessions and page grants. A supplied invalid Authorization header is rejected even if a browser session exists.
+This is one shared tracker key. It grants read, create, and update access to the shared application tracker. It also supports the collection routes documented in [JOB_COLLECTION_API.md](JOB_COLLECTION_API.md). It grants no delete access, job parsing, statistics, unrelated APIs, or protected pages. Browser users still use their existing Google sessions and page grants. A supplied invalid Authorization header is rejected even if a browser session exists.
 
 ## Create an application
 
@@ -118,3 +118,7 @@ Example body for `PATCH /api/jobs/123` to enrich an existing tracker entry:
 Use PATCH for historical records that already have tracker IDs. For records without IDs, POST still requires company, role, and a stable Idempotency-Key. Reusing an old insertion key with newly added details produces 409; enrich that existing entry with PATCH instead. New fields participate in retry conflict detection, while retries of pre-extension payloads retain their original hash.
 
 These fields describe the latest stored attempt/outcome, not a separate attempt-history table. Preserve multiple attempts as serialized JSON in `other_details` when needed. The existing Sheets mirror still receives only its original field set; the new details are stored in the tracker database.
+
+## Collection opportunities
+
+Use [JOB_COLLECTION_API.md](JOB_COLLECTION_API.md) for the separate collection table, status lifecycle, claim/version protocol, extension and reader credentials, and URL export. Collected opportunities remain in that table after applying; submitted captures continue to use this application API.

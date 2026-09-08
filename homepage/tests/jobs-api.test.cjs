@@ -31,7 +31,7 @@ function load(relative) {
   function resolve(name) {
     if (name in mocks) return mocks[name]
     if (name.startsWith('@/')) return load(`src/${name.slice(2)}.ts`)
-    if (name.startsWith('.')) return load(path.relative(root, path.resolve(path.dirname(filename), `${name}.ts`)))
+    if (name.startsWith('.')) { const relative = path.relative(root, path.resolve(path.dirname(filename), `${name}.ts`)); const alias = '@/'+relative.replace(/^src\//,'').replace(/\.ts$/,''); return mocks[alias] || load(relative) }
     return require(name)
   }
   vm.runInThisContext(`(function(require,module,exports){${source}\n})`, { filename })(resolve, module, module.exports)
@@ -58,7 +58,7 @@ test('tracker authentication, writes, retries, and browser compatibility', async
     // Exercise the actual proxy authorization callback as well as route guards.
     load('src/auth.ts')
     const { callbacks } = authConfig
-    const authorize = (pathname, method = 'GET', token = key) => callbacks.authorized({ auth: null, request: { nextUrl: new URL(`http://localhost${pathname}`), method, headers: new Headers({ Authorization: `Bearer ${token}` }) } })
+    const authorize = (pathname, method = 'GET', token = key) => callbacks.authorized({ auth: null, request: { url: `http://localhost${pathname}`, nextUrl: new URL(`http://localhost${pathname}`), method, headers: new Headers({ Authorization: `Bearer ${token}` }) } })
     assert.equal(await authorize('/api/jobs'), true)
     assert.equal((await authorize('/api/jobs', 'GET', 'wrong')).status, 401)
     for (const p of ['/api/secrets', '/api/jobs/parse', '/api/jobs/stats']) assert.equal((await authorize(p)).status, 401)
