@@ -1,4 +1,4 @@
-# ATS Captcha Handoff 1.0.1
+# ATS Captcha Handoff 1.0.2
 
 A separate Chrome MV3 extension for moving a filled application from an agent's browser to your own browser. Packets stay local. It does not call the tracker API, submit applications, solve challenges, import cookies, or include a bundled personal profile.
 

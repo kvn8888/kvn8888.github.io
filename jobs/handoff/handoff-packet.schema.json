@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://github.com/kvn8888/kvn8888.github.io/releases/download/ats-handoff-v1.0.1/handoff-packet.schema.json",
+  "$id": "https://github.com/kvn8888/kvn8888.github.io/releases/download/ats-handoff-v1.0.2/handoff-packet.schema.json",
   "title": "ATS human handoff packet",
   "type": "object",
   "additionalProperties": false,

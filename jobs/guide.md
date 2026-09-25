@@ -55,7 +55,7 @@ Release assets are immutable and checksum verified. An extension release is adve
 
 ## Local CAPTCHA handoff packets
 
-ATS Captcha Handoff 1.0.1 is a separate optional Chrome extension for fresh-page restoration on the human's Mac. Source and instructions: https://github.com/kvn8888/kvn8888.github.io/tree/dia-design/jobs/handoff . Downloads and the versioned packet schema: https://github.com/kvn8888/kvn8888.github.io/releases/tag/ats-handoff-v1.0.1 .
+ATS Captcha Handoff 1.0.2 is a separate optional Chrome extension for fresh-page restoration on the human's Mac. Source and instructions: https://github.com/kvn8888/kvn8888.github.io/tree/dia-design/jobs/handoff . Downloads and the versioned packet schema: https://github.com/kvn8888/kvn8888.github.io/releases/tag/ats-handoff-v1.0.2 .
 
 When a remote agent has filled a form but a human gate blocks progress, write a local schema-1.0 packet and hand it to the owner. The standalone Python producer supports handoff-write and handoff-validate. Packet files contain personal data: keep them out of public repositories and transfer them only through a user-authorized channel.
 
