@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from 'react'
 import JobBrowser from './JobBrowser'
+import JobWorkflow, {JobActivity} from './JobWorkflow'
 
-type Tab = 'add' | 'browse' | 'stats'
+type Tab = 'add' | 'browse' | 'stats' | 'opportunities' | 'attention'
 
 const SOURCE_OPTIONS = [
   'Jobright.ai',
@@ -410,6 +411,8 @@ function StatsTab() {
 const tabs: { id: Tab; label: string }[] = [
   { id: 'add', label: 'Add' },
   { id: 'browse', label: 'Browse' },
+  { id: 'opportunities', label: 'Opportunities' },
+  { id: 'attention', label: 'Needs attention' },
   { id: 'stats', label: 'Stats' },
 ]
 
@@ -431,7 +434,7 @@ export default function ResumeTool() {
       </div>
 
       {/* Tab bar */}
-      <div className={`flex justify-center gap-2 ${mounted ? 'blur-reveal-2' : 'opacity-0'}`}>
+      <div className={`flex flex-wrap justify-center gap-2 ${mounted ? 'blur-reveal-2' : 'opacity-0'}`}>
         {tabs.map((tab) => (
           <button
             key={tab.id}
@@ -451,7 +454,9 @@ export default function ResumeTool() {
       <div className={`rounded-2xl bg-glass backdrop-blur-sm border border-glass-border overflow-hidden ${mounted ? 'blur-reveal-3' : 'opacity-0'}`}>
         {activeTab === 'add' && <AddTab />}
         {activeTab === 'browse' && <JobBrowser />}
-        {activeTab === 'stats' && <StatsTab />}
+        {activeTab === 'stats' && <><StatsTab /><JobActivity /></>}
+        {activeTab === 'opportunities' && <JobWorkflow />}
+        {activeTab === 'attention' && <JobWorkflow attention />}
       </div>
     </div>
   )

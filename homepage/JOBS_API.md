@@ -1,3 +1,5 @@
+> Canonical agent onboarding: https://www.kevinc.dev/api/job-workflow/discovery — https://www.kevinc.dev/jobs/docs. These notes describe compatibility/history; use the current generated guide for new workflow integrations.
+
 # Job Tracker API for agents
 
 The tracker uses the same `/api/jobs` endpoints for the browser UI and agents.

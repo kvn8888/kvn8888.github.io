@@ -1,3 +1,4 @@
+import { requestSchemas } from './jobApiDefinition'
 import type { Client, InStatement } from '@libsql/client'
 
 export class CollectionError extends Error {
@@ -101,6 +102,8 @@ export function validateCollection(body: unknown, patch = false): Stored {
     Object.assign(result, { description_status: 'missing', resolution_status: 'unresolved', status: 'pending', first_seen_at: now, last_seen_at: now, role_tags_json: '[]', locations_json: '[]', sources_json: '[]', metadata_json: '{}', application_ids_json: '[]', ...result })
   }
   if (patch && !Object.keys(result).length) throw new CollectionError('No fields to update')
+  const shape = requestSchemas[patch ? 'collectionPatch' : 'collectionCreate'].safeParse(result)
+  if (!shape.success) throw new CollectionError(shape.error.issues[0].message)
   return result
 }
 
@@ -180,6 +183,11 @@ function mergeJson(left: unknown, right: unknown): unknown {
 }
 
 export async function patchCollection(db: Client, id: string, patch: Stored, version: number, actor: string) {
+  if ('status' in patch || 'application_ids_json' in patch) {
+    const installed=await db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='job_attempts'")
+    if(installed.rows.length){const attempts=await db.execute({sql:'SELECT id FROM job_attempts WHERE collection_id=? LIMIT 1',args:[id]});if(attempts.rows.length)throw new CollectionError('Use job-workflow outcome/complete/resolve for opportunities with attempt history',409)}
+  }
+
   const current = await getCollection(db, id)
   if (!current) throw new CollectionError('Collection job not found', 404)
   if (Number(current.version) !== version) throw new CollectionError('Record changed; GET it again before updating', 412, { version: current.version })

@@ -1,3 +1,5 @@
+> Canonical agent onboarding: https://www.kevinc.dev/api/job-workflow/discovery — https://www.kevinc.dev/jobs/docs. These notes describe compatibility/history; use the current generated guide for new workflow integrations.
+
 # Job collection and application API
 
 Base URL: **https://www.kevinc.dev**. Use `www` directly; following an apex-domain redirect may drop the Authorization header.
@@ -127,7 +129,9 @@ Response: `{"jobs":[...],"total":42,"next_cursor":"..."}`. The cursor orders by 
 
 Summaries omit description, source observations, full location JSON, status notes/history, and extraction metadata. GET by UUID returns them. `/export` returns only ID, source/application/canonical URLs, status, first_seen_at, and version, with the same pagination. It prefers no URL automatically; the agent chooses a verified application_url when present. These are fixed parameterized queries, never arbitrary SQL.
 
-## Saving a confirmed application
+## Legacy-only application linking (superseded for new integrations)
+
+New clients must use the workflow claim/completion API, which atomically creates or links the application. Do not combine it with the compatibility sequence below for the same submission.
 
 1. After employer/user confirmation, POST `/api/jobs` using `Idempotency-Key: jobsutility:<capture-uuid>` and the application metadata. Put the versioned capture document in `other_details` as **serialized JSON text**. This existing field also accepts historical Markdown; the API does not impose the extension's capture-document schema. The extension must validate its capture shape and exclude passwords/security tokens before sending.
 2. Persist the returned numeric application ID. Retrying uses the original key and exact original payload.

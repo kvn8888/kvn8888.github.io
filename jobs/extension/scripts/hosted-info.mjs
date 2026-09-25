@@ -1,0 +1,1 @@
+console.log('Canonical setup: https://www.kevinc.dev/jobs/docs. Use jobs-workflow extension install/update for managed Chrome installation. dist/extension is developer output, not a managed installation.');

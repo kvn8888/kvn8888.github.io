@@ -49,7 +49,7 @@ export const ACCESS_GRANT_OPTIONS = [
     label: 'Job Tracker',
     description: 'Job Tracker and the related job parsing and persistence APIs.',
     hubPaths: ['/projects'],
-    pathPrefixes: ['/projects/job-tracker', '/projects/tools/resume-tool', '/api/jobs', '/api/job-collection'],
+    pathPrefixes: ['/projects/job-tracker', '/projects/tools/resume-tool', '/api/jobs', '/api/job-collection', '/api/job-workflow'],
   },
   {
     key: 'ocr',

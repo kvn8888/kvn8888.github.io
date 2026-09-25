@@ -154,7 +154,8 @@ test('tracker authentication, writes, retries, and browser compatibility', async
     session = {user:{email:'owner@example.com'}}
     const stats = await (await load('src/app/api/jobs/stats/route.ts').GET()).json()
     assert.equal(stats.total,filtered.total)
-    assert.equal(stats.today,filtered.jobs.filter(job => job.date === today).length)
+    const localDay=d=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(d))
+    assert.equal(stats.today,filtered.jobs.filter(job => (job.submitted_at?localDay(job.submitted_at):job.date) === localDay(new Date())).length)
     session = null
     // A failed insert does not reserve its key; the key can subsequently be used.
     await db.execute("CREATE TRIGGER fail_insert BEFORE INSERT ON job_applications WHEN NEW.company = 'Fail' BEGIN SELECT RAISE(ABORT, 'test failure'); END")

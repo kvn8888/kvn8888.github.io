@@ -1,0 +1,7 @@
+node_modules
+extension/node_modules
+extension/dist/
+extension/.test-output/
+release/
+.env*
+*.log

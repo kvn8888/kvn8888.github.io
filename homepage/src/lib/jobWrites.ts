@@ -1,3 +1,4 @@
+import { requestSchemas } from './jobApiDefinition'
 import { createHash } from 'node:crypto'
 import { jobExtraTextLimits, jobExtraTextFields, jobExtraFields } from './jobExtraFields'
 import type { Client } from '@libsql/client'
@@ -40,6 +41,8 @@ export function validateJobInput(body: unknown, patch = false): JobInput {
     throw new JobInputError('date must be a valid YYYY-MM-DD date')
   }
   if (patch && Object.keys(output).length === 0) throw new JobInputError('No fields to update')
+  const shape = requestSchemas[patch ? 'applicationPatch' : 'applicationCreate'].safeParse(output)
+  if (!shape.success) throw new JobInputError(shape.error.issues[0].message)
   return output
 }
 

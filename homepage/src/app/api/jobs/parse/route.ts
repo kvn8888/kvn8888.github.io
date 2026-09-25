@@ -1,3 +1,4 @@
+import { requestSchemas } from '@/lib/jobApiDefinition'
 import { auth } from '@/auth'
 import { NextRequest, NextResponse } from 'next/server'
 import { getSecret } from '@/lib/secrets'
@@ -11,7 +12,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const { text } = await req.json()
-    if (!text || typeof text !== 'string') {
+    if (!requestSchemas.parse.safeParse({text}).success) {
       return NextResponse.json({ error: 'text is required' }, { status: 400 })
     }
 

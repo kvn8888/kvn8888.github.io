@@ -1,0 +1,36 @@
+name: Jobs workflow contract and clients
+on:
+  pull_request:
+    paths: ['jobs/**', 'homepage/src/**', 'homepage/package*.json', '.github/workflows/jobs-workflow.yml']
+  push:
+    branches: [dia-design, 'codex/jobs-workflow-source-of-truth']
+    paths: ['jobs/**', 'homepage/src/**', 'homepage/package*.json', '.github/workflows/jobs-workflow.yml']
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-node@v4
+        with: {node-version: 22}
+      - run: npm ci --prefix homepage && npm ci --prefix jobs && npm ci --prefix jobs/extension
+      - run: npm run check:generated --prefix jobs && npm run validate --prefix jobs
+      - run: node jobs/scripts/check-compatibility.mjs
+      - run: npm run typecheck --prefix homepage
+      - run: node --test homepage/tests/jobs-api.test.cjs homepage/tests/job-collection.test.cjs homepage/tests/job-workflow.test.cjs homepage/tests/job-public.test.cjs
+      - run: npm test --prefix jobs && npm run check --prefix jobs/extension
+      - run: npx playwright install --with-deps chromium
+        working-directory: jobs/extension
+      - run: npm run test:e2e
+        working-directory: jobs/extension
+      - run: |
+          DEV_BYPASS_AUTH=true AUTH_SECRET=disposable-ci-secret AUTH_GOOGLE_ID=fixture AUTH_GOOGLE_SECRET=fixture node node_modules/next/dist/bin/next dev --webpack -p 43130 > /tmp/jobs-preview.log 2>&1 &
+          for i in $(seq 1 40); do curl -fsS http://127.0.0.1:43130/jobs/docs > /dev/null && break; sleep 2; done
+        working-directory: homepage
+      - run: npm run test:portal
+        working-directory: jobs/extension
+      - run: npm run build --prefix jobs
+      - uses: actions/upload-artifact@v4
+        with: {name: jobs-workflow-candidate, path: jobs/release/}

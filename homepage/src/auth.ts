@@ -1,3 +1,4 @@
+import { isPublicWorkflowRequest } from '@/lib/jobWorkflowPublic'
 import { isJobsAgentRequest } from "@/lib/jobsApiKey"
 import { getJobsTokenIdentity } from "@/lib/jobsTokenAuth"
 import NextAuth from "next-auth"
@@ -47,6 +48,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     async authorized({ auth, request }) {
       const { nextUrl } = request
       const pathname = nextUrl.pathname
+      if (isPublicWorkflowRequest(pathname, request.method)) return true
       if (isJobsAgentRequest(pathname, request.method) && request.headers.has('authorization')) {
         const valid = Boolean(await getJobsTokenIdentity(request))
         return valid || NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -59,6 +61,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         pathname.startsWith("/api/usage") ||
         pathname.startsWith("/api/jobs") ||
         pathname.startsWith("/api/job-collection") ||
+        pathname.startsWith("/api/job-workflow") ||
         pathname.startsWith("/api/coverletter") ||
         pathname.startsWith("/api/speech") ||
         pathname.startsWith("/api/notes") ||

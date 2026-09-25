@@ -1,0 +1,31 @@
+{
+  "name": "jobs-utility-extension",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "start": "node scripts/hosted-info.mjs",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "test:e2e": "node --import tsx tests/e2e.ts",
+    "check": "npm run typecheck && npm test && npm run build",
+    "test:portal": "node --import tsx tests/portal-e2e.ts"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.17.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.1.0",
+    "@types/jsdom": "^21.1.7",
+    "@types/node": "^22.0.0",
+    "agent-browser": "^0.21.0",
+    "esbuild": "^0.25.0",
+    "jsdom": "^26.1.0",
+    "playwright": "^1.55.0",
+    "prettier": "^3.9.6",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  }
+}
