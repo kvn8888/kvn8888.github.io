@@ -34,14 +34,14 @@ export function domAction(input={action:'capture',walkFrames:true}) {
    if(!eligible(el))continue;
    const loc=selectors(el),name=el.name||'',text=label(el),placeholder=el.getAttribute('placeholder')||'';
    if(!loc.length&&!name&&!text&&!placeholder){warn.push('An unlabeled control has no stable locator and was omitted.');continue}
-   rows.push({...(name?{name}:{}),...(text?{label:text.slice(0,2000)}:{}),...(placeholder?{placeholder}:{}),selectors:loc,type,value:type==='checkbox'||type==='radio'?el.checked:el.tagName==='SELECT'&&el.multiple?[...el.selectedOptions].map(o=>o.value):el.value,...(['radio','checkbox'].includes(type)?{option_value:el.value}:{}),...(hint?{frame_hint:hint}:{}),frame_url:url,required:el.required||el.getAttribute('aria-required')==='true',confidence:loc.length?1:0.7});
+   rows.push({...(name?{name}:{}),...(text?{label:text}:{}),...(placeholder?{placeholder}:{}),selectors:loc,type,value:type==='checkbox'||type==='radio'?el.checked:el.tagName==='SELECT'&&el.multiple?[...el.selectedOptions].map(o=>o.value):el.value,...(['radio','checkbox'].includes(type)?{option_value:el.value}:{}),...(hint?{frame_hint:hint}:{}),frame_url:url,required:el.required||el.getAttribute('aria-required')==='true',confidence:loc.length?1:0.7});
   }
   return {url:safeUrl(location.href),title:document.title,fields:rows,captcha_detected:vendors.size>0,captcha_vendors:[...vendors],file_inputs:fileInputs,warnings:warn};
  }
  const result={filled:0,skipped:0,missing:0,warnings:warn,results:[],missing_required:[],file_inputs:[]};
  const aliases={first:['firstname','givenname','first'],last:['lastname','surname','familyname','last'],full_name:['fullname','yourname','name'],email:['email','emailaddress'],phone:['phone','phonenumber','telephone','mobile'],address:['address','streetaddress','addressline1'],address_line2:['addressline2','apartment'],city:['city'],state:['state','province','region'],zip:['zip','zipcode','postalcode'],country:['country'],website:['website','portfolio','personalwebsite'],linkedin:['linkedin','linkedinurl'],github:['github','githuburl'],school:['school','university','college'],degree:['degree'],major:['major','fieldofstudy'],graduation_year:['graduationyear'],salary:['salary','expectedsalary','salaryexpectation']};
- const packet=input.packet||{};let fields=packet.fields||[];const profile=packet.profile_overlay||{};const fallback=fields.length===0;
- if(fallback){const p={...profile,phone:profile.phone_formatted||profile.phone,address:profile.address_line1||profile.address,full_name:profile.full_name||[profile.first,profile.last].filter(Boolean).join(' ')};fields=Object.entries(aliases).filter(([k])=>p[k]!=null&&p[k]!=='').map(([k,names])=>({label:names[0],value:p[k],aliases:names,profile:true}))}
+ const packet=input.packet||{};let fields=[...(packet.fields||[])];const profile=packet.profile_overlay||{};
+ if(Object.keys(profile).length){const p={...profile,phone:profile.phone_formatted||profile.phone,address:profile.address_line1||profile.address,full_name:profile.full_name||[profile.first,profile.last].filter(Boolean).join(' ')};fields=fields.concat(Object.entries(aliases).filter(([k])=>p[k]!=null&&p[k]!=='').map(([k,names])=>({label:names[0],value:p[k],aliases:names,profile:true})))}
  if(!fields.length)warn.push('Notes-only packet: no captured fields or supplied profile values to restore.');
  const all=docs.flatMap(d=>controls(d.doc).map(el=>({...d,el})));const touched=new Set();
  function candidates(field){let pool=all.filter(x=>eligible(x.el));
@@ -59,13 +59,13 @@ export function domAction(input={action:'capture',walkFrames:true}) {
   if(input.allowedIndices&&!input.allowedIndices.includes(index))continue;
   const record={index,label:field.label||field.name||'Field',status:'missing'};
   if(['hidden','file'].includes(field.type)||secret.test([field.name,field.label,(field.selectors||[]).join(' ')].join(' '))){result.skipped++;record.status='skipped';result.results.push(record);continue}
-  const matches=candidates(field);if(matches.length!==1){result.missing++;record.reason=matches.length?'Ambiguous match; choose a unique selector':'No safe unique control found';result.results.push(record);continue}
+  const matches=candidates(field);if(field.profile&&matches.length===0){result.skipped++;record.status='skipped';record.reason='No matching profile field on this page';result.results.push(record);continue}if(matches.length!==1){result.missing++;record.reason=matches.length?'Ambiguous match; choose a unique selector':'No safe unique control found';result.results.push(record);continue}
   if(input.action==='probe'){record.status='ready';result.results.push(record);continue}
   const el=matches[0].el;const win=el.ownerDocument.defaultView;const type=fieldType(el);
   if(type==='file'||touched.has(el)){result.skipped++;record.status='skipped';record.reason='File or duplicate target';result.results.push(record);continue}touched.add(el);
   const old=type==='checkbox'||type==='radio'?el.checked:el.tagName==='SELECT'&&el.multiple?[...el.selectedOptions].map(o=>o.value):el.value;
   let desired=field.value;
-  if(fallback&&String(old).trim()&&String(old)!==String(desired)){
+  if(field.profile&&String(old).trim()&&String(old)!==String(desired)){
    const current=norm(old);const lies=profile.autofill_lies_to_overwrite||[];const known=lies.some(l=>{const bad=norm(l);return current&&current.length>=2&&(bad===current||bad.startsWith(current+' ')||bad.endsWith(' '+current)||norm(String(old).replace(/^https?:\/\//,'').replace(/\/$/,''))===bad)});
    if(!known){result.skipped++;record.status='skipped';record.reason='Kept existing value; profile fallback only replaces known incorrect autofill';result.results.push(record);continue}
   }

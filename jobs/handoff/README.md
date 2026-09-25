@@ -1,4 +1,4 @@
-# ATS Captcha Handoff 1.0.0
+# ATS Captcha Handoff 1.0.1
 
 A separate Chrome MV3 extension for moving a filled application from an agent's browser to your own browser. Packets stay local. It does not call the tracker API, submit applications, solve challenges, import cookies, or include a bundled personal profile.
 
@@ -24,7 +24,7 @@ The last five packets are stored in trusted extension-local storage. **Clear loc
 - Text values preserve whitespace. Checkboxes use booleans. Radios may use a boolean plus `option_value`, or an explicit option value/label string. Native multi-selects use arrays of values/labels.
 - `frame_url` identifies a frame origin and path; `frame_hint` can identify an iframe name/id. Exported controls include frame URLs. Add frame hints when repeated controls share a URL. Cross-frame ambiguity is reported instead of filling several candidates.
 - `file` and `hidden` types are recognized but require null values and are never restored. Export does not include hidden/password/OTP/payment/security fields or file contents.
-- `profile_overlay` supports the named contact, address, link and education fields in the schema. Empty fields[] enables profile fallback. Existing values are preserved unless they match an explicit `autofill_lies_to_overwrite` entry. No EEO answers or personal defaults are invented; EEO values must be explicitly captured in fields[].
+- `profile_overlay` supports the named contact, address, link and education fields in the schema. Explicit fields are restored first; supplied profile values can fill remaining blank controls. Empty fields[] uses only this fallback. Existing values are preserved unless they match an explicit `autofill_lies_to_overwrite` entry. No EEO answers or personal defaults are invented; EEO values must be explicitly captured in fields[].
 - Explicit fields replace matched editable values when Restore is clicked. Profile fallback fills blanks or known incorrect autofill only. Controls that reject a value, such as a numeric salary input receiving “Negotiable,” are reported instead of silently cleared.
 - Notes-only packets are valid: fields and profile_overlay may be absent. Their notes are displayed, and Restore reports that there is nothing to fill.
 - Session/cookie objects are not accepted in 1.0. Credential-bearing URL parameters are refused/omitted. Do not put sensitive tokens or passwords in free-text notes; arbitrary prose cannot be reliably classified as a secret.
