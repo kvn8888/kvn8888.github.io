@@ -1,0 +1,407 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/kvn8888/kvn8888.github.io/releases/download/ats-handoff-v1.0.0/handoff-packet.schema.json",
+  "title": "ATS human handoff packet",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "created_at",
+    "application_url",
+    "status"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^(?:[0-9]{8}-[0-9]{6}-[a-zA-Z0-9-]{1,80}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "application_url": {
+      "type": "string",
+      "format": "uri",
+      "maxLength": 8000,
+      "pattern": "^https?://[^/@\\s]+(?::[0-9]+)?(?:[/?#]|$)",
+      "not": {
+        "pattern": "[?&](?:access_token|id_token|refresh_token|password|otp|code|session|sessionid|csrf)="
+      }
+    },
+    "status": {
+      "enum": [
+        "captcha_blocked",
+        "ready_for_human",
+        "imported",
+        "submitted",
+        "abandoned",
+        "expired"
+      ]
+    },
+    "company": {
+      "type": "string",
+      "maxLength": 2000
+    },
+    "role": {
+      "type": "string",
+      "maxLength": 2000
+    },
+    "ats": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "description": "greenhouse, lever, ashby, workday, smartrecruiters, rippling, pinpoint, successfactors, icims, taleo, google_forms, unknown; additional provider names allowed"
+    },
+    "blocker": {
+      "type": "string",
+      "maxLength": 2000
+    },
+    "blocker_detail": {
+      "type": "string",
+      "maxLength": 10000
+    },
+    "fields": {
+      "type": "array",
+      "maxItems": 500,
+      "items": {
+        "$ref": "#/definitions/field"
+      }
+    },
+    "profile_overlay": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "first": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "last": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "full_name": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "email": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "phone": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "phone_formatted": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "address": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "address_line1": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "address_line2": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "city": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "state": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "zip": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "country": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "website": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "linkedin": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "github": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "school": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "degree": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "major": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "graduation_year": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "salary": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "autofill_lies_to_overwrite": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        }
+      }
+    },
+    "files": {
+      "type": "object",
+      "maxProperties": 20,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "suggested_filename": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "box_path": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-fA-F0-9]{64}$"
+          }
+        },
+        "required": [
+          "suggested_filename"
+        ]
+      }
+    },
+    "notes": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "string",
+        "maxLength": 10000
+      }
+    },
+    "agent": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "box_capture": {
+          "type": "boolean"
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "screenshot_box_path": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 2000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "definitions": {
+    "field": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value"
+      ],
+      "anyOf": [
+        {
+          "required": [
+            "selectors"
+          ],
+          "properties": {
+            "selectors": {
+              "minItems": 1
+            }
+          }
+        },
+        {
+          "required": [
+            "name"
+          ],
+          "properties": {
+            "name": {
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "required": [
+            "label"
+          ],
+          "properties": {
+            "label": {
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "required": [
+            "placeholder"
+          ],
+          "properties": {
+            "placeholder": {
+              "minLength": 1
+            }
+          }
+        }
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "maxLength": 2000,
+          "pattern": "^(?![\\s\\S]*(?:[pP][aA][sS][sS][wW][oO][rR][dD]|[pP][aA][sS][sS][cC][oO][dD][eE]|\\b[oO][tT][pP]\\b|[oO][nN][eE][-_ ]?[tT][iI][mM][eE][-_ ]?[cC][oO][dD][eE]|[vV][eE][rR][iI][fF][iI][cC][aA][tT][iI][oO][nN][-_ ]?[cC][oO][dD][eE]|[cC][sS][rR][fF]|[xX][sS][rR][fF]|[cC][aA][pP][tT][cC][hH][aA]|[tT][uU][rR][nN][sS][tT][iI][lL][eE]|[sS][eE][sS][sS][iI][oO][nN][-_ ]?(?:[cC][oO][oO][kK][iI][eE]|[tT][oO][kK][eE][nN])|(?:[aA][cC][cC][eE][sS][sS]|[rR][eE][fF][rR][eE][sS][hH]|[aA][uU][tT][hH]|[iI][dD])[-_ ]?[tT][oO][kK][eE][nN]|(?:[cC][rR][eE][dD][iI][tT][-_ ]?[cC][aA][rR][dD]|[cC][aA][rR][dD][-_ ]?[nN][uU][mM][bB][eE][rR])|\\b[cC][vV][vV]\\b|\\b[cC][vV][cC]\\b))[\\s\\S]*$"
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 2000,
+          "pattern": "^(?![\\s\\S]*(?:[pP][aA][sS][sS][wW][oO][rR][dD]|[pP][aA][sS][sS][cC][oO][dD][eE]|\\b[oO][tT][pP]\\b|[oO][nN][eE][-_ ]?[tT][iI][mM][eE][-_ ]?[cC][oO][dD][eE]|[vV][eE][rR][iI][fF][iI][cC][aA][tT][iI][oO][nN][-_ ]?[cC][oO][dD][eE]|[cC][sS][rR][fF]|[xX][sS][rR][fF]|[cC][aA][pP][tT][cC][hH][aA]|[tT][uU][rR][nN][sS][tT][iI][lL][eE]|[sS][eE][sS][sS][iI][oO][nN][-_ ]?(?:[cC][oO][oO][kK][iI][eE]|[tT][oO][kK][eE][nN])|(?:[aA][cC][cC][eE][sS][sS]|[rR][eE][fF][rR][eE][sS][hH]|[aA][uU][tT][hH]|[iI][dD])[-_ ]?[tT][oO][kK][eE][nN]|(?:[cC][rR][eE][dD][iI][tT][-_ ]?[cC][aA][rR][dD]|[cC][aA][rR][dD][-_ ]?[nN][uU][mM][bB][eE][rR])|\\b[cC][vV][vV]\\b|\\b[cC][vV][cC]\\b))[\\s\\S]*$"
+        },
+        "placeholder": {
+          "type": "string",
+          "maxLength": 2000,
+          "pattern": "^(?![\\s\\S]*(?:[pP][aA][sS][sS][wW][oO][rR][dD]|[pP][aA][sS][sS][cC][oO][dD][eE]|\\b[oO][tT][pP]\\b|[oO][nN][eE][-_ ]?[tT][iI][mM][eE][-_ ]?[cC][oO][dD][eE]|[vV][eE][rR][iI][fF][iI][cC][aA][tT][iI][oO][nN][-_ ]?[cC][oO][dD][eE]|[cC][sS][rR][fF]|[xX][sS][rR][fF]|[cC][aA][pP][tT][cC][hH][aA]|[tT][uU][rR][nN][sS][tT][iI][lL][eE]|[sS][eE][sS][sS][iI][oO][nN][-_ ]?(?:[cC][oO][oO][kK][iI][eE]|[tT][oO][kK][eE][nN])|(?:[aA][cC][cC][eE][sS][sS]|[rR][eE][fF][rR][eE][sS][hH]|[aA][uU][tT][hH]|[iI][dD])[-_ ]?[tT][oO][kK][eE][nN]|(?:[cC][rR][eE][dD][iI][tT][-_ ]?[cC][aA][rR][dD]|[cC][aA][rR][dD][-_ ]?[nN][uU][mM][bB][eE][rR])|\\b[cC][vV][vV]\\b|\\b[cC][vV][cC]\\b))[\\s\\S]*$"
+        },
+        "selectors": {
+          "type": "array",
+          "maxItems": 10,
+          "items": {
+            "type": "string",
+            "maxLength": 2000,
+            "pattern": "^(?![\\s\\S]*(?:[pP][aA][sS][sS][wW][oO][rR][dD]|[pP][aA][sS][sS][cC][oO][dD][eE]|\\b[oO][tT][pP]\\b|[oO][nN][eE][-_ ]?[tT][iI][mM][eE][-_ ]?[cC][oO][dD][eE]|[vV][eE][rR][iI][fF][iI][cC][aA][tT][iI][oO][nN][-_ ]?[cC][oO][dD][eE]|[cC][sS][rR][fF]|[xX][sS][rR][fF]|[cC][aA][pP][tT][cC][hH][aA]|[tT][uU][rR][nN][sS][tT][iI][lL][eE]|[sS][eE][sS][sS][iI][oO][nN][-_ ]?(?:[cC][oO][oO][kK][iI][eE]|[tT][oO][kK][eE][nN])|(?:[aA][cC][cC][eE][sS][sS]|[rR][eE][fF][rR][eE][sS][hH]|[aA][uU][tT][hH]|[iI][dD])[-_ ]?[tT][oO][kK][eE][nN]|(?:[cC][rR][eE][dD][iI][tT][-_ ]?[cC][aA][rR][dD]|[cC][aA][rR][dD][-_ ]?[nN][uU][mM][bB][eE][rR])|\\b[cC][vV][vV]\\b|\\b[cC][vV][cC]\\b))[\\s\\S]*$",
+            "minLength": 1
+          }
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 50000
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "maxItems": 100,
+              "items": {
+                "type": "string",
+                "maxLength": 2000
+              }
+            }
+          ]
+        },
+        "type": {
+          "enum": [
+            "text",
+            "email",
+            "tel",
+            "textarea",
+            "select",
+            "checkbox",
+            "radio",
+            "date",
+            "file",
+            "hidden",
+            "other"
+          ]
+        },
+        "option_value": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "frame_hint": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "frame_url": {
+          "type": "string",
+          "format": "uri",
+          "maxLength": 8000,
+          "pattern": "^https?://[^/@\\s]+(?::[0-9]+)?(?:[/?#]|$)",
+          "not": {
+            "pattern": "[?&](?:access_token|id_token|refresh_token|password|otp|code|session|sessionid|csrf)="
+          }
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "required": {
+          "type": "boolean"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "enum": [
+                  "hidden",
+                  "file"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

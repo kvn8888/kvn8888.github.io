@@ -1,0 +1,35 @@
+import {parsePacket,makePacket} from './packet.mjs';import {domAction} from './dom.mjs';
+const gate=/recaptcha|hcaptcha|turnstile|challenges\.cloudflare|captcha/i;
+const ats=host=>/(^|\.)(greenhouse\.io|lever\.co|ashbyhq\.com|myworkdayjobs\.com|smartrecruiters\.com|rippling\.com|pinpointhq\.com|successfactors\.com|icims\.com|taleo\.net)$/.test(host);
+void chrome.storage.local.setAccessLevel({accessLevel:'TRUSTED_CONTEXTS'});
+let serial=Promise.resolve();
+async function state(){return {packets:[],selected:null,...await chrome.storage.local.get(['packets','selected'])}}
+async function tab(id){const t=await chrome.tabs.get(id);if(!t.url||!/^https?:/.test(t.url))throw Error('Open a live application page first.');return t}
+async function framesFor(t){const frames=await chrome.webNavigation.getAllFrames({tabId:t.id})||[];const blocked=new Set();const allowed=[],warnings=[];const main=new URL(t.url);
+ for(let pass=0;pass<frames.length+1;pass++)for(const f of frames)if(gate.test(f.url)||blocked.has(f.parentFrameId))blocked.add(f.frameId);
+ for(const f of frames){if(blocked.has(f.frameId)){warnings.push('CAPTCHA frame skipped.');continue}let url;try{url=new URL(f.url)}catch{continue}if(!['http:','https:'].includes(url.protocol))continue;if(url.origin!==main.origin&&!ats(url.hostname)){warnings.push('Unrelated cross-origin frame skipped: '+url.hostname);continue}allowed.push(f)}
+ if(!blocked.has(0)&&!allowed.some(f=>f.frameId===0))allowed.unshift({frameId:0,url:t.url,parentFrameId:-1});return {allowed,warnings}}
+async function runFrames(t,action,packet){const {allowed,warnings}=await framesFor(t);const results=[];
+ async function invoke(frame,mode,indices){const u=new URL(frame.url);const r=await chrome.scripting.executeScript({target:{tabId:t.id,frameIds:[frame.frameId]},func:domAction,args:[{action:mode,packet,walkFrames:false,expectedOrigin:u.origin,expectedPath:u.pathname+u.search,allowedIndices:indices}]});return r[0]?.result}
+ for(const frame of allowed){try{const result=await invoke(frame,action==='restore'?'probe':'capture');if(result)results.push({frame,result})}catch{warnings.push('Frame unavailable, navigated, or permission missing: '+new URL(frame.url).origin)}}
+ if(!results.length)throw Error('No application frame was accessible. Grant site access and retry.');
+ if(action==='capture'){const values=results.map(r=>r.result);const full={url:values.find(r=>r.url===t.url)?.url||values[0].url,title:t.title,fields:values.flatMap(r=>r.fields),captcha_detected:values.some(r=>r.captcha_detected)||warnings.some(w=>w.startsWith('CAPTCHA')),captcha_vendors:[...new Set(values.flatMap(r=>r.captcha_vendors))],file_inputs:values.flatMap(r=>r.file_inputs),warnings:[...warnings,...values.flatMap(r=>r.warnings)]};const packet=makePacket(full);if(full.file_inputs.some(f=>!f.has_file))packet.notes.push('File attachments must be selected manually on this device.');return {packet,capture:full}}
+ const candidates=new Map(),perField=new Map();
+ for(const {frame,result} of results)for(const field of result.results){if(!perField.has(field.index)||field.status==='skipped')perField.set(field.index,field);if(field.status==='ready'){const list=candidates.get(field.index)||[];list.push(frame.frameId);candidates.set(field.index,list)}}
+ const chosen=new Map();for(const [index,frames] of candidates){if(frames.length===1){const list=chosen.get(frames[0])||[];list.push(index);chosen.set(frames[0],list)}else perField.set(index,{...perField.get(index),status:'missing',reason:'Ambiguous match across frames; supply frame_url or frame_hint'})}
+ const final=[];for(const {frame,result} of results){const indices=chosen.get(frame.frameId);if(!indices?.length){final.push(result);continue}try{const restored=await invoke(frame,'restore',indices);final.push(restored);for(const field of restored.results)perField.set(field.index,field)}catch{warnings.push('Frame changed before restore; retry after reviewing the page.');for(const index of indices)perField.set(index,{...perField.get(index),status:'missing',reason:'Frame changed or unavailable'})}}
+ const detail=[...perField.values()];return {filled:detail.filter(f=>f.status==='filled').length,skipped:detail.filter(f=>['skipped','unchanged'].includes(f.status)).length,missing:detail.filter(f=>f.status==='missing').length,results:detail,missing_required:[...new Set(final.flatMap(r=>r.missing_required))],file_inputs:final.flatMap(r=>r.file_inputs),warnings:[...new Set([...warnings,...final.flatMap(r=>r.warnings)])]}}
+
+async function handle(m,sender){if(sender.id!==chrome.runtime.id||!sender.url?.startsWith(chrome.runtime.getURL(''))||sender.tab&&/^https?:/.test(sender.tab.url||''))throw Error('Only the extension UI may request a handoff action.');const s=await state();
+ if(m.type==='state')return s;
+ if(m.type==='import'){const packet=parsePacket(m.packet);const wrapper={packet,imported_at:new Date().toISOString(),local_status:'imported'};s.packets=[wrapper,...s.packets.filter(w=>w.packet.id!==packet.id)].slice(0,5);s.selected=packet.id;await chrome.storage.local.set(s);return s}
+ if(m.type==='select'){if(!s.packets.some(w=>w.packet.id===m.id))throw Error('Unknown packet');await chrome.storage.local.set({selected:m.id});return true}
+ if(m.type==='clear'){await chrome.storage.local.set({packets:[],selected:null});return true}
+ const entry=s.packets.find(w=>w.packet.id===s.selected);
+ if(m.type==='capture')return runFrames(await tab(m.tabId),'capture');
+ if(!entry)throw Error('Import a packet first.');const packet=parsePacket(entry.packet);
+ if(m.type==='open'){return chrome.tabs.create({url:packet.application_url,active:true})}
+ if(m.type==='restore'){const t=await tab(m.tabId);if(['submitted','abandoned','expired'].includes(entry.local_status)||['submitted','abandoned','expired'].includes(packet.status))throw Error('This packet is closed; import an active capture to restore.');if(new URL(t.url).origin!==new URL(packet.application_url).origin)throw Error('Active page is on a different origin. Review the application URL before restoring.');if(new URL(t.url).pathname+new URL(t.url).search!==new URL(packet.application_url).pathname+new URL(packet.application_url).search&&!m.confirmPage)throw Error('Application path differs. Confirm this is the correct application page.');return runFrames(t,'restore',packet)}
+ if(m.type==='submitted'){if(m.confirm!==true)throw Error('Confirm that you personally submitted the application.');entry.local_status='submitted';await chrome.storage.local.set(s);return {kind:'handoff_result',schema_version:'1.0',id:packet.id,application_url:packet.application_url,status:'submitted',marked_at:new Date().toISOString(),confirmation:'user_confirmed',note:'Local user assertion; no employer or tracker API was contacted.'}}
+ throw Error('Unknown action');}
+chrome.runtime.onMessage.addListener((m,sender,reply)=>{const p=serial.then(()=>handle(m,sender));serial=p.catch(()=>{});p.then(data=>reply({ok:true,data}),error=>reply({ok:false,error:error.message}));return true});

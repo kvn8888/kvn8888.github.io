@@ -1,0 +1,16 @@
+import Ajv from 'ajv';import addFormats from 'ajv-formats';import standaloneCode from 'ajv/dist/standalone/index.js';
+import {build} from 'esbuild';import {mkdir,writeFile,readFile,copyFile,rm} from 'node:fs/promises';import {pathToFileURL} from 'node:url';import path from 'node:path';import {packetSchema} from '../src/schema.mjs';
+const ajv=new Ajv({allErrors:true,strict:false,code:{source:true,esm:true}});addFormats(ajv);await build({stdin:{contents:standaloneCode(ajv,ajv.compile(packetSchema)),resolveDir:process.cwd(),sourcefile:'packet-validator.mjs'},bundle:true,format:'esm',platform:'browser',outfile:'src/generated-validator.mjs',minify:true});
+await rm('dist',{recursive:true,force:true});await mkdir('dist/extension',{recursive:true});
+await build({entryPoints:['src/worker.mjs','src/popup.mjs'],bundle:true,format:'esm',outdir:'dist/extension',outExtension:{'.js':'.js'},target:'chrome120'});
+for(const f of ['popup.html','popup.css'])await copyFile('src/'+f,'dist/extension/'+f);
+await writeFile('dist/extension/manifest.json',JSON.stringify({manifest_version:3,name:'ATS Captcha Handoff',version:'1.0.0',description:'Restore local application packets; the human solves CAPTCHA and submits.',minimum_chrome_version:'120',permissions:['storage','activeTab','scripting','webNavigation'],optional_host_permissions:['https://*/*','http://localhost/*','http://127.0.0.1/*'],background:{service_worker:'worker.js',type:'module'},action:{default_popup:'popup.html',default_title:'Restore an application handoff'},content_security_policy:{extension_pages:"script-src 'self'; object-src 'none'; connect-src 'none'"}},null,2));
+const json=JSON.stringify(packetSchema,null,2)+'\n';await writeFile('handoff-packet.schema.json',json);await writeFile('dist/handoff-packet.schema.json',json);
+await build({entryPoints:['src/dom.mjs'],bundle:true,format:'esm',outfile:'dist/dom.mjs',target:'chrome120',keepNames:false});
+const {domAction}=await import(pathToFileURL(path.resolve('dist/dom.mjs')).href);const script=`(${domAction.toString()})({action:'capture',walkFrames:true})`;
+await writeFile('dist/capture-form-state.js',script);
+await writeFile('dist/restore-fields-template.js',`(${domAction.toString()})(__HANDOFF_ARGUMENTS__)`);await mkdir('dist/capture-chunks');
+const encoded=Buffer.from(script).toString('base64');const chunks=[];chunks.push("globalThis.__ATS_HANDOFF_CAPTURE_SOURCE__='';");for(let i=0;i<encoded.length;i+=1600)chunks.push(`globalThis.__ATS_HANDOFF_CAPTURE_SOURCE__+=${JSON.stringify(encoded.slice(i,i+1600))};`);chunks.push("(()=>{const s=globalThis.__ATS_HANDOFF_CAPTURE_SOURCE__;delete globalThis.__ATS_HANDOFF_CAPTURE_SOURCE__;return (0,eval)(atob(s))})()");
+for(const [i,chunk] of chunks.entries()){if(chunk.length>2000)throw Error('Capture chunk too large');await writeFile(`dist/capture-chunks/${String(i+1).padStart(3,'0')}.js`,chunk)}
+await writeFile('dist/capture-chunks/README.txt','Evaluate numbered files in order in the same CDP page context. The final file returns capture JSON. This is for trusted agent CDP/DevTools use; not the MV3 extension, which never uses eval. If page CSP disallows evaluation, use the packaged extension.\n');
+console.log('Built local-only extension, packet schema, capture script and '+chunks.length+' chunks.');

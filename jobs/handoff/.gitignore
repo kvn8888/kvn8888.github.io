@@ -1,0 +1,8 @@
+node_modules
+dist/
+.test-output/
+handoffs/*
+!handoffs/examples/
+.env*
+__pycache__/
+src/generated-validator.mjs

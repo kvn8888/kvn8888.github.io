@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0",
+  "id": "20260925-131500-example-engineer",
+  "created_at": "2026-09-25T13:15:00-04:00",
+  "status": "captcha_blocked",
+  "company": "Example Company",
+  "role": "Software Engineer",
+  "ats": "greenhouse",
+  "application_url": "https://example.com/apply/123",
+  "blocker": "captcha",
+  "blocker_detail": "Human verification remains before submission.",
+  "fields": [
+    {"name":"first_name","label":"First Name","value":"Alex","type":"text","selectors":["#first_name"],"confidence":1},
+    {"name":"email","label":"Email","value":"alex@example.com","type":"email","selectors":["input[name='email']"],"confidence":1}
+  ],
+  "profile_overlay": {"first":"Alex","last":"Example","email":"alex@example.com","city":"Rochester","state":"NY","website":"https://example.dev","autofill_lies_to_overwrite":["Fremont CA","old.example.dev"]},
+  "files": {"resume":{"label":"Resume","suggested_filename":"Example-Resume.pdf","box_path":"/workspace/job-apps/Example-Resume.pdf"}},
+  "notes": ["Synthetic example only. Review the restored values and attach files manually."],
+  "agent": {"source":"apply-kit","box_capture":true},
+  "evidence": {"screenshot_box_path":null}
+}

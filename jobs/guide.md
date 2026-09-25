@@ -52,3 +52,13 @@ Public metadata contains no job data and does not need a key or database. Discov
 Updated clients refuse new workflow work when incompatible or compatibility cannot be checked. Existing attempt recovery and heartbeats remain available; documentation changes do not cancel leases. Old clients are not suddenly rejected by this additive release. Backend breaking changes require an API major-version change, migration guidance, and a deliberate compatibility window.
 
 Release assets are immutable and checksum verified. An extension release is advertised only after backend verification and publication of its verified release manifest. Rollback restores code, not an older copy of browser storage; incompatible storage migrations must block automatic rollback.
+
+## Local CAPTCHA handoff packets
+
+ATS Captcha Handoff 1.0.0 is a separate optional Chrome extension for fresh-page restoration on the human's Mac. Source and instructions: https://github.com/kvn8888/kvn8888.github.io/tree/dia-design/jobs/handoff . Downloads and the versioned packet schema: https://github.com/kvn8888/kvn8888.github.io/releases/tag/ats-handoff-v1.0.0 .
+
+When a remote agent has filled a form but a human gate blocks progress, write a local schema-1.0 packet and hand it to the owner. The standalone Python producer supports handoff-write and handoff-validate. Packet files contain personal data: keep them out of public repositories and transfer them only through a user-authorized channel.
+
+The human imports the packet, opens the reusable application URL, explicitly restores fields, attaches files, solves the CAPTCHA, and submits. Restore never submits or interacts with CAPTCHA controls. No cookies, passwords, or verification codes transfer. The packet's supplied profile subset is the only fallback; no personal profile is bundled. Unsupported frames, expired accounts, and ambiguous mappings require manual correction.
+
+This local extension does not call the tracker API or upload packets. If a workflow attempt exists, the agent can separately record a captcha blocker through the existing outcome API. A local Mark submitted result is a user assertion, not an ATS receipt and not automatic permission to complete a tracker attempt.

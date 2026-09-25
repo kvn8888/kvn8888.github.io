@@ -3,7 +3,7 @@ on:
   pull_request:
     paths: ['jobs/**', 'homepage/src/**', 'homepage/package*.json', '.github/workflows/jobs-workflow.yml']
   push:
-    branches: [dia-design, 'codex/jobs-workflow-source-of-truth']
+    branches: [dia-design, 'codex/jobs-workflow-source-of-truth', 'codex/ats-captcha-handoff']
     paths: ['jobs/**', 'homepage/src/**', 'homepage/package*.json', '.github/workflows/jobs-workflow.yml']
 permissions:
   contents: read
@@ -15,7 +15,7 @@ jobs:
         with: {fetch-depth: 0}
       - uses: actions/setup-node@v4
         with: {node-version: 22}
-      - run: npm ci --prefix homepage && npm ci --prefix jobs && npm ci --prefix jobs/extension
+      - run: npm ci --prefix homepage && npm ci --prefix jobs && npm ci --prefix jobs/extension && npm ci --prefix jobs/handoff
       - run: npm run check:generated --prefix jobs && npm run validate --prefix jobs
       - run: node jobs/scripts/check-compatibility.mjs
       - run: npm run typecheck --prefix homepage
@@ -31,6 +31,10 @@ jobs:
         working-directory: homepage
       - run: npm run test:portal
         working-directory: jobs/extension
+      - run: npm test --prefix jobs/handoff && git diff --exit-code -- jobs/handoff/handoff-packet.schema.json && npm run test:browser --prefix jobs/handoff
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: python -m pip install -r jobs/handoff/requirements.txt && python jobs/handoff/bin/apply.py handoff-validate jobs/handoff/handoffs/examples/greenhouse-example.json
       - run: npm run build --prefix jobs
       - uses: actions/upload-artifact@v4
         with: {name: jobs-workflow-candidate, path: jobs/release/}
