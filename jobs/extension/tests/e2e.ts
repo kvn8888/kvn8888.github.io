@@ -1,3 +1,4 @@
+import {CLIENT_VERSION} from '../src/shared/version';
 import { chromium, type BrowserContext, type Page } from "playwright";
 import { createServer } from "node:http";
 import { createClient } from "@libsql/client";
@@ -233,7 +234,7 @@ try {
     1,
   );
   const diagnostics = await cmd('diagnostics');
-  assert.equal(diagnostics.version, '0.4.0');
+  assert.equal(diagnostics.version, CLIENT_VERSION);
   assert.equal(diagnostics.extension_id, id);
   assert.ok(/^[a-f0-9]{64}$/.test(diagnostics.build_hash));
   assert.equal(JSON.stringify(diagnostics).includes(key), false);
