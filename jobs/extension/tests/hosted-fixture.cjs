@@ -1,9 +1,9 @@
 // Uses the actual personal-site handlers against disposable SQLite; no production config is loaded.
 const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),{createRequire}=require('node:module'),{createServer}=require('node:http')
-module.exports=async function fixture(db,key,readerKey){
+module.exports=async function fixture(db,key,readerKey,extensionKey){
  const root=process.env.TRACKER_HOMEPAGE||path.resolve(__dirname,'../../../homepage')
  const requireSite=createRequire(path.join(root,'package.json')),ts=requireSite('typescript'),cache=new Map()
- const mocks={'@/auth':{auth:async()=>null},'@/lib/secrets':{getSecret:async name=>({JOBS_API_KEY:key,JOBS_READ_API_KEY:readerKey})[name]}}
+ const mocks={'@/auth':{auth:async()=>null},'@/lib/secrets':{getSecret:async name=>({JOBS_API_KEY:key,JOBS_READ_API_KEY:readerKey,JOBS_EXTENSION_API_KEY:extensionKey})[name]}}
  function load(relative){const filename=path.join(root,relative);if(cache.has(filename))return cache.get(filename);const module={exports:{}};const source=ts.transpileModule(fs.readFileSync(filename,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText;function resolver(name){if(mocks[name])return mocks[name];if(name.startsWith('@/'))return load('src/'+name.slice(2)+'.ts');if(name.startsWith('.')){const rel=path.relative(root,path.resolve(path.dirname(filename),name+'.ts'));const alias='@/'+rel.replace(/^src\//,'').replace(/\.ts$/,'');return mocks[alias]||load(rel)}return requireSite(name)}vm.runInThisContext(`(function(require,module,exports){${source}\n})`,{filename})(resolver,module,module.exports);cache.set(filename,module.exports);return module.exports}
  const schema=load('src/lib/jobsDb.ts');await schema.ensureJobsSchema(db);mocks['@/lib/jobsDb']={...schema,getJobsDb:async()=>db}
  await load('src/lib/jobCollectionSchema.ts').ensureCollectionSchema(db)

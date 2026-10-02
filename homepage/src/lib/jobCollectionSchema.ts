@@ -68,6 +68,9 @@ CREATE INDEX IF NOT EXISTS idx_job_collection_source ON job_collection(source, f
     application_ids_json: "TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(application_ids_json) AND json_type(application_ids_json) = 'array')",
     status_history_json: "TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(status_history_json) AND json_type(status_history_json) = 'array')",
     version: 'INTEGER NOT NULL DEFAULT 1',
+    availability: "TEXT NOT NULL DEFAULT 'unknown' CHECK(availability IN ('unknown','open','expired'))",
+    availability_checked_at: 'TEXT',
+    availability_evidence_json: "TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(availability_evidence_json))",
   }
   for (const [column, definition] of Object.entries(additions)) {
     if (existing.has(column)) continue

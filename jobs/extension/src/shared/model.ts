@@ -139,6 +139,7 @@ export function normalizeUrl(raw: string, base?: string): string | null {
 }
 export function sourceFor(url: string) {
   const h = new URL(url).hostname;
+  if(h === "symplicity.com" || h.endsWith(".symplicity.com"))return "symplicity";
   return h.endsWith("linkedin.com")
     ? "linkedin"
     : h.endsWith("jobright.ai")

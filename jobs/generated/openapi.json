@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Jobs Workflow API",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "description": "Shared job collection, leased attempts, captures, blockers and confirmed submissions. Structural schemas are shared with runtime checks; contextual rules remain authoritative on the server."
   },
   "servers": [
@@ -1195,6 +1195,17 @@
           },
           "manual": {
             "description": "Arbitrary JSON value; transport accepts JSON only"
+          },
+          "handoff_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -1583,6 +1594,154 @@
         ],
         "additionalProperties": false
       },
+      "handoff": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "claim_token": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Original private claim token; new claims require 32+ characters"
+          },
+          "reason_code": {
+            "type": "string",
+            "enum": [
+              "captcha",
+              "manual_review",
+              "login_required",
+              "missing_information"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50000
+          },
+          "packets": {
+            "minItems": 1,
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/handoffPacket"
+            },
+            "description": "Page-scoped handoff schema 1.0 packets; validated against the shared packet schema. Never flatten different Workday steps."
+          },
+          "gaps": {
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 2000
+            }
+          },
+          "resume_instructions": {
+            "type": "string",
+            "maxLength": 10000
+          }
+        },
+        "required": [
+          "id",
+          "claim_token",
+          "reason_code",
+          "notes",
+          "packets"
+        ],
+        "additionalProperties": false
+      },
+      "handoffClaim": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "version": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "claim_token": {
+            "type": "string",
+            "minLength": 32,
+            "maxLength": 200,
+            "description": "Original private claim token; new claims require 32+ characters"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "claim_token"
+        ],
+        "additionalProperties": false
+      },
+      "availability": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "claim_token": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Original private claim token; new claims require 32+ characters"
+          },
+          "notes": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50000
+          },
+          "evidence": {
+            "type": "object",
+            "properties": {
+              "url": {
+                "type": "string",
+                "maxLength": 8000,
+                "format": "uri"
+              },
+              "observed_at": {
+                "type": "string",
+                "maxLength": 40,
+                "description": "ISO timestamp with a timezone; validated and normalized by the service"
+              },
+              "signal": {
+                "type": "string",
+                "enum": [
+                  "expired_notice",
+                  "employer_removed"
+                ]
+              },
+              "excerpt": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 10000
+              }
+            },
+            "required": [
+              "url",
+              "observed_at",
+              "signal",
+              "excerpt"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "version",
+          "notes",
+          "evidence"
+        ],
+        "additionalProperties": false
+      },
       "resolve": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -1704,6 +1863,9 @@
                 "type": "string"
               },
               "docs": {
+                "type": "string"
+              },
+              "workspace": {
                 "type": "string"
               }
             },
@@ -2744,6 +2906,104 @@
         ],
         "additionalProperties": false
       },
+      "handoffResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "handoff": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": [
+                  "number",
+                  "string"
+                ]
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": {}
+          },
+          "replayed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "handoff",
+          "replayed"
+        ],
+        "additionalProperties": false
+      },
+      "handoffDetailResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "handoff": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": [
+                  "number",
+                  "string"
+                ]
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": {}
+          },
+          "job": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              },
+              "identity_key": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string"
+              },
+              "source_url": {
+                "type": "string"
+              },
+              "version": {
+                "type": "number"
+              },
+              "status": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "identity_key",
+              "source",
+              "source_url",
+              "version",
+              "status"
+            ],
+            "additionalProperties": {}
+          },
+          "document": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "description": "Arbitrary JSON value; transport accepts JSON only"
+            }
+          }
+        },
+        "required": [
+          "handoff",
+          "job",
+          "document"
+        ],
+        "additionalProperties": false
+      },
       "claimResponse": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -3326,6 +3586,411 @@
           "rules"
         ],
         "additionalProperties": false
+      },
+      "handoffPacket": {
+        "title": "ATS human handoff packet",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema_version",
+          "id",
+          "created_at",
+          "application_url",
+          "status"
+        ],
+        "properties": {
+          "schema_version": {
+            "const": "1.0"
+          },
+          "id": {
+            "type": "string",
+            "pattern": "^(?:[0-9]{8}-[0-9]{6}-[a-zA-Z0-9-]{1,80}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "application_url": {
+            "type": "string",
+            "format": "uri",
+            "maxLength": 8000,
+            "pattern": "^https?://[^/@\\s]+(?::[0-9]+)?(?:[/?#]|$)",
+            "not": {
+              "pattern": "[?&](?:access_token|id_token|refresh_token|password|otp|code|session|sessionid|csrf)="
+            }
+          },
+          "status": {
+            "enum": [
+              "captcha_blocked",
+              "ready_for_human",
+              "imported",
+              "submitted",
+              "abandoned",
+              "expired"
+            ]
+          },
+          "company": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "role": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "ats": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "greenhouse, lever, ashby, workday, smartrecruiters, rippling, pinpoint, successfactors, icims, taleo, google_forms, unknown; additional provider names allowed"
+          },
+          "blocker": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "blocker_detail": {
+            "type": "string",
+            "maxLength": 10000
+          },
+          "fields": {
+            "type": "array",
+            "maxItems": 500,
+            "items": {
+              "$ref": "#/components/schemas/handoffPacket/$defs/field"
+            }
+          },
+          "profile_overlay": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "first": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "last": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "full_name": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "email": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "phone": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "phone_formatted": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "address": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "address_line1": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "address_line2": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "city": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "state": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "zip": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "country": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "website": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "linkedin": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "github": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "school": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "degree": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "major": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "graduation_year": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "salary": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "autofill_lies_to_overwrite": {
+                "type": "array",
+                "maxItems": 100,
+                "items": {
+                  "type": "string",
+                  "maxLength": 2000
+                }
+              }
+            }
+          },
+          "files": {
+            "type": "object",
+            "maxProperties": 20,
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "label": {
+                  "type": "string",
+                  "maxLength": 2000
+                },
+                "suggested_filename": {
+                  "type": "string",
+                  "maxLength": 2000
+                },
+                "box_path": {
+                  "type": "string",
+                  "maxLength": 2000
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[a-fA-F0-9]{64}$"
+                }
+              },
+              "required": [
+                "suggested_filename"
+              ]
+            }
+          },
+          "notes": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "type": "string",
+              "maxLength": 10000
+            }
+          },
+          "agent": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "source": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "box_capture": {
+                "type": "boolean"
+              }
+            }
+          },
+          "evidence": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "screenshot_box_path": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 2000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "$defs": {
+          "field": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "value"
+            ],
+            "anyOf": [
+              {
+                "required": [
+                  "selectors"
+                ],
+                "properties": {
+                  "selectors": {
+                    "minItems": 1
+                  }
+                }
+              },
+              {
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "minLength": 1
+                  }
+                }
+              },
+              {
+                "required": [
+                  "label"
+                ],
+                "properties": {
+                  "label": {
+                    "minLength": 1
+                  }
+                }
+              },
+              {
+                "required": [
+                  "placeholder"
+                ],
+                "properties": {
+                  "placeholder": {
+                    "minLength": 1
+                  }
+                }
+              }
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "maxLength": 2000,
+                "pattern": "^(?![\\s\\S]*(?:[pP][aA][sS][sS][wW][oO][rR][dD]|[pP][aA][sS][sS][cC][oO][dD][eE]|\\b[oO][tT][pP]\\b|[oO][nN][eE][-_ ]?[tT][iI][mM][eE][-_ ]?[cC][oO][dD][eE]|[vV][eE][rR][iI][fF][iI][cC][aA][tT][iI][oO][nN][-_ ]?[cC][oO][dD][eE]|[cC][sS][rR][fF]|[xX][sS][rR][fF]|[cC][aA][pP][tT][cC][hH][aA]|[tT][uU][rR][nN][sS][tT][iI][lL][eE]|[sS][eE][sS][sS][iI][oO][nN][-_ ]?(?:[cC][oO][oO][kK][iI][eE]|[tT][oO][kK][eE][nN])|(?:[aA][cC][cC][eE][sS][sS]|[rR][eE][fF][rR][eE][sS][hH]|[aA][uU][tT][hH]|[iI][dD])[-_ ]?[tT][oO][kK][eE][nN]|(?:[cC][rR][eE][dD][iI][tT][-_ ]?[cC][aA][rR][dD]|[cC][aA][rR][dD][-_ ]?[nN][uU][mM][bB][eE][rR])|\\b[cC][vV][vV]\\b|\\b[cC][vV][cC]\\b))[\\s\\S]*$"
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 2000,
+                "pattern": "^(?![\\s\\S]*(?:[pP][aA][sS][sS][wW][oO][rR][dD]|[pP][aA][sS][sS][cC][oO][dD][eE]|\\b[oO][tT][pP]\\b|[oO][nN][eE][-_ ]?[tT][iI][mM][eE][-_ ]?[cC][oO][dD][eE]|[vV][eE][rR][iI][fF][iI][cC][aA][tT][iI][oO][nN][-_ ]?[cC][oO][dD][eE]|[cC][sS][rR][fF]|[xX][sS][rR][fF]|[cC][aA][pP][tT][cC][hH][aA]|[tT][uU][rR][nN][sS][tT][iI][lL][eE]|[sS][eE][sS][sS][iI][oO][nN][-_ ]?(?:[cC][oO][oO][kK][iI][eE]|[tT][oO][kK][eE][nN])|(?:[aA][cC][cC][eE][sS][sS]|[rR][eE][fF][rR][eE][sS][hH]|[aA][uU][tT][hH]|[iI][dD])[-_ ]?[tT][oO][kK][eE][nN]|(?:[cC][rR][eE][dD][iI][tT][-_ ]?[cC][aA][rR][dD]|[cC][aA][rR][dD][-_ ]?[nN][uU][mM][bB][eE][rR])|\\b[cC][vV][vV]\\b|\\b[cC][vV][cC]\\b))[\\s\\S]*$"
+              },
+              "placeholder": {
+                "type": "string",
+                "maxLength": 2000,
+                "pattern": "^(?![\\s\\S]*(?:[pP][aA][sS][sS][wW][oO][rR][dD]|[pP][aA][sS][sS][cC][oO][dD][eE]|\\b[oO][tT][pP]\\b|[oO][nN][eE][-_ ]?[tT][iI][mM][eE][-_ ]?[cC][oO][dD][eE]|[vV][eE][rR][iI][fF][iI][cC][aA][tT][iI][oO][nN][-_ ]?[cC][oO][dD][eE]|[cC][sS][rR][fF]|[xX][sS][rR][fF]|[cC][aA][pP][tT][cC][hH][aA]|[tT][uU][rR][nN][sS][tT][iI][lL][eE]|[sS][eE][sS][sS][iI][oO][nN][-_ ]?(?:[cC][oO][oO][kK][iI][eE]|[tT][oO][kK][eE][nN])|(?:[aA][cC][cC][eE][sS][sS]|[rR][eE][fF][rR][eE][sS][hH]|[aA][uU][tT][hH]|[iI][dD])[-_ ]?[tT][oO][kK][eE][nN]|(?:[cC][rR][eE][dD][iI][tT][-_ ]?[cC][aA][rR][dD]|[cC][aA][rR][dD][-_ ]?[nN][uU][mM][bB][eE][rR])|\\b[cC][vV][vV]\\b|\\b[cC][vV][cC]\\b))[\\s\\S]*$"
+              },
+              "selectors": {
+                "type": "array",
+                "maxItems": 10,
+                "items": {
+                  "type": "string",
+                  "maxLength": 2000,
+                  "pattern": "^(?![\\s\\S]*(?:[pP][aA][sS][sS][wW][oO][rR][dD]|[pP][aA][sS][sS][cC][oO][dD][eE]|\\b[oO][tT][pP]\\b|[oO][nN][eE][-_ ]?[tT][iI][mM][eE][-_ ]?[cC][oO][dD][eE]|[vV][eE][rR][iI][fF][iI][cC][aA][tT][iI][oO][nN][-_ ]?[cC][oO][dD][eE]|[cC][sS][rR][fF]|[xX][sS][rR][fF]|[cC][aA][pP][tT][cC][hH][aA]|[tT][uU][rR][nN][sS][tT][iI][lL][eE]|[sS][eE][sS][sS][iI][oO][nN][-_ ]?(?:[cC][oO][oO][kK][iI][eE]|[tT][oO][kK][eE][nN])|(?:[aA][cC][cC][eE][sS][sS]|[rR][eE][fF][rR][eE][sS][hH]|[aA][uU][tT][hH]|[iI][dD])[-_ ]?[tT][oO][kK][eE][nN]|(?:[cC][rR][eE][dD][iI][tT][-_ ]?[cC][aA][rR][dD]|[cC][aA][rR][dD][-_ ]?[nN][uU][mM][bB][eE][rR])|\\b[cC][vV][vV]\\b|\\b[cC][vV][cC]\\b))[\\s\\S]*$",
+                  "minLength": 1
+                }
+              },
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 50000
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "array",
+                    "maxItems": 100,
+                    "items": {
+                      "type": "string",
+                      "maxLength": 2000
+                    }
+                  }
+                ]
+              },
+              "type": {
+                "enum": [
+                  "text",
+                  "email",
+                  "tel",
+                  "textarea",
+                  "select",
+                  "checkbox",
+                  "radio",
+                  "date",
+                  "file",
+                  "hidden",
+                  "other"
+                ]
+              },
+              "option_value": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "frame_hint": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "frame_url": {
+                "type": "string",
+                "format": "uri",
+                "maxLength": 8000,
+                "pattern": "^https?://[^/@\\s]+(?::[0-9]+)?(?:[/?#]|$)",
+                "not": {
+                  "pattern": "[?&](?:access_token|id_token|refresh_token|password|otp|code|session|sessionid|csrf)="
+                }
+              },
+              "confidence": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": {
+                "type": "boolean"
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "required": [
+                    "type"
+                  ],
+                  "properties": {
+                    "type": {
+                      "enum": [
+                        "hidden",
+                        "file"
+                      ]
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "value": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
       }
     }
   },
@@ -4534,6 +5199,19 @@
               "maximum": 100
             },
             "description": "Page size, 1–100"
+          },
+          {
+            "name": "availability",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "unknown",
+                "open",
+                "expired"
+              ]
+            },
+            "description": "Exact value filter"
           }
         ],
         "responses": {
@@ -5269,6 +5947,19 @@
               "maximum": 100
             },
             "description": "Page size, 1–100"
+          },
+          {
+            "name": "availability",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "unknown",
+                "open",
+                "expired"
+              ]
+            },
+            "description": "Exact value filter"
           }
         ],
         "responses": {
@@ -5768,6 +6459,695 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/historyResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or lost lease; reconcile before retry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Version changed; reload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Size limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "Version precondition required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/job-workflow/attempts/{id}/handoff": {
+      "post": {
+        "operationId": "queueHandoff",
+        "summary": "Atomically save page packets, finish the owned agent attempt and queue a human blocker; never creates an application",
+        "tags": [
+          "Workflow"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "browserSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Canonical UUID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/handoff"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/handoffResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or lost lease; reconcile before retry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Version changed; reload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Size limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "Version precondition required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/job-workflow/handoffs": {
+      "get": {
+        "operationId": "listHandoffs",
+        "summary": "Human action queue without answer payloads",
+        "tags": [
+          "Workflow"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "browserSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Exact value filter"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            },
+            "description": "Exact value filter"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/workflowListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or lost lease; reconcile before retry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Version changed; reload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Size limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "Version precondition required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/job-workflow/handoffs/{id}": {
+      "get": {
+        "operationId": "getHandoff",
+        "summary": "Read a queued handoff and its page packets",
+        "tags": [
+          "Workflow"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "browserSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Canonical UUID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/handoffDetailResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or lost lease; reconcile before retry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Version changed; reload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Size limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "Version precondition required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/job-workflow/handoffs/{id}/claim": {
+      "post": {
+        "operationId": "claimHandoff",
+        "summary": "Start a new manually controlled attempt with exclusive lease",
+        "tags": [
+          "Workflow"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "browserSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Canonical UUID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/handoffClaim"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/claimResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or lost lease; reconcile before retry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Version changed; reload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Size limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "Version precondition required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/errorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/job-workflow/jobs/{id}/availability": {
+      "post": {
+        "operationId": "markExpired",
+        "summary": "Mark an expired posting with evidence; preserve prior submissions, close owned pre-submit work and prevent new claims",
+        "tags": [
+          "Workflow"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "browserSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Canonical UUID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/availability"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/collectionResponse"
                 }
               }
             }

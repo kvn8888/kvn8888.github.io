@@ -20,7 +20,8 @@ export async function hostedRequest(
     body: body ? JSON.stringify(body) : undefined,
     signal: AbortSignal.timeout(15000),
   });
-  const data = await response.json();
+  let data:any;
+  try { data=await response.json(); } catch { data={error:`HTTP ${response.status}: non-JSON response`}; }
   if (!response.ok) {
     const e = new Error(data.error || `HTTP ${response.status}`) as Error & {
       status: number;
@@ -76,6 +77,11 @@ export async function collectHosted(
           "source",
           "first_seen_at",
           "archived_at",
+          "status",
+          "status_notes",
+          "application_ids_json",
+          "availability",
+          "availability_checked_at",
         ].includes(key) ||
         value === null
       )
@@ -192,7 +198,7 @@ export async function saveDraftHosted(connection: Connection, payload: any) {
     capture_session_id: payload.capture_id,
     revision: payload.revision,
     collection_id: job.id,
-    state: "finished",
+    state: "draft",
     captured_at: payload.captured_at,
     document: { ...payload.document, job: { ...payload.job, id: job.id } },
   });

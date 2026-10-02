@@ -71,3 +71,15 @@ npm run test:browser
 ```
 
 `npm run build` creates the extension, standalone capture/restore helpers, and chunk files under dist. Unit tests use synthetic DOMs. Browser tests use a temporary profile and locally served Greenhouse/Lever/Ashby/SmartRecruiters-like fixtures, including a cross-origin Greenhouse frame; only fixture origins are pre-granted in that temporary test manifest. No real employer submission or production tracker write is performed. See TEST.md for manual live-layout QA.
+
+## Combined extension and hosted queue
+
+The preferred client is now JobsUtilityExtension 0.4 with a **Needs your action** page. Install that one extension for collection, capture and restoration. This directory remains the shared packet/restore engine and standalone producer, not a requirement to install two extensions.
+
+Agents can queue one or more validated page packets directly:
+
+```sh
+python3 bin/apply.py handoff-queue page1.json page2.json --attempt-id UUID --notes 'CAPTCHA blocked the Questions step'
+```
+
+Supply `JOBS_API_KEY` and the original `JOBS_CLAIM_TOKEN` via the private environment. The hosted endpoint stores packets and opens a blocker atomically; no file transfer through Kevin is needed. It requires an owned, unexpired pre-submit attempt. The total envelope uses the tracker body/document size limits, which are smaller than the standalone 2 MiB packet limit. Do not silently omit answers to fit. Workday page packets remain separate and require human step selection and login.

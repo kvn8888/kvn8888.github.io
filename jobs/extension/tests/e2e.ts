@@ -14,7 +14,7 @@ await db.executeMultiple(
 );
 const key = "a".repeat(64),
   readKey = "b".repeat(64);
-const makeServer = await makeFixture(db, key, readKey);
+const makeServer = await makeFixture(db, key, readKey, "c".repeat(64));
 let api = makeServer();
 await new Promise<void>((r) => api.listen(43128, "127.0.0.1", r));
 const fixture = createServer((req, res) => {
@@ -233,7 +233,7 @@ try {
     1,
   );
   const diagnostics = await cmd('diagnostics');
-  assert.equal(diagnostics.version, '0.3.0');
+  assert.equal(diagnostics.version, '0.4.0');
   assert.equal(diagnostics.extension_id, id);
   assert.ok(/^[a-f0-9]{64}$/.test(diagnostics.build_hash));
   assert.equal(JSON.stringify(diagnostics).includes(key), false);
@@ -244,6 +244,35 @@ try {
   await diagnosticsPage.getByRole('heading', {name: 'Jobs Utility Diagnostics'}).waitFor();
   await diagnosticsPage.close();
   console.log('PASS diagnostics: running identity/version, build hash, activity counts; no credentials or answers');
+  // One installed extension: agent queues in the API, human restores and confirms from the queue UI.
+  const agentApi=async(path:string,body?:any)=>{const r=await fetch('http://127.0.0.1:43128'+path,{method:body?'POST':'GET',headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});const d=await r.json();if(!r.ok)throw Error(JSON.stringify(d));return d;};
+  const queueJob={...JSON.parse(JSON.stringify((await state()).jobs[0])),id:crypto.randomUUID(),identity_key:'fixture:human-queue',source_job_id:'human-queue',source_url:'http://127.0.0.1:43129/handoff',application_url:'http://127.0.0.1:43129/handoff',canonical_url:'http://127.0.0.1:43129/handoff'};
+  delete queueJob.updated_at;
+  const queuedJob=(await agentApi('/api/job-collection',queueJob)).job;
+  const token=crypto.randomUUID()+crypto.randomUUID(),attemptId=crypto.randomUUID(),handoffId=crypto.randomUUID();
+  await agentApi('/api/job-workflow/attempts',{id:attemptId,collection_id:queuedJob.id,version:queuedJob.version,claim_token:token});
+  await agentApi('/api/job-workflow/attempts/'+attemptId+'/handoff',{id:handoffId,claim_token:token,reason_code:'captcha',notes:'Synthetic human handoff',packets:[{schema_version:'1.0',id:crypto.randomUUID(),created_at:new Date().toISOString(),application_url:'http://127.0.0.1:43129/handoff',status:'ready_for_human',fields:[{name:'full-name',label:'Full name',type:'text',value:'Handoff Applicant'}]}]});
+  await cmd('connect',{connection:{baseUrl:'http://127.0.0.1:43128',apiKey:'c'.repeat(64)}});
+  const human=await context.newPage();await human.goto(`chrome-extension://${id}/handoff.html`);
+  await human.getByRole('button',{name:'Take handoff',exact:true}).click();await human.getByRole('button',{name:'Open application URL',exact:true}).waitFor();
+  await cmd('handoff-open',{packetIndex:0});
+  const handoffState=await cmd('handoff-state');assert.ok(handoffState.work.tabId);assert.equal('token' in handoffState.work,false);
+  const restored=await cmd('handoff-restore',{packetIndex:0,confirmPage:true});assert.equal(restored.filled,1);
+  const restoredPage=context.pages().find(p=>p.url()==='http://127.0.0.1:43129/handoff'&&p!==jobPage)!;assert.equal(await restoredPage.getByLabel('Full name').inputValue(),'Handoff Applicant');
+  assert.equal((await db.execute('SELECT count(*) n FROM job_applications')).rows[0].n,1);
+  await restoredPage.getByRole('link',{name:'Next',exact:true}).click();
+  await restoredPage.getByLabel('Why this role?').fill('Human final step answer');
+  await cmd('handoff-submit-start');
+  await restoredPage.getByRole('button',{name:'Submit application',exact:true}).click();
+  await restoredPage.getByRole('heading',{name:'Application received',exact:true}).waitFor();
+  await human.getByRole('checkbox',{name:/I personally submitted/}).check();await human.getByRole('button',{name:'Save confirmed application',exact:true}).click();
+  await until(async()=>!(await cmd('handoff-state')).work,'Human handoff completion failed');
+  assert.equal((await db.execute('SELECT count(*) n FROM job_applications')).rows[0].n,2);
+  assert.equal((await agentApi('/api/job-workflow/handoffs')).total,0);
+  const finalDocument=JSON.parse(String((await db.execute('SELECT other_details FROM job_applications ORDER BY id DESC LIMIT 1')).rows[0].other_details));
+  assert.ok(finalDocument.human_final_page.fields.some((f:any)=>f.value==='Human final step answer'));
+  await human.screenshot({path:'.test-output/unified-handoff.png',fullPage:true});await human.close();
+  console.log('PASS unified handoff: atomic agent queue, human lease, field restore, confirmed save and queue resolution');
   assert.deepEqual(errors, []);
   console.log(
     "PASS application: prefill, edits, two sections, secret exclusion, review gate, confirmed JSON submission",
@@ -253,8 +282,8 @@ try {
     JSON.stringify(
       {
         passed: true,
-        collection_rows: 4,
-        application_rows: 1,
+        collection_rows: Number((await db.execute("SELECT count(*) n FROM job_collection")).rows[0].n),
+        application_rows: 2,
         console_errors: errors,
         production_writes: 0,
       },

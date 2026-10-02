@@ -55,7 +55,7 @@ test('collection API preserves jobs, handles identities, filters, claims, and re
   await db.executeMultiple(schemaSource.split('await db.executeMultiple(`')[1].split('`)')[0])
   assert.equal((await db.execute('PRAGMA table_info(job_collection)')).rows.length,29)
   await ensureCollectionSchema(db)
-  assert.equal((await db.execute('PRAGMA table_info(job_collection)')).rows.length,35)
+  assert.equal((await db.execute('PRAGMA table_info(job_collection)')).rows.length,38)
   await ensureCollectionSchema(db)
   const routes=load('src/app/api/job-collection/route.ts')
   const item=load('src/app/api/job-collection/[id]/route.ts')

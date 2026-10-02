@@ -323,3 +323,14 @@ test("search uses literal wildcards and parameterized filters", async () => {
     db.close();
   }
 });
+
+test("Jobright cards keep canonical board IDs without mistaking match summaries for descriptions",()=>{
+ const d=doc('<a href="/jobs/info/abc123"><h2>Backend Engineer</h2><div class="index_company-name__abc">Example</div><span class="index_primary-location__abc">Rochester</span><div class="index_rating-desc__abc">AI summary</div></a>');
+ const j=extractJobs(d,'https://jobright.ai/jobs/recommend')[0];assert.equal(j.identity_key,'jobright:abc123');assert.equal(j.company,'Example');assert.equal(j.description,null);assert.equal(j.application_url,null);
+});
+test("Handshake and Symplicity use stable listing identities; observed details stay partial",()=>{
+ for(const [url,link,identity] of [['https://rit.joinhandshake.com/stu/postings','/stu/jobs/123','handshake:123'],['https://rit-csm.symplicity.com/students/app/jobs','/students/app/jobs/abc-123','symplicity:abc-123']]){
+ const d=doc(`<article><a href="${link}"><h3>Software Engineer</h3></a><span class="employer-name">Example</span></article>`);const j=extractJobs(d,url)[0];assert.equal(j.identity_key,identity);assert.equal(j.company,'Example');assert.equal(j.application_url,null);
+ }
+ const detail=doc('<main><h1>Engineer</h1><div data-job-description>Expanded details so far</div></main>');assert.equal(extractJobs(detail,'https://jobright.ai/jobs/info/abc')[0].description_status,'partial');
+});

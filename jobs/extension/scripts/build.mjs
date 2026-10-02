@@ -1,3 +1,5 @@
+import {execFileSync} from 'node:child_process';
+execFileSync(process.execPath,['scripts/build.mjs'],{cwd:'../handoff',stdio:'inherit'});
 import { createHash } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
@@ -7,7 +9,7 @@ const release=JSON.parse(await readFile("../generated/release-config.json","utf8
 await rm("dist", { recursive: true, force: true });
 await mkdir("dist/extension", { recursive: true });
 await build({
-  entryPoints: ["src/extension/worker.ts", "src/extension/panel.ts", "src/extension/diagnostics.ts"],
+  entryPoints: ["src/extension/worker.ts", "src/extension/panel.ts", "src/extension/diagnostics.ts", "src/extension/handoff.ts"],
   bundle: true,
   format: "esm",
   outdir: "dist/extension",
@@ -22,7 +24,7 @@ await build({
   target: "chrome120",
   define: {__JOBS_BUILD_HASH__: JSON.stringify("__WORKFLOW_BUILD_HASH__")},
 });
-for (const file of ["panel.html", "panel.css", "diagnostics.html"])
+for (const file of ["panel.html", "panel.css", "diagnostics.html", "handoff.html"])
   await copyFile(`src/extension/${file}`, `dist/extension/${file}`);
 await writeFile(
   "dist/extension/manifest.json",
@@ -32,7 +34,7 @@ await writeFile(
       name: "JobsUtilityExtension",
       version: release.version,
       description:
-        "Collect jobs and preserve your application answers as you browse.",
+        "Collect jobs, capture answers, and finish queued human handoffs.",
       minimum_chrome_version: "120",
       permissions: [
         "storage",
@@ -41,6 +43,7 @@ await writeFile(
         "scripting",
         "sidePanel",
         "alarms",
+        "webNavigation",
       ],
       host_permissions: [
         "http://127.0.0.1/*",

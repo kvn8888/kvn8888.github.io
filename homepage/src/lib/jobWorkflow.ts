@@ -4,9 +4,9 @@ import type { Client, Transaction } from "@libsql/client";
 import { CollectionError } from "./jobCollection";
 import { appliedJobsPredicate } from "./appliedJobs";
 
-type Sql = Pick<Client, "execute">;
-type Data = Record<string, any>;
-const now = () => new Date().toISOString();
+export type Sql = Pick<Client, "execute">;
+export type Data = Record<string, any>;
+export const now = () => new Date().toISOString();
 export const hash = (value: unknown) =>
   createHash("sha256")
     .update(
@@ -24,7 +24,7 @@ export function object(value: unknown): Data {
     throw new CollectionError("Expected an object");
   return value as Data;
 }
-function text(value: unknown, name: string, max = 2000): string {
+export function text(value: unknown, name: string, max = 2000): string {
   if (typeof value !== "string" || !value.trim() || value.length > max)
     throw new CollectionError(`${name} must be nonempty text (max ${max})`);
   return value;
@@ -32,7 +32,7 @@ function text(value: unknown, name: string, max = 2000): string {
 function optional(value: unknown, name: string, max = 2000) {
   return value === undefined || value === null ? null : text(value, name, max);
 }
-function uuid(value: unknown) {
+export function uuid(value: unknown) {
   const s = text(value, "id", 36);
   if (
     !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)
@@ -40,7 +40,7 @@ function uuid(value: unknown) {
     throw new CollectionError("Expected UUID");
   return s;
 }
-function timestamp(value: unknown) {
+export function timestamp(value: unknown) {
   const s = text(value, "timestamp", 40);
   if (
     !/^\d{4}-\d\d-\d\dT.*(?:Z|[+-]\d\d:\d\d)$/.test(s) ||
@@ -49,7 +49,7 @@ function timestamp(value: unknown) {
     throw new CollectionError("Expected timestamp with timezone");
   return new Date(s).toISOString();
 }
-function doc(value: unknown, fallback: unknown = {}) {
+export function doc(value: unknown, fallback: unknown = {}) {
   const v = value ?? fallback;
   const s = JSON.stringify(v);
   if (s.length > 1_000_000)
@@ -59,7 +59,7 @@ function doc(value: unknown, fallback: unknown = {}) {
     );
   return s;
 }
-function version(value: unknown) {
+export function version(value: unknown) {
   if (!Number.isSafeInteger(value) || Number(value) < 1)
     throw new CollectionError("Current numeric version is required", 428);
   return Number(value);
@@ -68,7 +68,7 @@ function allowed(body: Data, keys: string[]) {
   for (const k of Object.keys(body))
     if (!keys.includes(k)) throw new CollectionError(`Unknown field: ${k}`);
 }
-async function row(db: Sql, table: string, id: string | number): Promise<Data> {
+export async function row(db: Sql, table: string, id: string | number): Promise<Data> {
   const r = await db.execute({
     sql: `SELECT * FROM ${table} WHERE id=?`,
     args: [id],
@@ -76,7 +76,7 @@ async function row(db: Sql, table: string, id: string | number): Promise<Data> {
   if (!r.rows[0]) throw new CollectionError("Record not found", 404);
   return r.rows[0];
 }
-async function transaction<T>(
+export async function transaction<T>(
   db: Client,
   fn: (tx: Transaction) => Promise<T>,
 ): Promise<T> {
@@ -92,7 +92,7 @@ async function transaction<T>(
     tx.close();
   }
 }
-function assertLease(attempt: Data, token: unknown, actor: string) {
+export function assertLease(attempt: Data, token: unknown, actor: string) {
   if (
     attempt.actor !== actor ||
     attempt.lease_token_hash !== hash(text(token, "claim_token", 200))
@@ -104,7 +104,7 @@ function assertLease(attempt: Data, token: unknown, actor: string) {
       409,
     );
 }
-async function summary(
+export async function summary(
   db: Sql,
   id: string,
   status: string,
@@ -156,6 +156,7 @@ export async function claimAttempt(db: Client, body: Data, actor: string) {
     "agent_model",
     "parent_attempt_id",
     "manual",
+    "handoff_id",
   ]);
   const id = uuid(body.id),
     jobId = uuid(body.collection_id),
@@ -187,6 +188,7 @@ export async function claimAttempt(db: Client, body: Data, actor: string) {
         412,
       );
     if (
+      j.availability === "expired" ||
       j.status === "applied" ||
       j.archived_at ||
       j.status === "not_applicable"
@@ -196,12 +198,12 @@ export async function claimAttempt(db: Client, body: Data, actor: string) {
         409,
       );
     const submitted = await tx.execute({
-      sql: `SELECT id FROM job_applications WHERE (collection_id=? OR id IN (SELECT value FROM json_each(?))) AND ${appliedJobsPredicate}`,
-      args: [jobId, j.application_ids_json],
+      sql: `SELECT id FROM job_applications WHERE (collection_id=? OR id IN (SELECT value FROM json_each(?)) OR (application_url IN (?,?) AND company=? COLLATE NOCASE AND role=? COLLATE NOCASE)) AND ${appliedJobsPredicate}`,
+      args: [jobId, j.application_ids_json, j.application_url || j.source_url, j.source_url, j.company || "", j.role || ""],
     });
     if (submitted.rows.length)
       throw new CollectionError(
-        "A linked submitted application already exists",
+        "A linked or exact URL/company/role submitted application already exists",
         409,
       );
     const active = await tx.execute({
@@ -226,11 +228,20 @@ export async function claimAttempt(db: Client, body: Data, actor: string) {
       sql: "SELECT id FROM job_blockers WHERE collection_id=? AND status='open'",
       args: [jobId],
     });
+    if (blockers.rows.length && body.manual === true && actor === 'tracker-agent')
+      throw new CollectionError('Human handoffs require the extension credential or a signed-in user',403);
     if (blockers.rows.length && body.manual !== true)
       throw new CollectionError(
         "Resolve open blockers before automated retry",
         409,
       );
+    if (body.handoff_id) {
+      const b = await row(tx, "job_blockers", uuid(body.handoff_id));
+      if (b.collection_id !== jobId || b.status !== "open" || !b.handoff_capture_id || body.manual !== true)
+        throw new CollectionError("Handoff is no longer available", 409);
+      const uncertain = await tx.execute({sql:"SELECT id FROM job_blockers WHERE collection_id=? AND status='open' AND reason_code='submission_unknown'",args:[jobId]});
+      if (uncertain.rows.length) throw new CollectionError("Resolve uncertain submission evidence before starting another attempt",409);
+    }
     if (body.parent_attempt_id) {
       const p = await row(tx, "job_attempts", uuid(body.parent_attempt_id));
       if (p.collection_id !== jobId || p.state !== "finished")
@@ -239,7 +250,7 @@ export async function claimAttempt(db: Client, body: Data, actor: string) {
         );
     }
     const at = now(),
-      expires = new Date(Date.now() + 5 * 60_000).toISOString();
+      expires = new Date(Date.now() + (body.manual === true ? 30 : 5) * 60_000).toISOString();
     await tx.execute({
       sql: "INSERT INTO job_attempts(id,collection_id,parent_attempt_id,actor,worker_id,agent_model,started_at,heartbeat_at,lease_expires_at,lease_token_hash,metadata_json) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
       args: [
@@ -253,7 +264,7 @@ export async function claimAttempt(db: Client, body: Data, actor: string) {
         at,
         expires,
         hash(token),
-        JSON.stringify({ manual: body.manual === true }),
+        JSON.stringify({ manual: body.manual === true, handoff_id: body.handoff_id || null }),
       ],
     });
     await summary(
@@ -432,14 +443,13 @@ export async function finishOutcome(
         ],
       });
     }
+    const outstanding = await tx.execute({sql:"SELECT id FROM job_blockers WHERE collection_id=? AND status='open'",args:[a.collection_id]});
     await summary(
       tx,
       a.collection_id,
       outcome === "skipped"
         ? "skipped"
-        : outcome === "cancelled"
-          ? "pending"
-          : "blocked",
+        : outstanding.rows.length ? "blocked" : "pending",
       notes,
       actor,
     );
@@ -480,6 +490,9 @@ export async function saveCapture(db: Client, body: Data, actor: string) {
     const o = v as Data;
     if (
       ["password", "hidden"].includes(o.control_type) ||
+      ["password"].includes(o.type) ||
+      (o.type === "hidden" && o.value != null) ||
+      (("answer" in o || "value" in o) && /password|\botp\b|verification.code|access.token|csrf|credit.card|card.number/i.test([o.name,o.label,o.autocomplete].join(" "))) ||
       /^(?:one-time-code|cc-)/.test(o.autocomplete || "")
     )
       throw new CollectionError(
@@ -574,10 +587,8 @@ export async function resolveBlocker(
         "Finish the running attempt before resolving/requeueing",
         409,
       );
-    if (action === "retry" && !open.rows.length)
-      await summary(tx, b.collection_id, "pending", notes, actor);
-    if (action === "dismiss")
-      await summary(tx, b.collection_id, "not_applicable", notes, actor);
+    const j=await row(tx,'job_collection',b.collection_id);
+    if (j.status !== 'applied') await summary(tx,b.collection_id,open.rows.length?'blocked':'pending',notes,actor);
     return { blocker: await row(tx, "job_blockers", id) };
   });
 }
@@ -607,6 +618,8 @@ export async function completeAttempt(
   const submitted = timestamp(body.submitted_at);
   if (Date.parse(submitted) > Date.now() + 60000)
     throw new CollectionError("Submission timestamp cannot be in the future");
+  if(body.confirmation_kind==='ats_receipt' && (!Array.isArray(body.evidence)||!body.evidence.length))
+    throw new CollectionError('ATS receipt confirmation requires evidence');
   const fingerprint = hash(body);
   const edits = body.job ? object(body.job) : {};
   allowed(edits, [
@@ -749,7 +762,8 @@ export async function completeAttempt(
         sql: "UPDATE job_form_captures SET application_id=?,state='submitted_snapshot' WHERE id=?",
         args: [applicationId, capture.id],
       });
-    for (const blockerId of resolveIds) {
+    const handoffId=JSON.parse(a.metadata_json || '{}').handoff_id;
+    for (const blockerId of [...new Set([...resolveIds,...(handoffId?[handoffId]:[])])]) {
       const b = await row(tx, "job_blockers", blockerId);
       if (b.collection_id !== a.collection_id)
         throw new CollectionError("Blocker belongs to another opportunity");

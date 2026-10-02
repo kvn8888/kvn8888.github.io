@@ -225,9 +225,9 @@ export async function patchCollection(db: Client, id: string, patch: Stored, ver
   return result.rows[0] as Stored
 }
 
-const summary = 'id,identity_key,company,role,source,source_job_id,source_url,application_url,canonical_url,type,role_tags_json,employment_type,location,work_mode,description_status,resolution_status,posted_at,first_seen_at,last_seen_at,updated_at,archived_at,status,status_updated_at,application_ids_json,version'
+const summary = 'id,identity_key,company,role,source,source_job_id,source_url,application_url,canonical_url,type,role_tags_json,employment_type,location,work_mode,description_status,resolution_status,posted_at,first_seen_at,last_seen_at,updated_at,archived_at,status,status_updated_at,application_ids_json,version,availability,availability_checked_at'
 export async function listCollection(db: Client, params: URLSearchParams, urlsOnly = false) {
-  const allowed = ['q','company','type','role_type','work_mode','location','source','employment_type','status','collected_since','collected_until','updated_since','archived','cursor','limit']
+  const allowed = ['q','company','type','role_type','work_mode','location','source','employment_type','status','collected_since','collected_until','updated_since','archived','cursor','limit','availability']
   for (const key of params.keys()) if (!allowed.includes(key)) throw new CollectionError(`Unknown query parameter: ${key}`)
   const limit = Number(params.get('limit') ?? '20')
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new CollectionError('limit must be an integer from 1 to 100')
@@ -239,9 +239,10 @@ export async function listCollection(db: Client, params: URLSearchParams, urlsOn
     clauses.push(field === 'q' ? "(company LIKE ? ESCAPE '\\' OR role LIKE ? ESCAPE '\\')" : `${field} LIKE ? ESCAPE '\\'`)
     args.push(`%${escaped}%`); if (field === 'q') args.push(`%${escaped}%`)
   }
-  for (const field of ['type','work_mode','source','employment_type','status']) {
+  for (const field of ['type','work_mode','source','employment_type','status','availability']) {
     let value = params.get(field) || (field === 'type' ? params.get('role_type') : null)
     if (!value) continue
+    if (field === 'availability' && !['unknown','open','expired'].includes(value)) throw new CollectionError('Invalid availability')
     if (field === 'status') value = normalizeStatus(value)
     if (enums[field] && !enums[field].includes(value)) throw new CollectionError(`Invalid ${field}`)
     clauses.push(`${field} = ?`); args.push(value)

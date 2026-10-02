@@ -1,3 +1,4 @@
+import { queueHandoff,listHandoffs,getHandoff,claimHandoff,postingAvailability } from '@/lib/jobHandoffs'
 import { publicWorkflowResponse, isPublicWorkflowRequest } from '@/lib/jobWorkflowPublic'
 import {jobWorkflowContract} from '@/lib/jobWorkflowContract'
 import { NextResponse } from "next/server";
@@ -49,6 +50,8 @@ async function handle(
         access: actor === "tracker-reader" ? "read" : "write",
       };
     else if (isGet && path === "metrics") result = await workflowMetrics(db);
+    else if (isGet && path === "handoffs") result=await listHandoffs(db,new URL(req.url).searchParams);
+    else if (isGet && parts[0] === "handoffs" && parts.length===2) result=await getHandoff(db,parts[1]);
     else if (isGet && parts[0] === "captures" && parts.length === 2)
       result = await getCapture(db, parts[1]);
     else if (isGet && parts[0] === "jobs" && parts.length === 2)
@@ -58,6 +61,9 @@ async function handle(
     else if (req.method === "POST") {
       const body = object(await readCollectionBody(req));
       if (path === "attempts") result = await claimAttempt(db, body, actor);
+      else if(parts[0]==='attempts' && parts.length===3 && parts[2]==='handoff') result=await queueHandoff(db,parts[1],body,actor);
+      else if(parts[0]==='handoffs' && parts.length===3 && parts[2]==='claim') result=await claimHandoff(db,parts[1],body,actor);
+      else if(parts[0]==='jobs' && parts.length===3 && parts[2]==='availability') result=await postingAvailability(db,parts[1],body,actor);
       else if (path === "captures") result = await saveCapture(db, body, actor);
       else if (
         parts[0] === "attempts" &&

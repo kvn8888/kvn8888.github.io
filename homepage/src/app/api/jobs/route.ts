@@ -81,6 +81,8 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = validateJobInput(await req.json())
+    const legacyOutcome = ['blocked','skipped','captcha','submitted_unverified'].includes(String(body.status||'').toLowerCase());
+    const migrationHeaders = legacyOutcome ? {'Link':'<https://www.kevinc.dev/api/job-workflow/guide>; rel="deprecation"','X-Jobs-Workflow-Warning':'Non-submitted outcomes belong in job-workflow attempts/outcome or attempts/handoff; legacy compatibility only'} : undefined;
     const key = validateIdempotencyKey(req.headers.get('idempotency-key'))
     if (['tracker-agent', 'tracker-extension'].includes(userEmail) && !key) throw new JobInputError('Idempotency-Key is required for agent inserts')
     const { company, role, description, type, source, cover_letter, resume_type, date, location, work_mode } = body
@@ -88,7 +90,7 @@ export async function POST(req: NextRequest) {
     const db = await getJobsDb()
     await ensureJobsSchema(db)
     const { id, replayed } = await insertJob(db, body, key)
-    if (replayed) return NextResponse.json({ id, message: 'Already created', replayed: true })
+    if (replayed) return NextResponse.json({ id, message: 'Already created', replayed: true },{headers:migrationHeaders})
 
     // Optional Google Sheets webhook dual-write
     const webhookUrl = await getSecret('SHEETS_WEBHOOK_URL')
@@ -104,7 +106,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ id, message: 'Created', replayed: false }, { status: 201 })
+    return NextResponse.json({ id, message: 'Created', replayed: false }, { status: 201,headers:migrationHeaders })
   } catch (err) {
     if (err instanceof JobInputError || err instanceof SyntaxError) return NextResponse.json({ error: err.message }, { status: 400 })
     if (err instanceof JobConflictError) return NextResponse.json({ error: err.message }, { status: 409 })

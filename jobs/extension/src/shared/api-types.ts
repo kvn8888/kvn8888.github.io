@@ -278,6 +278,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/job-workflow/attempts/{id}/handoff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Atomically save page packets, finish the owned agent attempt and queue a human blocker; never creates an application */
+        post: operations["queueHandoff"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/job-workflow/handoffs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Human action queue without answer payloads */
+        get: operations["listHandoffs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/job-workflow/handoffs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read a queued handoff and its page packets */
+        get: operations["getHandoff"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/job-workflow/handoffs/{id}/claim": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start a new manually controlled attempt with exclusive lease */
+        post: operations["claimHandoff"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/job-workflow/jobs/{id}/availability": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark an expired posting with evidence; preserve prior submissions, close owned pre-submit work and prevent new claims */
+        post: operations["markExpired"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/job-workflow/captures/{id}": {
         parameters: {
             query?: never;
@@ -581,6 +666,7 @@ export interface components {
             parent_attempt_id?: unknown;
             /** @description Arbitrary JSON value; transport accepts JSON only */
             manual?: unknown;
+            handoff_id?: string | null;
         };
         heartbeat: {
             /** @description Original private claim token; new claims require 32+ characters */
@@ -645,6 +731,39 @@ export interface components {
             /** @description Arbitrary JSON value; transport accepts JSON only */
             evidence?: unknown;
         };
+        handoff: {
+            id: string;
+            /** @description Original private claim token; new claims require 32+ characters */
+            claim_token: string;
+            /** @enum {string} */
+            reason_code: "captcha" | "manual_review" | "login_required" | "missing_information";
+            notes: string;
+            /** @description Page-scoped handoff schema 1.0 packets; validated against the shared packet schema. Never flatten different Workday steps. */
+            packets: components["schemas"]["handoffPacket"][];
+            gaps?: string[];
+            resume_instructions?: string;
+        };
+        handoffClaim: {
+            id: string;
+            version: number;
+            /** @description Original private claim token; new claims require 32+ characters */
+            claim_token: string;
+        };
+        availability: {
+            version: number;
+            /** @description Original private claim token; new claims require 32+ characters */
+            claim_token?: string;
+            notes: string;
+            evidence: {
+                /** Format: uri */
+                url: string;
+                /** @description ISO timestamp with a timezone; validated and normalized by the service */
+                observed_at: string;
+                /** @enum {string} */
+                signal: "expired_notice" | "employer_removed";
+                excerpt: string;
+            };
+        };
         resolve: {
             version: number;
             /** @enum {string} */
@@ -678,6 +797,7 @@ export interface components {
                 changes: string;
                 releases: string;
                 docs: string;
+                workspace?: string;
             };
             latest_compatible_release: {
                 version: string;
@@ -868,6 +988,34 @@ export interface components {
             /** @enum {string} */
             access: "read" | "write";
         };
+        handoffResponse: {
+            handoff: {
+                id: number | string;
+            } & {
+                [key: string]: unknown;
+            };
+            replayed: boolean;
+        };
+        handoffDetailResponse: {
+            handoff: {
+                id: number | string;
+            } & {
+                [key: string]: unknown;
+            };
+            job: {
+                id: string;
+                identity_key: string;
+                source: string;
+                source_url: string;
+                version: number;
+                status: string;
+            } & {
+                [key: string]: unknown;
+            };
+            document: {
+                [key: string]: unknown;
+            };
+        };
         claimResponse: {
             attempt: {
                 id: string;
@@ -1034,6 +1182,90 @@ export interface components {
                 };
             };
             rules: string[];
+        };
+        /** ATS human handoff packet */
+        handoffPacket: {
+            /** @constant */
+            schema_version: "1.0";
+            id: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uri */
+            application_url: string;
+            /** @enum {unknown} */
+            status: "captcha_blocked" | "ready_for_human" | "imported" | "submitted" | "abandoned" | "expired";
+            company?: string;
+            role?: string;
+            /** @description greenhouse, lever, ashby, workday, smartrecruiters, rippling, pinpoint, successfactors, icims, taleo, google_forms, unknown; additional provider names allowed */
+            ats?: string;
+            blocker?: string;
+            blocker_detail?: string;
+            fields?: components["schemas"]["handoffPacket"]["$defs"]["field"][];
+            profile_overlay?: {
+                first?: string;
+                last?: string;
+                full_name?: string;
+                email?: string;
+                phone?: string;
+                phone_formatted?: string;
+                address?: string;
+                address_line1?: string;
+                address_line2?: string;
+                city?: string;
+                state?: string;
+                zip?: string;
+                country?: string;
+                website?: string;
+                linkedin?: string;
+                github?: string;
+                school?: string;
+                degree?: string;
+                major?: string;
+                graduation_year?: string;
+                salary?: string;
+                autofill_lies_to_overwrite?: string[];
+            };
+            files?: {
+                [key: string]: {
+                    label?: string;
+                    suggested_filename: string;
+                    box_path?: string;
+                    sha256?: string;
+                };
+            };
+            notes?: string[];
+            agent?: {
+                source?: string;
+                box_capture?: boolean;
+            };
+            evidence?: {
+                screenshot_box_path?: string | null;
+            };
+            $defs: {
+                field: ({
+                    name?: string;
+                    label?: string;
+                    placeholder?: string;
+                    selectors?: string[];
+                    value: string | number | boolean | null | string[];
+                    /** @enum {unknown} */
+                    type?: "text" | "email" | "tel" | "textarea" | "select" | "checkbox" | "radio" | "date" | "file" | "hidden" | "other";
+                    option_value?: string;
+                    frame_hint?: string;
+                    /** Format: uri */
+                    frame_url?: string;
+                    confidence?: number;
+                    required?: boolean;
+                } & unknown) | {
+                    selectors: unknown;
+                } | {
+                    name: unknown;
+                } | {
+                    label: unknown;
+                } | {
+                    placeholder: unknown;
+                };
+            };
         };
     };
     responses: never;
@@ -1862,6 +2094,8 @@ export interface operations {
                 cursor?: string;
                 /** @description Page size, 1–100 */
                 limit?: number;
+                /** @description Exact value filter */
+                availability?: "unknown" | "open" | "expired";
             };
             header?: never;
             path?: never;
@@ -2323,6 +2557,8 @@ export interface operations {
                 cursor?: string;
                 /** @description Page size, 1–100 */
                 limit?: number;
+                /** @description Exact value filter */
+                availability?: "unknown" | "open" | "expired";
             };
             header?: never;
             path?: never;
@@ -2744,6 +2980,540 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["historyResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Conflict or lost lease; reconcile before retry */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Version changed; reload */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Size limit exceeded */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Version precondition required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+        };
+    };
+    queueHandoff: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Canonical UUID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["handoff"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["handoffResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Conflict or lost lease; reconcile before retry */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Version changed; reload */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Size limit exceeded */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Version precondition required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+        };
+    };
+    listHandoffs: {
+        parameters: {
+            query?: {
+                /** @description Exact value filter */
+                status?: string;
+                /** @description Exact value filter */
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["workflowListResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Conflict or lost lease; reconcile before retry */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Version changed; reload */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Size limit exceeded */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Version precondition required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+        };
+    };
+    getHandoff: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Canonical UUID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["handoffDetailResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Conflict or lost lease; reconcile before retry */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Version changed; reload */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Size limit exceeded */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Version precondition required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+        };
+    };
+    claimHandoff: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Canonical UUID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["handoffClaim"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["claimResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Conflict or lost lease; reconcile before retry */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Version changed; reload */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Size limit exceeded */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Version precondition required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+        };
+    };
+    markExpired: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Canonical UUID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["availability"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["collectionResponse"];
                 };
             };
             /** @description Invalid request */

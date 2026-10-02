@@ -1,3 +1,4 @@
+import {handoffHandle,heartbeatHandoff,handoffWork,watchHandoffTab,handoffBadge} from './handoff-worker';
 declare const __JOBS_BUILD_HASH__: string;
 import { preflight, compatibilitySnapshot } from '../shared/discovery';
 import {
@@ -134,12 +135,12 @@ async function sync() {
   });
 }
 chrome.alarms.onAlarm.addListener((a) => {
-  if (a.name === "sync") void sync();
+  if (a.name === "sync") { void sync(); void locked(async()=>{const connection=(await read()).connection;await heartbeatHandoff(connection);await handoffBadge(connection);}); }
 });
 async function init() {
   await localOnly();
   await chrome.alarms.create("sync", { periodInMinutes: 1 });
-  await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+  if(chrome.sidePanel)await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
 }
 chrome.runtime.onInstalled.addListener(() => void init());
 chrome.runtime.onStartup.addListener(() => {
@@ -163,6 +164,7 @@ chrome.action.onClicked.addListener(
       const s = await read();
       s.targetTab = tab.id;
       await save(s);
+      if(!chrome.sidePanel)await chrome.tabs.create({url:chrome.runtime.getURL("panel.html")});
     }),
 );
 chrome.tabs.onActivated.addListener(
@@ -177,6 +179,7 @@ chrome.tabs.onActivated.addListener(
     }),
 );
 chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
+  if(change.status === "complete")void watchHandoffTab(tabId);
   if (change.url && tab.active && /^https?:/.test(change.url))
     void locked(async () => {
       const s = await read();
@@ -258,6 +261,11 @@ async function handle(m: any, sender: chrome.runtime.MessageSender) {
         c.tab_id === sender.tab!.id &&
         c.origin === origin,
     );
+    if(m.type==='handoff-submit-observed'){
+      const w=await handoffWork();
+      if(!w||w.tabId!==sender.tab.id||!w.document.packets.some((p:any)=>new URL(p.application_url).origin===origin))throw Error('No owned handoff on this page');
+      return handoffHandle({type:'handoff-submit-start'},s.connection);
+    }
     if (m.type === "context")
       return {
         collect: s.sites.includes(origin),
@@ -350,11 +358,18 @@ async function handle(m: any, sender: chrome.runtime.MessageSender) {
     throw Error("Page cannot access this command");
   }
   const s = await read();
+  if(m.type?.startsWith("handoff-"))return handoffHandle(m,s.connection);
   switch (m.type) {
+    case "selected-text": {
+      const t=await target(s);
+      const r=await chrome.scripting.executeScript({target:{tabId:t.id},func:()=>({text:window.getSelection()?.toString()||'',url:location.href})});
+      const value=r[0]?.result;if(!value?.text.trim())throw Error('Highlight the expanded job description on the job page first');
+      if(value.text.length>50000)throw Error('Selection exceeds 50,000 characters');return value;
+    }
     case "diagnostics": {
       const info = await (await fetch(chrome.runtime.getURL('build-info.json'))).json();
       const active = s.captures.filter(c => c.status === 'recording').length;
-      const attempts = s.queue.filter(item => item.kind === 'application' && item.claimToken).length;
+      const attempts = s.queue.filter(item => item.kind === 'application' && item.claimToken).length + ((await handoffWork())?1:0);
       return {schema_version:1,generated_at:new Date().toISOString(),extension_id:chrome.runtime.id,version:chrome.runtime.getManifest().version,build_hash:__JOBS_BUILD_HASH__,storage_schema:info.storage_schema,compatibility:compatibilitySnapshot(),active_captures:active,active_attempts:attempts,pending_queue:s.queue.length,collection_sites:s.sites.length,safe_to_reload:active===0 && attempts===0 && s.queue.length===0 && s.sites.length===0};
     }
     case "state": {

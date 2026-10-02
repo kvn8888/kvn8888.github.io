@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Jobs Utility — Needs your action</title>
+    <link rel="stylesheet" href="panel.css" />
+  </head>
+  <body>
+    <main style="max-width: 850px; margin: auto; padding: 24px">
+      <a href="panel.html">← Jobs Utility</a>
+      <h1>Needs your action</h1>
+      <p>
+        Agents save blocked attempts here. Take one, restore a saved page, then
+        finish it on the employer’s site.
+      </p>
+      <button id="refresh" class="button">Refresh queue</button>
+      <div id="status" role="status" aria-live="polite"></div>
+      <section id="work"></section>
+      <section id="queue"></section>
+      <button id="more" class="button" hidden>Next page</button>
+      <pre id="report" style="white-space: pre-wrap"></pre>
+    </main>
+    <script type="module" src="handoff.js"></script>
+  </body>
+</html>

@@ -63,7 +63,25 @@ def main():
     write.add_argument('--fill-js', action='store_true', help='Emit a trusted local DevTools restore script')
     write.add_argument('-o','--output')
     write.add_argument('--output-dir', default='/workspace/job-apps/handoffs')
+    queue = commands.add_parser('handoff-queue', help='Queue validated page packets through the hosted workflow, no human file transfer')
+    queue.add_argument('paths', nargs='+'); queue.add_argument('--attempt-id', required=True); queue.add_argument('--notes', required=True)
+    queue.add_argument('--reason', choices=['captcha','manual_review','login_required','missing_information'], default='captcha')
+    queue.add_argument('--base-url', default='https://www.kevinc.dev')
     args=parser.parse_args()
+    if args.command=='handoff-queue':
+        from urllib.request import Request, urlopen
+        from urllib.parse import urlparse
+        base=urlparse(args.base_url)
+        if base.scheme!='https' or base.netloc!='www.kevinc.dev' or base.path not in ['', '/']: raise ValueError('Use the canonical HTTPS tracker origin')
+        claim=os.environ.get('JOBS_CLAIM_TOKEN'); key=os.environ.get('JOBS_API_KEY')
+        if not claim or not key: raise ValueError('Provide JOBS_CLAIM_TOKEN and JOBS_API_KEY privately in the environment')
+        attempt=str(uuid.UUID(args.attempt_id)); body={'id':str(uuid.uuid5(uuid.NAMESPACE_URL,'job-handoff:'+attempt)),'claim_token':claim,'reason_code':args.reason,'notes':args.notes,'packets':[validate(read(p)) for p in args.paths]}
+        data=json.dumps(body).encode()
+        if len(data)>1_000_000: raise ValueError('Combined packets exceed hosted request size; do not truncate')
+        request=Request(args.base_url.rstrip('/')+'/api/job-workflow/attempts/'+attempt+'/handoff',data=data,headers={'Authorization':'Bearer '+key,'Content-Type':'application/json','User-Agent':'JobsHandoff/0.4'},method='POST')
+        with urlopen(request,timeout=30) as response: result=json.load(response)
+        print(json.dumps({'queued':True,'handoff_id':result['handoff']['id'],'replayed':result['replayed']}));return
+
     if args.command=='handoff-validate':
         packet=validate(read(args.path));print(json.dumps({'valid':True,'id':packet['id']}));return
     packet={'schema_version':'1.0','id':str(uuid.uuid4()),'created_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'application_url':args.url,'status':'captcha_blocked' if args.blocker=='captcha' else 'ready_for_human','ats':args.ats,'blocker':args.blocker,'fields':[],'agent':{'source':'apply-kit-handoff','box_capture':True}}

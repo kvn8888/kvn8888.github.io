@@ -20,6 +20,7 @@ export function extractJobs(doc: Document, url: string): Job[] {
   const jobs: Job[] = [];
   const host = new URL(url).hostname;
   function finish(job: Job) {
+    if(job.application_url){const destination=new URL(job.application_url);if(/^\/(?:careers|jobs|apply)?\/?$/.test(destination.pathname)&&!['job','jobId','job_id','gh_jid','reqId'].some(k=>destination.searchParams.has(k)))job.application_url=null;}
     job.type = category(job.role || "");
     job.role_tags_json = JSON.stringify(job.type ? [job.type] : []);
     job.resolution_status = job.application_url ? "resolved" : "unresolved";
@@ -33,6 +34,7 @@ export function extractJobs(doc: Document, url: string): Job[] {
       job.description_status = "partial";
       job.metadata_json = JSON.stringify({
         adapter: "dom-v1",
+        coverage: "observed_fields_only",
         gaps: ["Description exceeds 50,000 characters; stored preview only."],
       });
     }
@@ -76,7 +78,7 @@ export function extractJobs(doc: Document, url: string): Job[] {
           .join(" / ") || null;
       j.work_mode = value.jobLocationType === "TELECOMMUTE" ? "remote" : null;
       if (
-        !/linkedin\.com|jobright\.ai|indeed\.com|joinhandshake\.com/.test(host)
+        !/linkedin\.com|jobright\.ai|indeed\.com|joinhandshake\.com|symplicity\.com/.test(host)
       )
         j.application_url = link;
       const id = value.identifier?.value;
@@ -95,6 +97,33 @@ export function extractJobs(doc: Document, url: string): Job[] {
       walk(JSON.parse(script.textContent || ""));
     } catch {
       /* Malformed site JSON is not executable code. */
+    }
+  }
+  // Board-specific identities: never treat a recommendation/search URL as a job.
+  const board = /(^|\.)jobright\.ai$/.test(host)?'jobright':/(^|\.)joinhandshake\.com$/.test(host)?'handshake':/(^|\.)symplicity\.com$/.test(host)?'symplicity':null;
+  if(board){
+    const selector=board==='jobright'?'a[href*="/jobs/info/"]':board==='handshake'?'a[href*="/stu/jobs/"],a[href*="/jobs/"]':'a[href*="/app/jobs/"],a[href*="job_id="],a[href*="jobid="]';
+    const identity=(link:string)=>{const u=new URL(link);return board==='jobright'?u.pathname.match(/\/jobs\/info\/([a-z0-9-]+)/i)?.[1]:board==='handshake'?u.pathname.match(/\/(?:stu\/)?jobs\/(\d+)/)?.[1]:u.pathname.match(/\/app\/jobs\/([a-z0-9-]+)/i)?.[1]||u.searchParams.get('job_id')||u.searchParams.get('jobid');};
+    for(const a of doc.querySelectorAll<HTMLAnchorElement>(selector)){
+      const link=normalizeUrl(a.getAttribute('href')||'',url);if(!link||new URL(link).hostname!==host)continue;const id=identity(link);if(!id)continue;
+      const card=board==='jobright'?a:(a.closest('[data-job-id],article,[data-testid*="job-card"],li')||a);
+      const j=emptyJob(link);j.source_job_id=id;j.identity_key=board+':'+id;
+      j.role=first(card,'h2,h3,[data-testid="job-title"],[class*="job-title"],.job-title')||txt(a);
+      if(!j.role||j.role.length>300)continue;
+      j.company=first(card,'[class*="company-name"],[data-testid="employer-name"],[data-testid="company-name"],.employer-name');
+      j.location=first(card,'[class*="primary-location"],[data-testid="job-location"],.job-location');
+      j.posted_at_raw=first(card,'[class*="publish-time"],time');
+      finish(j);
+    }
+    const id=identity(url);
+    if(id){const main=doc.querySelector('main,[role="main"],#jobs-page-main-content')||doc;const j=emptyJob(url);j.source_job_id=id;j.identity_key=board+':'+id;
+      j.role=first(main,'h1,[data-testid="job-title"],[class*="job-title"]');
+      j.company=first(main,'[class*="company-name"],[data-testid="employer-name"],[data-testid="company-name"],.employer-name');
+      j.description=first(main,'[data-job-description],[itemprop="description"],[class*="job-description"],[data-testid="job-description"],.job-description');
+      j.description_status=j.description?'partial':'missing'; // DOM may still be collapsed; never promise completeness.
+      const apply=main.querySelector<HTMLAnchorElement>('a[data-testid="apply-button"],a[aria-label="Apply externally"],a[href*="myworkdayjobs.com"],a[href*="greenhouse.io"],a[href*="lever.co"],a[href*="ashbyhq.com"]');
+      if(apply){const destination=normalizeUrl(apply.getAttribute('href')||'',url);if(destination&&new URL(destination).hostname!==host)j.application_url=destination;}
+      if(j.role)finish(j);
     }
   }
   // LinkedIn list/detail layouts: capture cards as they enter the DOM, including recycled lists.
@@ -134,8 +163,8 @@ export function extractJobs(doc: Document, url: string): Job[] {
     const j = emptyJob(url);
     const id =
       new URL(url).searchParams.get("currentJobId") ||
-      url.match(/\/jobs\/view\/(\d+)/)?.[1];
-    if (id) {
+      (/(^|\.)linkedin\.com$/.test(host)?url.match(/\/jobs\/view\/(\d+)/)?.[1]:undefined);
+    if (id && /(^|\.)linkedin\.com$/.test(host)) {
       j.source_job_id = id;
       j.identity_key = `${j.source}:${id}`;
       j.source_url = `https://www.linkedin.com/jobs/view/${id}/`;

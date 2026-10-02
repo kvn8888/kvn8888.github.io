@@ -1,8 +1,9 @@
+import { handoffPacketSchema } from './handoffPacketSchema'
 import { z } from 'zod'
 import { legacyWorkflowGuide } from './jobWorkflowGuide'
 
-export const API_VERSION = '1.1.0'
-export const CLIENT_VERSION = '0.3.0'
+export const API_VERSION = '1.2.0'
+export const CLIENT_VERSION = '0.4.0'
 export const BASE_URL = 'https://www.kevinc.dev'
 const text = z.string().max(2000)
 const nullableText = text.nullable().optional()
@@ -42,12 +43,15 @@ export const requestSchemas = {
  applicationPatch:strict({...Object.fromEntries(Object.entries(applicationShape).map(([k,v])=>[k,v.optional()])),interviewed:z.union([z.boolean(),z.literal(0),z.literal(1)]).optional()}),
  collectionCreate:strict(collectionShape),
  collectionPatch:strict(Object.fromEntries(Object.entries(collectionShape).filter(([k])=>!['id','identity_key','source','first_seen_at'].includes(k)).map(([k,v])=>[k,v.optional()]))),
- claim:strict({id,collection_id:id,version,claim_token:token.min(32),worker_id:nullableText,agent_model:nullableText,parent_attempt_id:json.optional(),manual:json.optional()}),
+ claim:strict({id,collection_id:id,version,claim_token:token.min(32),worker_id:nullableText,agent_model:nullableText,parent_attempt_id:json.optional(),manual:json.optional(),handoff_id:maybe(id)}),
  heartbeat:strict({claim_token:token,stage:z.union([z.enum(['filling','submit_started','receipt_seen']),z.literal(''),z.literal(0),z.literal(false),z.null()]).optional()}),
  recover:strict({version}),
  outcome:strict({claim_token:token,outcome:z.enum(['blocked','skipped','failed','cancelled','submission_unknown']),reason_code:maybe(z.string().max(100)),notes:z.string().max(50000),details:json.optional(),evidence:json.optional(),duration_seconds:maybe(z.number().nonnegative()),duration_scope:nullableText}),
  capture:strict({id,capture_session_id:id,revision:version,collection_id:id,attempt_id:json.optional(),schema_version:json.optional(),state:z.union([z.enum(['draft','finished','imported']),z.literal(''),z.literal(false),z.literal(0),z.null()]).optional(),captured_at:timestamp,document:jsonObject}),
  complete:strict({claim_token:token,confirmed:z.literal(true),confirmation_kind:z.enum(['ats_receipt','user_confirmed']),submitted_at:timestamp,capture_id:maybe(id),existing_application_id:maybe(z.number().int()),job:strict(Object.fromEntries(['company','role','description','type','source','location','work_mode','application_url'].map(k=>[k,k==='description'?longText:nullableText]))).optional(),resolve_blocker_ids:maybe(z.array(id).max(100)),evidence:json.optional()}),
+ handoff:strict({id,claim_token:token,reason_code:z.enum(['captcha','manual_review','login_required','missing_information']),notes:z.string().min(1).max(50000),packets:z.array(jsonObject).min(1).max(20).describe('Page-scoped handoff schema 1.0 packets; validated against the shared packet schema. Never flatten different Workday steps.'),gaps:z.array(z.string().max(2000)).max(100).optional(),resume_instructions:z.string().max(10000).optional()}),
+ handoffClaim:strict({id,version,claim_token:token.min(32)}),
+ availability:strict({version,claim_token:token.optional(),notes:z.string().min(1).max(50000),evidence:strict({url:z.string().url().max(8000),observed_at:timestamp,signal:z.enum(['expired_notice','employer_removed']),excerpt:z.string().min(1).max(10000)})}),
  resolve:strict({version,action:z.enum(['retry','resolved','dismiss']),notes:z.string().max(50000),resolution:json.optional()}),
 }
 const row = z.looseObject({id:z.union([z.number(),z.string()])})
@@ -58,7 +62,7 @@ const collection = z.looseObject({id,identity_key:z.string(),source:z.string(),s
 const artifactSchema=z.object({kind:z.enum(['cli','extension','zip']),name:z.string(),url:z.string().url(),size:z.number().int().positive(),sha256:z.string().regex(/^[a-f0-9]{64}$/)})
 const releaseSchema=z.object({version:z.string(),api_version:z.string(),contract_hash:z.string(),source_commit:z.string(),build_hash:z.string(),storage_schema:z.number(),verified:z.literal(true),verified_at:z.string(),artifacts:z.array(artifactSchema)})
 export const responseSchemas = {
- discovery:z.object({name:z.string(),api_version:z.string(),workflow_version:z.number(),contract_hash:z.string(),revision:z.string(),guide_hash:z.string(),deployed_commit:z.string().nullable(),supported_clients:z.object({cli:z.object({min:z.string(),max_major:z.number()}),extension:z.object({min:z.string(),max_major:z.number()})}),legacy_clients_supported:z.boolean(),links:z.object({openapi:z.string(),guide:z.string(),changes:z.string(),releases:z.string(),docs:z.string()}),latest_compatible_release:releaseSchema.nullable()}),
+ discovery:z.object({name:z.string(),api_version:z.string(),workflow_version:z.number(),contract_hash:z.string(),revision:z.string(),guide_hash:z.string(),deployed_commit:z.string().nullable(),supported_clients:z.object({cli:z.object({min:z.string(),max_major:z.number()}),extension:z.object({min:z.string(),max_major:z.number()})}),legacy_clients_supported:z.boolean(),links:z.object({openapi:z.string(),guide:z.string(),changes:z.string(),releases:z.string(),docs:z.string(),workspace:z.string().optional()}),latest_compatible_release:releaseSchema.nullable()}),
  releases:z.object({releases:z.array(releaseSchema)}),
  changes:z.object({revision:z.string(),changes:z.array(z.object({version:z.string(),client_version:z.string(),date:z.string(),breaking:z.boolean(),summary:z.string(),required_actions:z.array(z.string()),changes:z.array(z.string())}))}),
  publicDocument:jsonObject, guide:z.string(), parsedJob:z.looseObject({company:z.string(),role:z.string(),type:z.string(),location:z.string(),work_mode:z.string(),description:z.string()}),
@@ -69,6 +73,7 @@ export const responseSchemas = {
  collection:z.object({job:collection,created:z.boolean().optional(),existing:z.boolean().optional()}),
  exported:z.object({jobs:z.array(z.looseObject({id,source_url:z.string(),status:z.string()})),total:z.number(),next_cursor:z.string().nullable()}),
  connection:z.object({ok:z.literal(true),workflow_version:z.number(),access:z.enum(['read','write'])}),
+ handoff:z.object({handoff:row,replayed:z.boolean()}),handoffDetail:z.object({handoff:row,job:collection,document:jsonObject}),
  claim:attemptResult,heartbeat:attemptResult,recover:attemptResult,outcome:attemptResult,
  capture:z.looseObject({capture:row,replayed:z.boolean().optional()}),resolve:z.object({blocker:row}),
  complete:z.looseObject({application_id:z.number(),replayed:z.boolean()}),
@@ -87,16 +92,21 @@ export const endpoints:Endpoint[] = [
  {operationId:'getApplication',method:'get',path:'/api/jobs/{id}',summary:'Read full application',response:'application'},
  {operationId:'updateApplication',method:'patch',path:'/api/jobs/{id}',summary:'Correct application metadata',request:'applicationPatch',response:'applicationUpdated'},
  {operationId:'applicationStats',method:'get',path:'/api/jobs/stats',summary:'Submitted application statistics for the website',response:'stats',sessionOnly:true},
- {operationId:'listOpportunities',method:'get',path:'/api/job-collection',summary:'Search opportunities without deleting consumed rows',response:'collectionList',query:['q','company','type','role_type','work_mode','location','source','employment_type','status','collected_since','collected_until','updated_since','archived','cursor','limit']},
+ {operationId:'listOpportunities',method:'get',path:'/api/job-collection',summary:'Search opportunities without deleting consumed rows',response:'collectionList',query:['q','company','type','role_type','work_mode','location','source','employment_type','status','collected_since','collected_until','updated_since','archived','cursor','limit','availability']},
  {operationId:'collectOpportunity',method:'post',path:'/api/job-collection',summary:'Create or find a canonical opportunity',request:'collectionCreate',response:'collection',success:[200,201]},
  {operationId:'getOpportunity',method:'get',path:'/api/job-collection/{id}',summary:'Read full opportunity and version',response:'collection'},
  {operationId:'enrichOpportunity',method:'patch',path:'/api/job-collection/{id}',summary:'Version-checked enrichment; use workflow endpoints for attempted opportunities',request:'collectionPatch',response:'collection',header:'If-Match'},
- {operationId:'exportOpportunityUrls',method:'get',path:'/api/job-collection/export',summary:'Export paginated opportunity URLs',response:'exported',query:['q','company','type','role_type','work_mode','location','source','employment_type','status','collected_since','collected_until','updated_since','archived','cursor','limit']},
+ {operationId:'exportOpportunityUrls',method:'get',path:'/api/job-collection/export',summary:'Export paginated opportunity URLs',response:'exported',query:['q','company','type','role_type','work_mode','location','source','employment_type','status','collected_since','collected_until','updated_since','archived','cursor','limit','availability']},
  {operationId:'connection',method:'get',path:'/api/job-workflow/connection',summary:'Check credential access',response:'connection'},
  {operationId:'contract',method:'get',path:'/api/job-workflow/contract',summary:'Legacy machine-readable integration guide',response:'contract'},
  {operationId:'metrics',method:'get',path:'/api/job-workflow/metrics',summary:'Workflow activity and confirmed submission metrics',response:'metrics'},
  {operationId:'history',method:'get',path:'/api/job-workflow/jobs/{id}',summary:'Opportunity attempts, blockers and immutable capture revisions',response:'history'},
- {operationId:'getCapture',method:'get',path:'/api/job-workflow/captures/{id}',summary:'Read exact captured answers',response:'capture'},
+ {operationId:'queueHandoff',method:'post',path:'/api/job-workflow/attempts/{id}/handoff',summary:'Atomically save page packets, finish the owned agent attempt and queue a human blocker; never creates an application',request:'handoff',response:'handoff'},
+ {operationId:'listHandoffs',method:'get',path:'/api/job-workflow/handoffs',summary:'Human action queue without answer payloads',response:'workflowList',query:['status','offset']},
+ {operationId:'getHandoff',method:'get',path:'/api/job-workflow/handoffs/{id}',summary:'Read a queued handoff and its page packets',response:'handoffDetail'},
+ {operationId:'claimHandoff',method:'post',path:'/api/job-workflow/handoffs/{id}/claim',summary:'Start a new manually controlled attempt with exclusive lease',request:'handoffClaim',response:'claim'},
+ {operationId:'markExpired',method:'post',path:'/api/job-workflow/jobs/{id}/availability',summary:'Mark an expired posting with evidence; preserve prior submissions, close owned pre-submit work and prevent new claims',request:'availability',response:'collection'},
+ {operationId:'getCapture' ,method:'get',path:'/api/job-workflow/captures/{id}',summary:'Read exact captured answers',response:'capture'},
  {operationId:'listAttempts',method:'get',path:'/api/job-workflow/attempts',summary:'Read attempts',response:'workflowList',query:['collection_id','outcome','actor','offset']},
  {operationId:'listBlockers',method:'get',path:'/api/job-workflow/blockers',summary:'Read blockers needing attention',response:'workflowList',query:['collection_id','status','reason_code','offset']},
  ...(['claim','heartbeat','recover','outcome','capture','complete','resolve'] as const).map(name=>({operationId:name,method:'post' as const,path:({claim:'/api/job-workflow/attempts',heartbeat:'/api/job-workflow/attempts/{id}/heartbeat',recover:'/api/job-workflow/attempts/{id}/recover',outcome:'/api/job-workflow/attempts/{id}/outcome',capture:'/api/job-workflow/captures',complete:'/api/job-workflow/attempts/{id}/complete',resolve:'/api/job-workflow/blockers/{id}/resolve'})[name],summary:({claim:'Claim an opportunity with a five-minute lease',heartbeat:'Renew an owned lease; mark submit_started before employer submission',recover:'Recover an expired attempt without blindly resubmitting',outcome:'Record a non-submitted outcome and retain history',capture:'Save an immutable answer capture revision',complete:'Record confirmed submission and atomically create/link one application',resolve:'Resolve selected blockers with explicit human input'})[name],request:name,response:name})),
@@ -108,6 +118,10 @@ export function buildOpenApi() {
  for(const [name,schema] of Object.entries(requestSchemas))schemas[name]=z.toJSONSchema(schema,{target:'draft-2020-12',io:'input'})
  for(const [name,schema] of Object.entries(responseSchemas))schemas[`${name}Response`]=z.toJSONSchema(schema,{target:'draft-2020-12'})
  for(const [name,schema] of Object.entries(schemas)) schemas[name]=JSON.parse(JSON.stringify(schema, (key,value)=>key==='$ref' && typeof value==='string' && value.startsWith('#/$defs/') ? `#/components/schemas/${name}/${value.slice(2)}` : value))
+ const {$schema:packetDraft,$id:packetId,definitions,...packetStructure}=handoffPacketSchema;
+ void packetDraft;void packetId;
+ schemas.handoffPacket=JSON.parse(JSON.stringify({...packetStructure,$defs:definitions},(key,value)=>key==='$ref' && value==='#/definitions/field'?'#/components/schemas/handoffPacket/$defs/field':value));
+ const handoffSchema=schemas.handoff as {properties:{packets:{items:unknown}}};handoffSchema.properties.packets.items={$ref:'#/components/schemas/handoffPacket'};
  const paths:Record<string,Record<string,unknown>>={}
  for(const op of endpoints){
   const parameters:unknown[]=[]
@@ -117,6 +131,7 @@ export function buildOpenApi() {
    if(['q','company','location'].includes(name)){schema={type:'string',...(collectionQuery?{maxLength:2000}:{})};description=name==='q'?(collectionQuery?'Literal company/role substring':'Company search (SQLite LIKE wildcards are supported by this legacy endpoint)'):'Literal substring search'}
    if(name==='limit'){schema={type:'integer',minimum:1,default:collectionQuery?20:50,...(collectionQuery?{maximum:100}:{})};description=collectionQuery?'Page size, 1–100':'Page size; values above 200 are capped at 200'}
    if(name==='offset')schema={type:'integer',minimum:0,default:0};
+   if(name==='availability')schema={type:'string',enum:['unknown','open','expired']};
    if(name==='view')schema={type:'string',enum:['all','applied'],default:'all'};
    if(name==='archived')schema={type:'string',enum:['false','true','all'],default:'false'};
    if(name==='work_mode')schema={type:'string',enum:['remote','hybrid','onsite']};

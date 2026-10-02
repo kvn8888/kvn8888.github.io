@@ -50,6 +50,12 @@ const initialized = new WeakSet<Client>();
 export async function ensureWorkflowSchema(db: Client) {
   if (initialized.has(db)) return;
   await db.executeMultiple(workflowDDL);
+  const blockers = await db.execute("PRAGMA table_info(job_blockers)");
+  if (!blockers.rows.some(r=>r.name === 'handoff_capture_id')) {
+    try { await db.execute("ALTER TABLE job_blockers ADD COLUMN handoff_capture_id TEXT REFERENCES job_form_captures(id)"); }
+    catch(error) { if (!(await db.execute("PRAGMA table_info(job_blockers)")).rows.some(r=>r.name==='handoff_capture_id')) throw error; }
+  }
+  await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_blocker_handoff_capture ON job_blockers(handoff_capture_id) WHERE handoff_capture_id IS NOT NULL");
   const additions: Record<string, string> = {
     collection_id: "TEXT REFERENCES job_collection(id)",
     attempt_id: "TEXT REFERENCES job_attempts(id)",
