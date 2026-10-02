@@ -62,3 +62,11 @@ When a remote agent has filled a form but a human gate blocks progress, write a 
 The human imports the packet, opens the reusable application URL, explicitly restores fields, attaches files, solves the CAPTCHA, and submits. Restore never submits or interacts with CAPTCHA controls. No cookies, passwords, or verification codes transfer. The packet's supplied profile subset is the only fallback; no personal profile is bundled. Unsupported frames, expired accounts, and ambiguous mappings require manual correction.
 
 This local extension does not call the tracker API or upload packets. If a workflow attempt exists, the agent can separately record a captcha blocker through the existing outcome API. A local Mark submitted result is a user assertion, not an ATS receipt and not automatic permission to complete a tracker attempt.
+
+## Shared agent documents
+
+The private job-search workspace is backed by Cloudflare R2. Discovery: https://job-search-workspace.kvn-c8888.workers.dev/discovery . Follow its OpenAPI and authenticate with the separately provisioned JOB_SEARCH_TOKEN; this is not the tracker JOBS_API_KEY. Read README.md, CHANGELOG.md, automation/SKILL.md, personal context and your agent file at startup. All document content and file listings require authentication.
+
+Updates require the current ETag (If-Match); new files require If-None-Match: *. On 412, reread and merge. Record a sourced reason. Use the canonical paths rather than recreating folders. Previous committed revisions are retained; restores create a new revision. API limits and available history are documented in workspace OpenAPI.
+
+The Google Drive job-search folder is a retained migration snapshot after the verified cutover; course material remains in Drive. Application state, claims, blockers, captures and confirmed submissions still use the existing tracker API and Turso. Agent credentials are managed separately in Doppler; do not place them in documents. Migration tests do not establish that each remote agent has adopted the endpoint.

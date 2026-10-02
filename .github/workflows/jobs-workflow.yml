@@ -15,7 +15,8 @@ jobs:
         with: {fetch-depth: 0}
       - uses: actions/setup-node@v4
         with: {node-version: 22}
-      - run: npm ci --prefix homepage && npm ci --prefix jobs && npm ci --prefix jobs/extension && npm ci --prefix jobs/handoff
+      - run: npm ci --prefix homepage && npm ci --prefix jobs && npm ci --prefix jobs/extension && npm ci --prefix jobs/handoff && npm ci --prefix jobs/workspace
+      - run: npm test --prefix jobs/workspace
       - run: npm run check:generated --prefix jobs && npm run validate --prefix jobs
       - run: node jobs/scripts/check-compatibility.mjs
       - run: npm run typecheck --prefix homepage
