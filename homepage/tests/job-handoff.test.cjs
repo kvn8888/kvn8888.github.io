@@ -63,6 +63,7 @@ test('atomic queued handoffs, human ownership, completion and expiry preserve hi
   const q=await h.queueHandoff(db,a.id,body,'tracker-agent');assert.equal((await h.queueHandoff(db,a.id,body,'tracker-agent')).replayed,true);
   assert.equal((await h.listHandoffs(db,new URLSearchParams())).total,1);assert.equal((await db.execute('SELECT count(*) n FROM job_applications')).rows[0].n,0);
   assert.equal((await h.getHandoff(db,body.id)).document.packets[0].fields[0].value,'Synthetic Applicant');
+  await assert.rejects(w.resolveBlocker(db,body.id,{version:1,action:'retry',notes:'Agent cannot bypass the human queue'},'tracker-agent'),/Human-gated/);
   const history=await w.workflowDetail(db,j.id),manual={id:randomUUID(),version:history.job.version,claim_token:randomUUID()+randomUUID()};
   await assert.rejects(h.claimHandoff(db,body.id,manual,'tracker-agent'),/extension credential/);
   await assert.rejects(w.claimAttempt(db,{...manual,collection_id:j.id,manual:true},'tracker-agent'),/extension credential/);
