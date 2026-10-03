@@ -352,3 +352,8 @@ test("LinkedIn current detail view uses the selected job link rather than a prof
  const html='<div><a href="/company/example/">Example</a><p><a href="/jobs/view/123/">Cloud Engineer</a></p><p>New York · 2 days ago · 10 applicants</p><a>Hybrid</a></div><h1>Low match to this role</h1><div><h2>About the job</h2></div><div><p>Build cloud infrastructure.</p></div><button aria-label="Easy Apply to this job">Easy Apply</button>';
  const j=extractJobs(doc(html),'https://www.linkedin.com/jobs/search-results/?currentJobId=123')[0];assert.equal(j.role,'Cloud Engineer');assert.equal(j.company,'Example');assert.match(j.description!,/cloud infrastructure/);assert.equal(j.resolution_status,'in_board');
 });
+
+test("Jobright score links cannot replace job titles and detail enrichment keeps card location",()=>{
+ const html='<a href="/jobs/info/abc"><h2>Backend Engineer</h2><span class="index_company-name__x">Example</span><span class="index_primary-location__x">Rochester</span></a><a href="/jobs/info/abc">95 STRONG MATCH</a><div id="overview-1"><h1>Backend Engineer</h1><section><h2>Responsibilities</h2><span class="index_listText__x">Build APIs</span></section></div>';
+ const jobs=extractJobs(doc(html),'https://jobright.ai/jobs/info/abc');assert.equal(jobs.length,1);assert.equal(jobs[0].role,'Backend Engineer');assert.equal(jobs[0].company,'Example');assert.equal(jobs[0].location,'Rochester');assert.match(jobs[0].description!,/Build APIs/);
+});

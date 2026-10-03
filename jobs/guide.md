@@ -94,7 +94,7 @@ A closed posting is separate from a lost lease, a skipped application, or an old
 
 Existing blocked/skipped/CAPTCHA rows in the legacy applications table remain untouched and excluded by the applied-only view. Legacy non-submitted inserts now return a deprecation link; update agents to workflow endpoints. Run `node jobs/scripts/audit-legacy.mjs PRIVATE_REPORT_PATH` with the writer key only to produce a read-only link-candidate and duplicate report. It never rewrites IDs, fabricates receipt evidence, or creates historical attempts. Review the mapping before a separate backfill.
 
-### Dia tab access and current board layouts (0.4.3)
+### Dia tab access and current board layouts (0.4.4)
 
 A side panel does not automatically inherit active-tab access when you navigate to a different site. If the current job tab cannot be identified, use **Allow supported job sites** to approve access to Jobright, LinkedIn, Handshake and RIT Career Connect, then return to the job page and enable collection. This uses the existing optional host permissions and adds no browser-wide tabs permission. Other sites still require their own explicit site access.
 

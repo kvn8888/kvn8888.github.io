@@ -109,7 +109,7 @@ export function extractJobs(doc: Document, url: string): Job[] {
       const link=normalizeUrl(a.getAttribute('href')||'',url);if(!link||new URL(link).hostname!==host)continue;const id=identity(link);if(!id)continue;
       const card=board==='jobright'?a:(a.closest('[data-hook^="job-result-card"],[data-job-id],article,[data-testid*="job-card"],li')||a);
       const j=emptyJob(link);j.source_job_id=id;j.identity_key=board+':'+id;
-      j.role=first(card,'h2,h3,[data-testid="job-title"],[class*="job-title"],.job-title')||txt(a);
+      j.role=first(card,'h2,h3,[data-testid="job-title"],[class*="job-title"],.job-title')||(board==='jobright'?null:txt(a));
 
       j.company=first(card,'[class*="company-name"],[data-testid="employer-name"],[data-testid="company-name"],.employer-name');
       j.location=first(card,'[class*="primary-location"],[data-testid="job-location"],.job-location');
@@ -125,7 +125,7 @@ export function extractJobs(doc: Document, url: string): Job[] {
     }
     const id=identity(url);
     if(id){const main=(board==='handshake'?doc.querySelector('[data-hook="right-content"]'):board==='jobright'?doc.querySelector('[id^="overview-"]'):null)||doc.querySelector('main,[role="main"],#jobs-page-main-content')||doc;const j=emptyJob(url);j.source_job_id=id;j.identity_key=board+':'+id;
-      j.role=first(main,'h1,[data-testid="job-title"],[class*="job-title"]');
+      j.role=first(main,board==='jobright'?'h1':'h1,[data-testid="job-title"],[class*="job-title"]');
       j.company=first(main,'[class*="company-name"],[data-testid="employer-name"],[data-testid="company-name"],.employer-name');
       j.description=first(main,'[data-job-description],[itemprop="description"],[class*="job-description"],[data-testid="job-description"],.job-description');
       if(board==='handshake'){
@@ -249,7 +249,18 @@ export function extractJobs(doc: Document, url: string): Job[] {
     }
     if (j.role) finish(j);
   }
-  return [...new Map(jobs.map((j) => [j.identity_key, j])).values()];
+  const merged=new Map<string,Job>();
+  for(const job of jobs){
+    const prior=merged.get(job.identity_key);
+    if(prior){
+      for(const field of ['company','role','location','application_url','posted_at','posted_at_raw','employment_type','work_mode'] as const)if(!job[field]&&prior[field])(job as any)[field]=prior[field];
+      if(prior.description && (!job.description || (prior.description_status==='full'&&job.description_status!=='full') || (prior.description_status===job.description_status&&job.description.length<prior.description.length))){job.description=prior.description;job.description_status=prior.description_status;}
+      if(job.application_url){job.resolution_status='resolved';job.canonical_url=job.application_url;}
+      job.metadata_json=JSON.stringify({...JSON.parse(prior.metadata_json),...JSON.parse(job.metadata_json)});
+    }
+    merged.set(job.identity_key,job);
+  }
+  return [...merged.values()];
 }
 function labelFor(doc: Document, el: HTMLElement) {
   const control = el as HTMLInputElement;
