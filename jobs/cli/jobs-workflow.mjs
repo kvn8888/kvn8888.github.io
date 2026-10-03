@@ -5,8 +5,9 @@ import path from 'node:path';
 import os from 'node:os';
 import {createHash,randomUUID} from 'node:crypto';
 import {fileURLToPath,pathToFileURL} from 'node:url';
+import {maintainCollection} from './collection.mjs';
 
-export const VERSION='0.4.4';
+export const VERSION='0.5.0';
 const BASE='https://www.kevinc.dev';
 const REPOSITORY='https://github.com/kvn8888/kvn8888.github.io/releases/download/';
 export const sha256=data=>createHash('sha256').update(data).digest('hex');
@@ -103,6 +104,9 @@ export async function main(args=process.argv.slice(2)){
  else if(command==='doctor'){
   const sync=await syncDocs(home,base);let access='not_configured';const key=await credential();if(key&&sync.online){const r=await fetch(base+'/api/job-workflow/connection',{headers:{Authorization:'Bearer '+key},signal:AbortSignal.timeout(15000)});access=r.ok?(await r.json()).access:`HTTP ${r.status}`}
   result={version:VERSION,node:process.versions.node,...sync,credential_access:access,extension:config.extension||null,chrome_candidates:process.platform==='darwin'?await discoverChrome():[]};
+ }else if(command==='collection'){
+  const sync=await syncDocs(home,base);if(!sync.online||!sync.compatible)throw Error('Live compatible discovery is required before collection maintenance');
+  result=await maintainCollection({base,key:await credential(),action:sub,id:option('id'),reason:option('reason')});
  }else if(command==='agent'&&sub==='setup')result=await setupAgent(option('target'));
  else if(command==='extension'){
   if(process.platform!=='darwin'&&!process.env.JOBS_WORKFLOW_TEST)throw Error('Chrome management currently supports macOS only; sync and agent setup work on Linux');
@@ -137,7 +141,7 @@ export async function main(args=process.argv.slice(2)){
    const files={};for(const name of await fs.readdir(installation.backup)){const p=path.join(installation.backup,name);if(!(await fs.lstat(p)).isFile())throw Error('Unexpected backup entry');files[name]=await fs.readFile(p)}
    const done=await installBundle(installation.path,{...previous,files});config.extension={...installation,...done,updated_at:new Date().toISOString()};await saveJson(configFile,config);result=config.extension;
   }else throw Error('Use extension install, update, verify, or rollback');
- }else result={version:VERSION,commands:['doctor','sync','extension install [--new | --path <loaded path> --extension-id <id>]','extension update --diagnostics <fresh report>','extension verify --diagnostics <fresh report>','extension rollback --diagnostics <fresh report>','agent setup --target codex|claude|hermes'],discovery:BASE+'/api/job-workflow/discovery'};
+ }else result={version:VERSION,commands:['doctor','sync','collection audit','collection archive --id UUID --reason TEXT','collection restore --id UUID --reason TEXT','extension install [--new | --path <loaded path> --extension-id <id>]','extension update --diagnostics <fresh report>','extension verify --diagnostics <fresh report>','extension rollback --diagnostics <fresh report>','agent setup --target codex|claude|hermes'],discovery:BASE+'/api/job-workflow/discovery'};
  console.log(JSON.stringify(result,null,2));if(result.online===false||result.compatible===false)process.exitCode=2;return result;
 }
 if(process.argv[1]&&pathToFileURL(path.resolve(process.argv[1])).href===import.meta.url)main().catch(e=>{console.error(JSON.stringify({error:e.message}));process.exitCode=1});

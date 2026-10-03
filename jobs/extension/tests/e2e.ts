@@ -21,10 +21,10 @@ await new Promise<void>((r) => api.listen(43128, "127.0.0.1", r));
 const fixture = createServer((req, res) => {
   res.setHeader("Content-Type", "text/html");
   const path = req.url || "/";
-  if (path.startsWith("/jobs")) {
-    const num = new URL(path, "http://fixture").searchParams.get("page") || "1";
+  if (path.startsWith("/jobs") || path.startsWith('/job/')) {
+    const num = path.startsWith('/job/') ? path.split('/')[2].split('?')[0] : new URL(path, "http://fixture").searchParams.get("page") || "1";
     res.end(
-      `<!doctype html><title>Example Jobs</title><h1>Open jobs</h1><a href="/jobs?page=2">Page 2</a><a href="/jobs?page=3">Page 3</a><script type="application/ld+json">${JSON.stringify({ "@type": "JobPosting", identifier: { value: num }, title: "Cloud Engineer " + num, hiringOrganization: { name: "Example Company" }, description: "Build useful cloud services. Full job description.", jobLocationType: "TELECOMMUTE", url: `http://127.0.0.1:43129/job/${num}` })}</script><a href="/apply/profile">Apply</a>`,
+      `<!doctype html><title>Example Jobs</title><h1>Open jobs</h1><a href="/jobs?page=2">Page 2</a><a href="/jobs?page=3">Page 3</a><script type="application/ld+json">${JSON.stringify({ "@type": "JobPosting", identifier: { value: num }, title: "Cloud Engineer " + num, hiringOrganization: { name: "Example Company" }, description: "Build useful cloud services. Full job description.", jobLocationType: "TELECOMMUTE", url: `http://127.0.0.1:43129/job/${num}` })}</script>${num==='9'?'<a target="_blank" href="https://job-boards.greenhouse.io/example/jobs/98765?jr_id=fixture">Apply</a>':'<a href="/apply/profile">Apply</a>'}`,
     );
     return;
   }
@@ -63,6 +63,8 @@ async function launch() {
     context.serviceWorkers()[0] ||
     (await context.waitForEvent("serviceworker"));
   id = new URL(worker.url()).host;
+  // Synthetic ATS page only; never contacts an employer or submits a real application.
+  await context.route('https://job-boards.greenhouse.io/**',route=>route.fulfill({contentType:'text/html',body:'<h1>Example Company — Cloud Engineer 9</h1><p>Application landing page</p>'}));
   panel = await context.newPage();
   panel.on("pageerror", (e) => errors.push(e.message));
   await panel.goto(`chrome-extension://${id}/panel.html`);
@@ -169,6 +171,36 @@ try {
   console.log(
     "PASS offline/restart: queued job survived browser restart and synced after reconnect",
   );
+  jobPage=await context.newPage();await jobPage.goto('http://127.0.0.1:43129/jobs?page=1');await jobPage.bringToFront();
+  await cmd('enable',{mode:'manual'});
+  assert.equal((await state()).sites.includes('http://127.0.0.1:43129'),false,'Rollback must not turn a manual site into automatic collection');
+  assert.equal((await cmd('diagnostics')).collection_sites,1,'Manual enrichment is active work for reload checks');
+  const beforeManual=Number((await db.execute('SELECT count(*) n FROM job_collection')).rows[0].n);
+  await jobPage.goto('http://127.0.0.1:43129/jobs?page=9');await new Promise(r=>setTimeout(r,700));
+  assert.equal(Number((await db.execute('SELECT count(*) n FROM job_collection')).rows[0].n),beforeManual);
+  await assert.rejects(cmd('addSelected'),/Open one job posting/);
+  await jobPage.goto('http://127.0.0.1:43129/job/9');await jobPage.bringToFront();
+  await panel.getByRole('tab',{name:'Collection',exact:true}).click();
+  await panel.getByRole('button',{name:'Add this job',exact:true}).click();
+  await until(async()=>!!(await db.execute("SELECT id FROM job_collection WHERE source_job_id='9'")).rows.length,'Manual job not saved');
+  const manualId=String((await db.execute("SELECT id FROM job_collection WHERE source_job_id='9'")).rows[0].id);
+  await until(async()=>(await state()).queue.length===0,'Manual write still queued');
+  await jobPage.getByRole('link',{name:'Apply',exact:true}).click();
+  await until(async()=>String((await db.execute({sql:'SELECT application_url FROM job_collection WHERE id=?',args:[manualId]})).rows[0].application_url).includes('greenhouse.io'),'Employer tab was not linked to original opportunity');
+  assert.equal(Number((await db.execute('SELECT count(*) n FROM job_collection')).rows[0].n),beforeManual+1);
+  assert.equal((await db.execute({sql:'SELECT ats_job_id FROM job_collection WHERE id=?',args:[manualId]})).rows[0].ats_job_id,'98765');
+  const employerPage=context.pages().find(p=>p.url().includes('/example/jobs/98765'))!;
+  await employerPage.goto('https://job-boards.greenhouse.io/example/jobs/22222');await new Promise(r=>setTimeout(r,500));
+  assert.equal((await db.execute({sql:'SELECT ats_job_id FROM job_collection WHERE id=?',args:[manualId]})).rows[0].ats_job_id,'98765','Later navigation to a different posting must not overwrite the linked job');
+  await until(async()=>(await state()).queue.length===0,'Destination still queued');
+  await cmd('archiveJob',{id:manualId,reason:'Disposable fixture archive test'});
+  await jobPage.bringToFront();await jobPage.reload();await new Promise(r=>setTimeout(r,700));
+  await assert.rejects(cmd('addSelected'),/archived/);
+  await panel.getByRole('tab',{name:'Collection',exact:true}).click();
+  assert.equal(await panel.locator('.cards h3').filter({hasText:'Cloud Engineer 9'}).count(),0);
+  assert.ok((await db.execute({sql:'SELECT archived_at FROM job_collection WHERE id=?',args:[manualId]})).rows[0].archived_at);
+  await jobPage.bringToFront();await cmd('enable',{mode:'auto'});
+  console.log('PASS manual selection: no incidental inserts, same-record ATS navigation, archive hidden and retained');
   jobPage = await context!.newPage();
   await jobPage.goto("http://127.0.0.1:43129/apply/profile");
   await jobPage.bringToFront();

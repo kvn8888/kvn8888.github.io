@@ -1,3 +1,4 @@
+import { descriptionStatusAfterEdit, applicationDestination } from '../shared/collection';
 import {
   emptyJob,
   exportUrls,
@@ -61,7 +62,7 @@ function jobFields(j: Job) {
     )
     .join(
       "",
-    )}</select></label>${input("type", "Role category", j.type)}${input("source", "Source", j.source)}${input("application_url", "Application URL", j.application_url)}${input("source_url", "Source URL", j.source_url)}${input("description", "Job description", j.description, true)}</div>`;
+    )}</select></label>${input("employment_type", "Employment type", j.employment_type)}${input("posted_at_raw", "Posted date as shown", j.posted_at_raw)}${input("type", "Role category", j.type)}${input("source", "Source", j.source)}${input("application_url", "Application URL", j.application_url)}${input("source_url", "Source URL", j.source_url)}${input("description", "Job description", j.description, true)}</div><label class="check"><input type="checkbox" name="description_full" ${j.description_status==='full'?'checked':''}>The description is complete. Leave unchecked for a preview or unfinished capture.</label>`;
 }
 function readJob(form: HTMLFormElement, original: Job) {
   const data = new FormData(form);
@@ -72,6 +73,8 @@ function readJob(form: HTMLFormElement, original: Job) {
     "location",
     "work_mode",
     "type",
+    "employment_type",
+    "posted_at_raw",
     "source",
     "application_url",
     "source_url",
@@ -82,7 +85,12 @@ function readJob(form: HTMLFormElement, original: Job) {
     ? normalizeUrl(next.application_url)
     : null;
   next.resolution_status = next.application_url ? "resolved" : "unresolved";
-  next.description_status = next.description ? "full" : "missing";
+  if(next.application_url){
+    const destination=applicationDestination(next.application_url,true);
+    if(!destination)throw Error('Use an employer job URL, not a board, login page or careers homepage.');
+    Object.assign(next,destination);
+  }
+  next.description_status = descriptionStatusAfterEdit(original,next.description,data.get('description_full')==='on');
   next.updated_at = new Date().toISOString();
   next.last_seen_at = next.updated_at;
   const metadata = JSON.parse(original.metadata_json);
@@ -106,19 +114,19 @@ function card(j: Job & {availability?:string}) {
 }
 function collection() {
   const jobs =
-    remoteJobs ??
-    state.jobs.filter(
+    (remoteJobs ?? state.jobs).filter(
       (j: Job) =>
-        !searchTerm ||
+        !j.archived_at && (!searchTerm ||
         `${j.company} ${j.role} ${j.location}`
           .toLowerCase()
-          .includes(searchTerm.toLowerCase()),
+          .includes(searchTerm.toLowerCase())),
     );
   const ready = state.jobs.filter(
-    (j: Job) => j.resolution_status === "resolved",
+    (j: Job) => !j.archived_at && j.resolution_status === "resolved",
   ).length;
   return `<div class="eyebrow">Your next opportunity</div><h2>A little less busywork.</h2><p class="muted">Browse jobs normally. Keep the details and application links here.</p><div class="stats"><div><strong>${state.jobs.length}</strong><span>ON THIS DEVICE</span></div><div><strong>${ready}</strong><span>LINKS READY</span></div><div><strong>${state.queue.length}</strong><span>WAITING TO SYNC</span></div></div>
- <div class="notice"><div class="row"><strong>${state.tab ? esc(new URL(state.tab.url).hostname) : "Open a job page"}</strong><span class="tiny">${state.tab && state.sites.includes(state.tab.origin) ? "Collecting" : "Paused"}</span></div><div class="actions">${state.tab && state.sites.includes(state.tab.origin) ? button("pause", "Pause collection") : button("enable", "Collect on this site", true)}${button("scan", "Scan now")}${button("manual", "Add current job")}${!state.tab?button("grant-job-sites", "Allow supported job sites"):""}</div><div class="tiny">Captures observed details as you scroll and expand. Jobright, LinkedIn and standard JobPosting data are supported; Handshake and Symplicity adapters need live acceptance testing. Highlight text to fill gaps manually. Allow supported job sites grants access only to Jobright, LinkedIn, Handshake and RIT Career Connect, not other tabs.</div></div>
+ <div class="notice"><div class="row"><strong>${state.tab ? esc(new URL(state.tab.url).hostname) : "Open a job page"}</strong><span class="tiny">${esc(state.mode||'paused')}</span></div><label class="field">Collection mode for this site<select id="collection-mode">${[['auto','Auto — add jobs as I browse'],['manual','Manual — add only jobs I choose'],['paused','Paused — stop gathering']].map(([v,label])=>`<option value="${v}" ${v===(state.mode==='paused'?(state.tab?.origin.includes('symplicity')?'manual':'auto'):state.mode)?'selected':''}>${label}</option>`).join('')}</select></label><div class="actions">${button('set-mode','Save mode')}${state.mode!=='paused' ? button("pause", "Pause collection") : button("enable", "Collect on this site", true)}${button("add-selected", "Add this job", true)}${button("scan", "Scan now")}${!state.tab?button("grant-job-sites", "Allow supported job sites"):""}</div><div class="tiny">Auto adds visible listings. Manual adds only the posting you choose; revisiting saved jobs enriches them. Open and expand details to capture more. Paused stops both. Your choice is saved per site.</div>${button("manual", "Enter details manually")}</div>
+ ${state.jobs.some((j:Job)=>!j.archived_at)?`<details class="notice"><summary>Link an employer application page</summary><p class="tiny">If an Apply redirect was not linked, open the employer's job page, select the matching saved job below, then save its destination. Check the company and role first.</p><label class="field">Saved job<select id="destination-job"><option value="">Choose a job</option>${state.jobs.filter((j:Job)=>!j.archived_at).map((j:Job)=>`<option value="${esc(j.id)}">${esc(j.company||'Unknown company')} — ${esc(j.role||'Untitled')}</option>`).join('')}</select></label>${button('link-destination','Use current page as application destination')}</details>`:''}
  <form id="search-form" class="row"><label class="field" style="flex:1">Find a job<input name="q" value="${esc(searchTerm)}" placeholder="Company, role, or location"></label>${button("search", "Search")}</form>
  <div class="row wrap"><span class="tiny muted">${remoteJobs ? `${remoteJobs.length} of ${remoteTotal} saved jobs` : `${jobs.length} local jobs`}</span><div class="actions">${button("copy", "Copy URLs")}${button("download", "Download .txt")}</div></div>
  ${jobs.length ? `<div class="cards">${jobs.map(card).join("")}</div>${remoteJobs && remoteJobs.length < remoteTotal ? button("more", "Load more") : ""}` : `<div class="empty"><div class="number">01 /</div><h2>Start with a job page.</h2><p class="muted">Enable collection, then scroll or open job details. Missing descriptions and links stay marked so you know what needs another look.</p></div>`}`;
@@ -147,7 +155,8 @@ function settings() {
     )}<p class="tiny muted spacer">Your API key is stored only in the extension's private local storage. Website scripts cannot read it. The Turso database token stays on the server.</p>`;
 }
 function render() {
-  app.innerHTML = `<header><div class="eyebrow">JobsUtilityExtension / 01</div><div class="brand"><h1>Jobs Utility</h1><div class="mark">j.</div></div><div class="connection"><span class="dot ${state.connection ? "online" : ""}"></span>${state.connection ? "Hosted tracker configured" : "Local storage · connect in Settings"}</div></header><nav role="tablist">${["collection", "capture", "settings"].map((v) => `<button role="tab" aria-selected="${view === v}" data-view="${v}">${v === "collection" ? "Collection" : v === "capture" ? "Applications" : "Settings"}${v === "settings" && state.queue.length ? ` (${state.queue.length})` : ""}</button>`).join("")}</nav><div class="row"><a href="handoff.html" target="_blank">Needs your action</a> · <a href="diagnostics.html" target="_blank">Diagnostics & updates</a> · <a href="https://www.kevinc.dev/jobs/docs" target="_blank">Workflow guide</a></div><main>${editJob ? `<div class="row">${button("close-edit", "← Collection")}</div><h2>Job details</h2><form id="job-form">${jobFields(editJob)}${button("selected-description", "Use highlighted description")}<div class="actions">${button("save-job", "Save job", true)}</div></form>` : view === "collection" ? collection() : view === "capture" ? captureView() : settings()}</main>`;
+  const archiveControls=editJob&&state.connection?`<details class="notice"><summary>Archive this opportunity</summary><p class="tiny">Hide an irrelevant job from the collection while retaining its history. Missing details alone do not require archiving.</p>${input('archive_reason','Reason')}${button('archive-job','Archive job')}</details>`:'';
+  app.innerHTML = `<header><div class="eyebrow">JobsUtilityExtension / 01</div><div class="brand"><h1>Jobs Utility</h1><div class="mark">j.</div></div><div class="connection"><span class="dot ${state.connection ? "online" : ""}"></span>${state.connection ? "Hosted tracker configured" : "Local storage · connect in Settings"}</div></header><nav role="tablist">${["collection", "capture", "settings"].map((v) => `<button role="tab" aria-selected="${view === v}" data-view="${v}">${v === "collection" ? "Collection" : v === "capture" ? "Applications" : "Settings"}${v === "settings" && state.queue.length ? ` (${state.queue.length})` : ""}</button>`).join("")}</nav><div class="row"><a href="handoff.html" target="_blank">Needs your action</a> · <a href="diagnostics.html" target="_blank">Diagnostics & updates</a> · <a href="https://www.kevinc.dev/jobs/docs" target="_blank">Workflow guide</a></div><main>${editJob ? `<div class="row">${button("close-edit", "← Collection")}</div><h2>Job details</h2><form id="job-form">${jobFields(editJob)}${button("selected-description", "Use highlighted description")}<div class="actions">${button("save-job", "Save job", true)}</div></form>${archiveControls}` : view === "collection" ? collection() : view === "capture" ? captureView() : settings()}</main>`;
 }
 async function permit() {
   state=await command('state');
@@ -206,9 +215,24 @@ app.addEventListener("click", async (event) => {
       await refresh();toast('Access granted for the four supported job sites. Return to the job page and choose Collect on this site.');return;
     }
     if (action === "enable") {
+      const mode=(document.querySelector('#collection-mode') as HTMLSelectElement)?.value;
       await permit();
-      await command("enable");
+      await command("enable",{mode:mode==='manual'?'manual':'auto'});
       await snapshot();
+    }
+    if(action==='set-mode'){
+      const mode=(document.querySelector('#collection-mode') as HTMLSelectElement).value;
+      if(mode==='paused')await command('pause');
+      else{await permit();await command('enable',{mode});await snapshot();}
+    }
+    if(action==='add-selected'){
+      await permit();await command('addSelected');await snapshot();
+      remoteJobs=null;toast('Selected job saved. Open or expand its details to enrich it.');
+    }
+    if(action==='link-destination'){
+      const id=(document.querySelector('#destination-job') as HTMLSelectElement).value;
+      if(!id)throw Error('Choose the matching saved job first.');
+      await permit();await command('linkDestination',{id});remoteJobs=null;toast('Application destination saved.');
     }
     if (action === "pause") await command("pause");
     if (action === "scan") {
@@ -230,6 +254,11 @@ app.addEventListener("click", async (event) => {
     }
     if (action === "close-edit") {
       editJob = null;
+    }
+    if(action==='archive-job'){
+      const reason=(document.querySelector('[name="archive_reason"]') as HTMLInputElement).value;
+      await command('archiveJob',{id:editJob!.id,reason});
+      editJob=null;remoteJobs=null;toast('Archived. The record and its history are retained.');
     }
     if(action==='selected-description'){
       await permit();const value=await command('selected-text');

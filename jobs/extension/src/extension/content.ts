@@ -1,4 +1,4 @@
-import { extractJobs, capturePage } from "./extract";
+import { extractJobs, capturePage, extractSelectedJob, applicationClick } from "./extract";
 const win = window as Window & { __jobsUtility?: boolean };
 if (!win.__jobsUtility) {
   win.__jobsUtility = true;
@@ -62,6 +62,10 @@ if (!win.__jobsUtility) {
     "click",
     (e) => {
       const el = e.target as Element;
+      if (e.isTrusted && el) {
+        const job = applicationClick(document, location.href, el);
+        if (job) void send({type:'application-intent', job}).catch(() => {});
+      }
       if (el?.closest('button,input[type="submit"],a')) void scan(true);
     },
     true,
@@ -80,6 +84,9 @@ if (!win.__jobsUtility) {
         jobs: extractJobs(document, location.href),
         page: capturePage(document, location.href),
       });
+    }
+    if (message.type === 'selectedJob') {
+      respond({job:extractSelectedJob(document,location.href)});
     }
   });
   void scan(true);

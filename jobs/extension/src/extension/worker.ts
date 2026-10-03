@@ -1,4 +1,5 @@
 import {handoffHandle,heartbeatHandoff,handoffWork,watchHandoffTab,handoffBadge} from './handoff-worker';
+import { collectionMode, shouldObserve, applicationDestination, watchAccepts, type CollectionMode, type DestinationWatch } from '../shared/collection';
 declare const __JOBS_BUILD_HASH__: string;
 import { preflight, compatibilitySnapshot } from '../shared/discovery';
 import {
@@ -10,6 +11,7 @@ import {
 } from "./hosted";
 import {
   emptyJob,
+  sourceFor,
   jobSchema,
   mergePages,
   type Job,
@@ -22,6 +24,8 @@ type State = {
   captures: Capture[];
   queue: QueueItem[];
   sites: string[];
+  siteModes?: Record<string, CollectionMode>;
+  destinationWatches?: DestinationWatch[];
   targetTab?: number;
   connection?: { baseUrl: string; apiKey: string };
   lastSync?: string;
@@ -46,6 +50,21 @@ async function read(): Promise<State> {
 }
 async function save(s: State) {
   await chrome.storage.local.set({ state: s });
+}
+async function loadSavedMembership(s: State, origin: string) {
+  if(!s.connection)return;
+  let cursor: string | null = null;
+  do {
+    const params=new URLSearchParams({source:sourceFor(origin),limit:'100',archived:'all'});
+    if(cursor)params.set('cursor',cursor);
+    const page=await hostedRequest(s.connection,'/api/job-collection?'+params);
+    for(const value of page.jobs){
+      const prior=s.jobs.find(j=>j.id===value.id || j.identity_key===value.identity_key);
+      if(prior)prior.archived_at=value.archived_at;
+      else s.jobs.push(decodeJob(value));
+    }
+    cursor=page.next_cursor;
+  }while(cursor);
 }
 const localOnly = () =>
   chrome.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
@@ -199,9 +218,39 @@ chrome.tabs.onRemoved.addListener(
           );
         }
       if (s.targetTab === tabId) s.targetTab = undefined;
+      s.destinationWatches = (s.destinationWatches || []).filter(w => w.sourceTabId !== tabId && w.targetTabId !== tabId);
       await save(s);
     }),
 );
+async function recordDestination(s: State, watch: DestinationWatch, url: string, manual = false) {
+  const destination = applicationDestination(url, manual);
+  const previous = s.jobs.find(j => j.id === watch.jobId);
+  if (!destination || !previous || previous.archived_at || new URL(url).origin === watch.sourceOrigin) return false;
+  if(watch.resolvedKey && watch.resolvedKey!==destination.canonical_url)return false;
+  watch.resolvedKey=destination.canonical_url!;
+  if(manual)s.destinationWatches=(s.destinationWatches||[]).filter(w=>w.jobId!==watch.jobId);
+  const j = {...previous,...destination,last_seen_at:new Date().toISOString(),updated_at:new Date().toISOString()};
+  j.metadata_json = JSON.stringify({...JSON.parse(previous.metadata_json),destination_observation:{url:destination.application_url,at:j.last_seen_at,method:manual?'user_selected_page':'user_apply_navigation'}});
+  s.jobs = s.jobs.map(v => v.id === j.id ? j : v);
+  s.queue = s.queue.filter(q => q.kind !== 'job' || q.id !== j.id);
+  s.queue.push({id:j.id,kind:'job',payload:j,attempts:0});
+  await save(s); return true;
+}
+chrome.webNavigation.onCreatedNavigationTarget.addListener(event => void locked(async () => {
+  const s=await read();
+  const watch=(s.destinationWatches||[]).find(w=>watchAccepts(w,event.sourceTabId) && w.targetTabId===undefined);
+  if (!watch) return;
+  watch.targetTabId=event.tabId;await save(s);
+  if(await recordDestination(s,watch,event.url))void sync();
+}));
+chrome.webNavigation.onCommitted.addListener(event => {
+  if(event.frameId!==0)return;
+  void locked(async()=>{
+    const s=await read();
+    const watch=(s.destinationWatches||[]).find(w=>watchAccepts(w,event.tabId));
+    if(watch && await recordDestination(s,watch,event.url))void sync();
+  });
+});
 async function inject(tabId: number, origin: string) {
   const id = "site-" + btoa(origin).replace(/[^a-z0-9]/gi, "");
   if (
@@ -261,12 +310,21 @@ async function handle(m: any, sender: chrome.runtime.MessageSender) {
     }
     if (m.type === "context")
       return {
-        collect: s.sites.includes(origin),
+        collect: collectionMode(s,origin)!=='paused',
         capture: capture ? { capture_id: capture.capture_id } : null,
       };
+    if (m.type === 'application-intent') {
+      const j=jobSchema.parse(m.job);
+      if(new URL(j.source_url).origin!==origin || collectionMode(s,origin)==='paused')return false;
+      const known=s.jobs.find(v=>v.identity_key===j.identity_key);
+      if(!known || known.archived_at)return false;
+      s.destinationWatches=(s.destinationWatches||[]).filter(w=>Date.now()-w.startedAt<120000 && w.sourceTabId!==sender.tab!.id);
+      s.destinationWatches.push({jobId:known.id,sourceTabId:sender.tab.id,sourceOrigin:origin,startedAt:Date.now()});
+      await save(s);return true;
+    }
     if (m.type === "observed") {
       if (
-        !s.sites.includes(origin) ||
+        collectionMode(s,origin)==='paused' ||
         !Array.isArray(m.jobs) ||
         m.jobs.length > 200
       )
@@ -276,6 +334,7 @@ async function handle(m: any, sender: chrome.runtime.MessageSender) {
         if (new URL(j.source_url).origin !== origin)
           throw Error("Source origin mismatch");
         const previous = s.jobs.find((v) => v.identity_key === j.identity_key);
+        if(!shouldObserve(collectionMode(s,origin),previous))continue;
         if (previous) {
           j.id = previous.id;
           j.first_seen_at = previous.first_seen_at;
@@ -291,6 +350,8 @@ async function handle(m: any, sender: chrome.runtime.MessageSender) {
             j.canonical_url = previous.canonical_url;
             j.resolution_status = "resolved";
           }
+          const destinationObservation=JSON.parse(previous.metadata_json).destination_observation;
+          if(destinationObservation)for(const key of ['application_url','canonical_url','ats_provider','ats_tenant','ats_job_id','resolution_status'] as const)(j as any)[key]=previous[key];
           for (const k of [
             "company",
             "role",
@@ -317,6 +378,7 @@ async function handle(m: any, sender: chrome.runtime.MessageSender) {
           }
           j.metadata_json = JSON.stringify({
             ...JSON.parse(j.metadata_json),
+            ...(destinationObservation?{destination_observation:destinationObservation}:{}),
             user_edited_fields: metadata.user_edited_fields || [],
           });
         }
@@ -363,7 +425,8 @@ async function handle(m: any, sender: chrome.runtime.MessageSender) {
       const info = await (await fetch(chrome.runtime.getURL('build-info.json'))).json();
       const active = s.captures.filter(c => c.status === 'recording').length;
       const attempts = s.queue.filter(item => item.kind === 'application' && item.claimToken).length + ((await handoffWork())?1:0);
-      return {schema_version:1,generated_at:new Date().toISOString(),extension_id:chrome.runtime.id,version:chrome.runtime.getManifest().version,build_hash:__JOBS_BUILD_HASH__,storage_schema:info.storage_schema,compatibility:compatibilitySnapshot(),active_captures:active,active_attempts:attempts,pending_queue:s.queue.length,collection_sites:s.sites.length,safe_to_reload:active===0 && attempts===0 && s.queue.length===0 && s.sites.length===0};
+      const activeSites=new Set([...s.sites,...Object.entries(s.siteModes||{}).filter(([,mode])=>mode!=='paused').map(([origin])=>origin)]).size;
+      return {schema_version:1,generated_at:new Date().toISOString(),extension_id:chrome.runtime.id,version:chrome.runtime.getManifest().version,build_hash:__JOBS_BUILD_HASH__,storage_schema:info.storage_schema,compatibility:compatibilitySnapshot(),active_captures:active,active_attempts:attempts,pending_queue:s.queue.length,collection_sites:activeSites,safe_to_reload:active===0 && attempts===0 && s.queue.length===0 && activeSites===0};
     }
     case "state": {
       let tab = null;
@@ -374,6 +437,7 @@ async function handle(m: any, sender: chrome.runtime.MessageSender) {
         ...s,
         connection: s.connection ? { baseUrl: s.connection.baseUrl } : null,
         tab,
+        mode:tab?collectionMode(s,tab.origin):'paused',
       };
     }
     case "connect": {
@@ -412,7 +476,10 @@ async function handle(m: any, sender: chrome.runtime.MessageSender) {
       const t = await target(s, m.tabId);
       if (!(await chrome.permissions.contains({ origins: [t.origin + "/*"] })))
         throw Error("Site permission is required");
-      s.sites = [...new Set([...s.sites, t.origin])];
+      if(m.mode==='manual')await loadSavedMembership(s,t.origin);
+      // Older clients understand only automatic sites. A rollback must pause a manual site.
+      s.sites = m.mode==='manual'?s.sites.filter(origin=>origin!==t.origin):[...new Set([...s.sites, t.origin])];
+      s.siteModes={...s.siteModes,[t.origin]:m.mode==='manual'?'manual':'auto'};
       s.targetTab = t.id;
       await save(s);
       await inject(t.id, t.origin);
@@ -421,6 +488,8 @@ async function handle(m: any, sender: chrome.runtime.MessageSender) {
     case "pause": {
       const t = await target(s);
       s.sites = s.sites.filter((x) => x !== t.origin);
+      s.siteModes={...s.siteModes,[t.origin]:'paused'};
+      s.destinationWatches=(s.destinationWatches||[]).filter(w=>w.sourceOrigin!==t.origin);
       await save(s);
       return true;
     }
@@ -431,11 +500,53 @@ async function handle(m: any, sender: chrome.runtime.MessageSender) {
     }
     case "manualJob": {
       const j = jobSchema.parse(m.job);
+      s.destinationWatches=(s.destinationWatches||[]).filter(w=>w.jobId!==j.id);
       s.jobs = s.jobs.filter((v) => v.id !== j.id);
       s.jobs.push(j);
       s.queue = s.queue.filter((q) => q.id !== j.id);
       s.queue.push({ id: j.id, kind: "job", payload: j, attempts: 0 });
       await save(s);
+      return true;
+    }
+    case 'addSelected': {
+      if(!s.connection)throw Error('Connect to the hosted tracker first.');
+      await preflight(s.connection.baseUrl,true);
+      const t=await target(s);
+      if(!await chrome.permissions.contains({origins:[t.origin+'/*']}))throw Error('Grant access to this job site first.');
+      if(collectionMode(s,t.origin)==='paused')await loadSavedMembership(s,t.origin);
+      await inject(t.id,t.origin);
+      const reply=await chrome.tabs.sendMessage(t.id,{type:'selectedJob'});
+      if(!reply?.job)throw Error('Open one job posting first. A list of recommendations is not a selected job.');
+      const j=jobSchema.parse(reply.job);
+      if(new URL(j.source_url).origin!==t.origin)throw Error('Selected job origin mismatch');
+      const previous=s.jobs.find(v=>v.identity_key===j.identity_key);
+      if(previous?.archived_at)throw Error('This job is archived. Restore it before adding it again.');
+      if(previous){j.id=previous.id;j.first_seen_at=previous.first_seen_at;}
+      // Seed membership only; the regular observed merge handles later enrichment.
+      if(!previous)s.jobs.push(j);
+      s.queue=s.queue.filter(q=>q.kind!=='job'||q.id!==j.id);
+      s.queue.push({id:j.id,kind:'job',payload:j,attempts:0});
+      if(collectionMode(s,t.origin)==='paused'){
+        s.siteModes={...s.siteModes,[t.origin]:'manual'};
+        s.sites=s.sites.filter(origin=>origin!==t.origin);
+      }
+      await save(s);return j;
+    }
+    case 'archiveJob': {
+      if(!s.connection)throw Error('Connect before archiving a saved job.');
+      if(s.queue.some(q=>q.id===m.id))throw Error('Wait for this job to finish syncing before archiving.');
+      const current=(await hostedRequest(s.connection,'/api/job-collection/'+encodeURIComponent(m.id))).job;
+      const reason=String(m.reason||'').trim();if(!reason)throw Error('Enter an archive reason.');
+      const saved=decodeJob((await hostedRequest(s.connection,'/api/job-collection/'+encodeURIComponent(m.id),'PATCH',{archived_at:new Date().toISOString(),status_notes:reason},{'If-Match':`"${current.version}"`})).job);
+      s.jobs=s.jobs.filter(j=>j.id!==saved.id);s.jobs.push(saved);
+      s.destinationWatches=(s.destinationWatches||[]).filter(w=>w.jobId!==saved.id);
+      await save(s);return true;
+    }
+    case 'linkDestination': {
+      const t=await target(s);
+      const j=s.jobs.find(j=>j.id===m.id && !j.archived_at);
+      if(!j)throw Error('Choose a saved, unarchived job.');
+      if(!await recordDestination(s,{jobId:j.id,sourceTabId:t.id,sourceOrigin:new URL(j.source_url).origin,startedAt:Date.now()},t.url,true))throw Error('Open the employer job application page, not a job board, login page or careers homepage.');
       return true;
     }
     case "start": {
@@ -610,6 +721,8 @@ chrome.runtime.onMessage.addListener((m, sender, respond) => {
           "retry",
           "connect",
           "manualJob",
+          "addSelected",
+          "linkDestination",
         ].includes(m.type)
       )
         void sync();

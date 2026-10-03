@@ -71,6 +71,8 @@ test('shared workflow: claims, blockers, capture revisions, manual completion, a
   await assert.rejects(w.claimAttempt(db,{...claim,id:randomUUID(),version:d.job.version},'tracker-agent'),/blockers/)
   const manual={id:randomUUID(),collection_id:job.id,version:d.job.version,claim_token:randomUUID()+randomUUID(),manual:true,parent_attempt_id:claim.id}
   await w.claimAttempt(db,manual,'user@example.com')
+  const activeJob=(await w.workflowDetail(db,job.id)).job;
+  await assert.rejects(collection.patchCollection(db,job.id,collection.validateCollection({archived_at:new Date().toISOString()},true),activeJob.version,'tracker-agent'),/active attempt/)
   const complete={claim_token:manual.claim_token,confirmed:true,confirmation_kind:'user_confirmed',submitted_at:new Date().toISOString(),capture_id:capture.id,resolve_blocker_ids:[d.blockers[0].id]}
   await assert.rejects(w.completeAttempt(db,manual.id,{...complete,confirmed:false},'user@example.com'),/confirmation/)
   const result=await w.completeAttempt(db,manual.id,complete,'user@example.com')

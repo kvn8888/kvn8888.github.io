@@ -191,6 +191,13 @@ export async function patchCollection(db: Client, id: string, patch: Stored, ver
   const current = await getCollection(db, id)
   if (!current) throw new CollectionError('Collection job not found', 404)
   if (Number(current.version) !== version) throw new CollectionError('Record changed; GET it again before updating', 412, { version: current.version })
+  if (patch.archived_at) {
+    const tables = await db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='job_attempts'");
+    if (tables.rows.length) {
+      const active = await db.execute({sql:"SELECT id FROM job_attempts WHERE collection_id=? AND state='running' LIMIT 1",args:[id]});
+      if(active.rows.length)throw new CollectionError('Finish or recover the active attempt before archiving this opportunity',409);
+    }
+  }
   if (current.description_status === 'full' && ((patch.description_status && patch.description_status !== 'full') || patch.description === null)) throw new CollectionError('Cannot downgrade or erase a full description', 409)
   if (patch.description !== undefined && current.description_status === 'full' && patch.description_status !== 'full') throw new CollectionError('Updating a full description requires description_status: full', 409)
   if (patch.last_seen_at && String(patch.last_seen_at) < String(current.last_seen_at)) throw new CollectionError('Older observation cannot replace last_seen_at', 409)

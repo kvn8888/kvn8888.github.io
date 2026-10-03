@@ -53,9 +53,9 @@ Updated clients refuse new workflow work when incompatible or compatibility cann
 
 Release assets are immutable and checksum verified. An extension release is advertised only after backend verification and publication of its verified release manifest. Rollback restores code, not an older copy of browser storage; incompatible storage migrations must block automatic rollback.
 
-## Local CAPTCHA handoff packets
+## Legacy local CAPTCHA handoff packets
 
-ATS Captcha Handoff 1.0.2 is a separate optional Chrome extension for fresh-page restoration on the human's Mac. Source and instructions: https://github.com/kvn8888/kvn8888.github.io/tree/dia-design/jobs/handoff . Downloads and the versioned packet schema: https://github.com/kvn8888/kvn8888.github.io/releases/tag/ats-handoff-v1.0.2 .
+Use the combined Jobs Utility extension for current installations. The older ATS Captcha Handoff 1.0.2 package is retained only for compatibility with existing local packets; do not install it alongside the combined client. The packet schema and agent producer remain in https://github.com/kvn8888/kvn8888.github.io/tree/dia-design/jobs/handoff . The following local-file behavior describes that legacy package, not the current hosted queue.
 
 When a remote agent has filled a form but a human gate blocks progress, write a local schema-1.0 packet and hand it to the owner. The standalone Python producer supports handoff-write and handoff-validate. Packet files contain personal data: keep them out of public repositories and transfer them only through a user-authorized channel.
 
@@ -99,3 +99,23 @@ Existing blocked/skipped/CAPTCHA rows in the legacy applications table remain un
 A side panel does not automatically inherit active-tab access when you navigate to a different site. If the current job tab cannot be identified, use **Allow supported job sites** to approve access to Jobright, LinkedIn, Handshake and RIT Career Connect, then return to the job page and enable collection. This uses the existing optional host permissions and adds no browser-wide tabs permission. Other sites still require their own explicit site access.
 
 Collectors recognize current Handshake job-search IDs, LinkedIn currentJobId cards and selected descriptions, and Jobright rendered responsibility/qualification sections. Expanding a description enriches the same canonical record; collapsing/recycling a card must not erase the richer observed partial description. Observed board descriptions remain partial until deliberately reviewed as complete. Live installed-browser acceptance remains distinct from tests using saved DOM fragments.
+
+## Collection modes, destinations and maintenance (0.5.0)
+
+Choose a mode per site. **Auto** adds observed cards and enriches saved jobs as you browse. **Manual** adds no incidental listings: open a posting and choose **Add this job**, then continue browsing/expanding to enrich that saved identity. **Paused** stops both. Existing enabled sites retain Auto on upgrade; a previously unconfigured Symplicity site offers Manual by default. Mode activation is explicit. Incomplete cards are useful leads and must not be deleted simply because their descriptions or employer destinations are still missing.
+
+Manual mode loads saved membership for the selected source through the API, including archive markers. **Add this job** requires a selected posting; it refuses to guess from a recommendation list. The manual details form remains available separately. Reviewing/editing an unrelated field no longer upgrades a partial description to full; the complete-description checkbox is explicit. Paragraphs and bullets are retained, and visible company, location, employment, work-mode and posting-date text is captured where the adapter can identify it. Relative posting text is preserved; do not fabricate an exact date from an approximate badge.
+
+When a user clicks a recognized Apply control on a saved selected posting, the extension watches that tab and its first newly opened application tab for two minutes. Recognized Greenhouse, Workday, Lever and Ashby job destinations attach to the original collection ID, including employer-system identity. This uses the existing navigation permission and adds no browser-wide tabs permission. Login/homepage URLs and unrelated tabs are not accepted. A captured destination survives later source-page scans. Redirects outside these recognized paths may still need **Link an employer application page**: open the actual employer job page, select the correct saved company/role, and confirm the destination. Neither operation clicks Submit or creates an application record.
+
+Job details includes **Archive this opportunity**, with a required reason. It hides the row from the local collection and normal API listings while retaining history and preventing new claims. A running attempt must be finished or recovered before archiving. Collection does not silently unarchive jobs. Server-side status transitions still use workflow operations once attempts exist.
+
+The bundled CLI provides explicit maintenance tools:
+
+```
+jobs-workflow collection audit
+jobs-workflow collection archive --id COLLECTION_UUID --reason "Reviewed: unrelated role"
+jobs-workflow collection restore --id COLLECTION_UUID --reason "Reviewed: reconsider this opportunity"
+```
+
+Audit is read-only and reports enrichment needs and possible company/title duplicates. Those are review candidates, not proof of duplicate openings or instructions to discard incomplete records. Archive/restore requires a writer credential, fetches the current version, PATCHes with If-Match and verifies readback. Restore removes the archive marker; it does not erase attempts or change applied/blocked/not-applicable status. Version conflicts stop for reread. There is no background cleanup agent, bulk deletion, or automatic merge of existing records. Use evidence-backed availability changes for expired postings, and preserve unresolved submission history.

@@ -69,6 +69,8 @@ export async function collectHosted(
     const patch: Record<string, unknown> = {};
     const priorEdits = current.metadata_json?.user_edited_fields || [];
     const edits = JSON.parse(job.metadata_json).user_edited_fields || [];
+    const oldDestination=current.metadata_json?.destination_observation;
+    const newDestination=JSON.parse(job.metadata_json).destination_observation;
     for (const [key, value] of Object.entries(create)) {
       if (
         [
@@ -87,6 +89,7 @@ export async function collectHosted(
       )
         continue;
       if (priorEdits.includes(key) && !edits.includes(key)) continue;
+      if(oldDestination && !edits.includes('application_url') && (!newDestination || newDestination.at<oldDestination.at) && ['application_url','canonical_url','ats_provider','ats_tenant','ats_job_id','resolution_status'].includes(key))continue;
       if (['description','description_status'].includes(key) && !edits.includes('description') && current.description_status==='partial' && (job.description_status==='missing' || (job.description_status==='partial' && (job.description?.length||0)<(current.description?.length||0))))continue;
       if (
         key === "description" &&
@@ -110,6 +113,7 @@ export async function collectHosted(
         continue;
       if (key.endsWith("_json")) {
         const parsed = JSON.parse(String(value));
+        if(key==='metadata_json' && oldDestination && (!newDestination || newDestination.at<oldDestination.at))parsed.destination_observation=oldDestination;
         if (JSON.stringify(parsed) !== JSON.stringify(current[key]))
           patch[key] = parsed;
       } else if (value !== current[key]) patch[key] = value;

@@ -1,2 +1,2 @@
 // Generated.
-export const CLIENT_VERSION='0.4.4'
+export const CLIENT_VERSION='0.5.0'

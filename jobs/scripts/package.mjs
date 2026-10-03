@@ -1,8 +1,8 @@
-import fs from 'node:fs/promises';import path from 'node:path';import {fileURLToPath} from 'node:url';import {execFileSync} from 'node:child_process';import {createHash} from 'node:crypto';
+import fs from 'node:fs/promises';import path from 'node:path';import {fileURLToPath} from 'node:url';import {execFileSync} from 'node:child_process';import {createHash} from 'node:crypto';import {build} from 'esbuild';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');const output=path.join(root,'jobs/release');await fs.mkdir(output,{recursive:true});
 const source=path.join(root,'jobs/extension/dist/extension');const info=JSON.parse(await fs.readFile(path.join(source,'build-info.json'),'utf8'));const files={};
 for(const name of (await fs.readdir(source)).sort())files[name]=(await fs.readFile(path.join(source,name))).toString('base64');
-const bundle={format:1,...info,files};await fs.writeFile(path.join(output,'extension.bundle.json'),JSON.stringify(bundle));await fs.copyFile(path.join(root,'jobs/cli/jobs-workflow.mjs'),path.join(output,'jobs-workflow.mjs'));
+const bundle={format:1,...info,files};await fs.writeFile(path.join(output,'extension.bundle.json'),JSON.stringify(bundle));await build({entryPoints:[path.join(root,'jobs/cli/jobs-workflow.mjs')],outfile:path.join(output,'jobs-workflow.mjs'),bundle:true,platform:'node',format:'esm',target:'node20'});
 const sha=data=>createHash('sha256').update(data).digest('hex');const spec=await fs.readFile(path.join(root,'jobs/generated/openapi.json'));const commit=execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim();
 const zipName='jobs-utility-'+info.version+'.zip';
 execFileSync('python3',['-c',`import pathlib,sys,zipfile

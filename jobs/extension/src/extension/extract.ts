@@ -1,3 +1,4 @@
+import { applicationDestination, selectedJob } from '../shared/collection';
 import {
   emptyJob,
   normalizeUrl,
@@ -10,11 +11,37 @@ const txt = (el: Element | null) =>
   el?.textContent?.replace(/\s+/g, " ").trim() || null;
 const first = (root: ParentNode, selectors: string) =>
   txt(root.querySelector(selectors));
+export function structuredText(element: Element | null): string | null {
+  if (!element) return null;
+  const copy = element.cloneNode(true) as Element;
+  const owner = copy.ownerDocument || (copy as unknown as Document);
+  copy.querySelectorAll('button,script,style,[aria-hidden="true"]').forEach(e => e.remove());
+  for (const e of copy.querySelectorAll('p,div,section,li,h1,h2,h3,h4,br')) {
+    if (e.tagName === 'LI') e.prepend(owner.createTextNode('- '));
+    e.before(owner.createTextNode('\n'));
+    e.after(owner.createTextNode('\n'));
+  }
+  return (copy.textContent || '').split('\n').map(s => s.replace(/\s+/g, ' ').trim()).filter(Boolean).join('\n').replace(/(?:…|\.\.\.)\s*(?:more|less)\s*$/i, '').trim() || null;
+}
 function plain(doc: Document, value: unknown) {
   if (typeof value !== "string") return null;
   const el = doc.createElement("div");
   el.innerHTML = value;
-  return el.textContent?.trim() || null;
+  return structuredText(el);
+}
+function facts(root: ParentNode, job: Job, scopedText?: string) {
+  const lines = scopedText ? scopedText.split('\n') : [...root.querySelectorAll('span,div,p,a,time')].filter(e => !e.children.length).map(e => txt(e) || '');
+  const mode = lines.find(t => /^(remote|hybrid|on[ -]?site)(?:$|, based in)/i.test(t));
+  if (mode) job.work_mode = /^remote/i.test(mode) ? 'remote' : /^hybrid/i.test(mode) ? 'hybrid' : 'onsite';
+  const types = lines.flatMap(t => t.split(/\s*·\s*/)).filter(t => /^(internship|co-?op|full[ -]?time|part[ -]?time|contract|temporary)$/i.test(t));
+  job.employment_type = types.find(t => /internship|co-?op/i.test(t)) || types[0] || job.employment_type;
+  const place = lines.find(t => /^(?:(?:Onsite|Hybrid|Remote), based in )/.test(t));
+  job.location ||= place?.replace(/^(?:Onsite|Hybrid|Remote), based in /, '') || lines.find(t => /^(?:Remote or )?[^$·]{2,70}, [A-Z]{2}(?: \+ ?\d+)?$/.test(t)) || null;
+  job.posted_at_raw ||= lines.find(t => /^(?:Reposted )?(?:\d+\s*(?:min(?:ute)?s?|hours?|days?|weeks?|wks?|months?|mos?) ago|today|yesterday)$/i.test(t)) || null;
+  const time = root.querySelector('time[datetime]')?.getAttribute('datetime');
+  if (time && /^\d{4}-\d{2}-\d{2}(T.*)?$/.test(time) && Number.isFinite(Date.parse(time))) job.posted_at = new Date(time).toISOString();
+  const schedule = types.find(t => /^(full|part)/i.test(t));
+  if (schedule) job.metadata_json = JSON.stringify({...JSON.parse(job.metadata_json), work_schedule: schedule});
 }
 export function extractJobs(doc: Document, url: string): Job[] {
   const jobs: Job[] = [];
@@ -25,6 +52,11 @@ export function extractJobs(doc: Document, url: string): Job[] {
     job.role_tags_json = JSON.stringify(job.type ? [job.type] : []);
     job.resolution_status = job.application_url ? "resolved" : job.resolution_status === "in_board" ? "in_board" : "unresolved";
     job.canonical_url = job.application_url;
+    if (job.application_url) {
+      const destination = applicationDestination(job.application_url, true);
+      if (destination) Object.assign(job, destination);
+      else { job.application_url = null; job.canonical_url = null; job.resolution_status = 'unresolved'; }
+    }
     job.metadata_json = JSON.stringify({
       ...JSON.parse(job.metadata_json),
       adapter: "dom-v2-live",
@@ -119,7 +151,15 @@ export function extractJobs(doc: Document, url: string): Job[] {
         j.company=card.querySelector('img[alt]')?.getAttribute('alt')||j.company;
         j.metadata_json=JSON.stringify({card_summary:a.getAttribute('aria-label')||txt(card)});
       }
-      j.posted_at_raw=first(card,'[class*="publish-time"],time');
+      if(board==='handshake' && !j.company && j.role){
+        const region=card.querySelector('[role="region"][aria-labelledby]');
+        const prefix=txt(region)?.split(j.role)[0]?.trim();
+        if(prefix && prefix.length<200)j.company=prefix;
+        if(!j.company && card===a)j.company=[...card.querySelectorAll('div,span,p')].filter(e=>!e.children.length).map(txt).find(t=>t && t!==j.role && !/[$]|\b(?:ago|Internship)\b/.test(t))||null;
+      }
+      facts(card,j);
+      j.metadata_json=JSON.stringify({...JSON.parse(j.metadata_json),collection_context:/\bPromoted\b/.test(txt(card)||'')?'promoted':board==='handshake' && card===a?'related':'list'});
+      j.posted_at_raw=first(card,'[class*="publish-time"],time')||j.posted_at_raw;
       if(!j.role||j.role.length>300)continue;
       finish(j);
     }
@@ -132,9 +172,9 @@ export function extractJobs(doc: Document, url: string): Job[] {
         j.company=[...main.querySelectorAll('a[href^="/e/"]')].map(txt).find(Boolean)||j.company;
         const heading=[...main.querySelectorAll('h3')].find(e=>txt(e)==='Job description');
         const section=heading?.parentElement?.nextElementSibling;
-        if(section){const copy=section.cloneNode(true) as Element;copy.querySelectorAll('button').forEach(b=>b.remove());j.description=txt(copy);}
-        const glance=[...main.querySelectorAll('h3')].find(e=>txt(e)==='At a glance')?.parentElement?.textContent?.trim();
-        if(glance)j.metadata_json=JSON.stringify({at_a_glance:glance});
+        if(section)j.description=structuredText(section);
+        const glance=structuredText(main as Element)?.split('At a glance')[1]?.split('Job description')[0]?.trim();
+        if(glance){j.metadata_json=JSON.stringify({at_a_glance:glance});facts(main,j,glance);}
         if([...main.querySelectorAll('button')].some(b=>/^(quick apply|apply on handshake)$/i.test(txt(b)||'')))j.resolution_status='in_board';
       }
       if(board==='jobright'){
@@ -144,6 +184,8 @@ export function extractJobs(doc: Document, url: string): Job[] {
         j.posted_at_raw=first(main,'[class*="publish-time"]');
         j.metadata_json=JSON.stringify({description_source:'jobright_rendered_sections',sections:sections.map(section=>first(section,'h2'))});
       }
+      facts(main,j);
+      j.metadata_json=JSON.stringify({...JSON.parse(j.metadata_json),collection_context:'detail'});
       j.description_status=j.description?'partial':'missing'; // DOM may still be collapsed; never promise completeness.
       const apply=(board==='jobright'?doc:main).querySelector<HTMLAnchorElement>('a[data-testid="apply-button"],a[aria-label="Apply externally"],a[href*="myworkdayjobs.com"],a[href*="greenhouse.io"],a[href*="lever.co"],a[href*="ashbyhq.com"]');
       if(apply){const destination=normalizeUrl(apply.getAttribute('href')||'',url);if(destination&&new URL(destination).hostname!==host)j.application_url=destination;}
@@ -177,7 +219,12 @@ export function extractJobs(doc: Document, url: string): Job[] {
           j.employment_type=links.find(t=>t&&/^(Full-time|Part-time|Contract|Internship)$/.test(t))||null;
         }
         const description=heading.parentElement?.nextElementSibling;
-        j.description=txt(description||null);j.description_status=j.description?'partial':'missing';
+        j.description=structuredText(description||null);j.description_status=j.description?'partial':'missing';
+        const badges=[...doc.querySelectorAll<HTMLAnchorElement>('a')].filter(a=>{try{return new URL(a.href,url).searchParams.get('currentJobId')===id;}catch{return false;}}).map(txt).filter(Boolean).join('\n');
+        facts(header||doc,j,badges);
+        j.metadata_json=JSON.stringify({...JSON.parse(j.metadata_json),collection_context:'detail'});
+        const apply=[...doc.querySelectorAll<HTMLAnchorElement>('a[href]')].find(a=>/^(apply|apply on company website|apply externally)$/i.test(txt(a)||''));
+        if(apply && new URL(apply.href,url).hostname!==host)j.application_url=normalizeUrl(apply.href,url);
         if([...doc.querySelectorAll('button')].some(b=>/Easy Apply/i.test(b.getAttribute('aria-label')||txt(b)||'')))j.resolution_status='in_board';
         if(j.role)finish(j);
       }
@@ -231,11 +278,8 @@ export function extractJobs(doc: Document, url: string): Job[] {
       detail,
       '.job-details-jobs-unified-top-card__company-name, [data-automation-id="companyName"]',
     );
-    j.description = first(
-      detail,
-      '#job-details, .jobs-description-content__text, [data-automation-id="jobPostingDescription"]',
-    );
-    j.description_status = j.description ? "full" : "missing";
+    j.description = structuredText(detail.querySelector('#job-details, .jobs-description-content__text, [data-automation-id="jobPostingDescription"]'));
+    j.description_status = j.description ? "partial" : "missing";
     j.location = first(
       detail,
       '.job-details-jobs-unified-top-card__primary-description-container, [data-automation-id="locations"]',
@@ -255,12 +299,21 @@ export function extractJobs(doc: Document, url: string): Job[] {
     if(prior){
       for(const field of ['company','role','location','application_url','posted_at','posted_at_raw','employment_type','work_mode'] as const)if(!job[field]&&prior[field])(job as any)[field]=prior[field];
       if(prior.description && (!job.description || (prior.description_status==='full'&&job.description_status!=='full') || (prior.description_status===job.description_status&&job.description.length<prior.description.length))){job.description=prior.description;job.description_status=prior.description_status;}
-      if(job.application_url){job.resolution_status='resolved';job.canonical_url=job.application_url;}
+      if(job.application_url){job.resolution_status='resolved';Object.assign(job,applicationDestination(job.application_url,true)||{});}
       job.metadata_json=JSON.stringify({...JSON.parse(prior.metadata_json),...JSON.parse(job.metadata_json)});
     }
     merged.set(job.identity_key,job);
   }
   return [...merged.values()];
+}
+export function extractSelectedJob(doc: Document, url: string): Job | null {
+  return selectedJob(extractJobs(doc, url), url);
+}
+export function applicationClick(doc: Document, url: string, element: Element): Job | null {
+  const control=element.closest('a,button');
+  const label=(control?.getAttribute('aria-label')||txt(control)||'').trim();
+  if (!/^(apply(?: now| on company website| externally| with autofill)?|original job post|continue to application)$/i.test(label)) return null;
+  return extractSelectedJob(doc,url);
 }
 function labelFor(doc: Document, el: HTMLElement) {
   const control = el as HTMLInputElement;
