@@ -224,23 +224,16 @@ async function inject(tabId: number, origin: string) {
   });
 }
 async function target(s: State, tabId?: number) {
-  const id =
-    tabId ??
-    s.targetTab ??
-    (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0]?.id;
-  if (id === undefined) throw Error("Open a job or application page first.");
-  let tab;
-  try {
-    tab = await chrome.tabs.get(id);
-  } catch {
-    tab = (
-      await chrome.tabs.query({ active: true, lastFocusedWindow: true })
-    )[0];
-  }
-  if (!tab?.url || !/^https?:/.test(tab.url))
-    throw Error("Select an HTTP or HTTPS job page.");
-  return { id: tab.id!, url: tab.url, origin: new URL(tab.url).origin };
+  const active=(await chrome.tabs.query({active:true,lastFocusedWindow:true}))[0];
+  // URL metadata is available only for sites the user has granted, or activeTab.
+  // Prefer the active webpage; a separate settings tab can use the last known job tab.
+  let tab=tabId!==undefined?await chrome.tabs.get(tabId):active?.url&&/^https?:/.test(active.url)?active:undefined;
+  const ownPage=active?.url?.startsWith(chrome.runtime.getURL(''));
+  if(!tab&&(!active||ownPage)&&s.targetTab!==undefined){try{tab=await chrome.tabs.get(s.targetTab);}catch{}}
+  if(!tab?.id||!tab.url||!/^https?:/.test(tab.url))throw Error('Select a job page and grant access to that site.');
+  return {id:tab.id,url:tab.url,origin:new URL(tab.url).origin};
 }
+
 async function handle(m: any, sender: chrome.runtime.MessageSender) {
   const trusted =
     sender.id === chrome.runtime.id &&
@@ -287,11 +280,11 @@ async function handle(m: any, sender: chrome.runtime.MessageSender) {
           j.id = previous.id;
           j.first_seen_at = previous.first_seen_at;
           if (
-            previous.description_status === "full" &&
-            j.description_status !== "full"
+            (previous.description_status === "full" && j.description_status !== "full") ||
+            (previous.description_status === "partial" && (j.description_status === "missing" || (j.description_status === "partial" && (j.description?.length||0)<(previous.description?.length||0))))
           ) {
             j.description = previous.description;
-            j.description_status = "full";
+            j.description_status = previous.description_status;
           }
           if (!j.application_url && previous.application_url) {
             j.application_url = previous.application_url;

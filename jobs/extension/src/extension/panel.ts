@@ -118,7 +118,7 @@ function collection() {
     (j: Job) => j.resolution_status === "resolved",
   ).length;
   return `<div class="eyebrow">Your next opportunity</div><h2>A little less busywork.</h2><p class="muted">Browse jobs normally. Keep the details and application links here.</p><div class="stats"><div><strong>${state.jobs.length}</strong><span>ON THIS DEVICE</span></div><div><strong>${ready}</strong><span>LINKS READY</span></div><div><strong>${state.queue.length}</strong><span>WAITING TO SYNC</span></div></div>
- <div class="notice"><div class="row"><strong>${state.tab ? esc(new URL(state.tab.url).hostname) : "Open a job page"}</strong><span class="tiny">${state.tab && state.sites.includes(state.tab.origin) ? "Collecting" : "Paused"}</span></div><div class="actions">${state.tab && state.sites.includes(state.tab.origin) ? button("pause", "Pause collection") : button("enable", "Collect on this site", true)}${button("scan", "Scan now")}${button("manual", "Add current job")}</div><div class="tiny">Captures observed details as you scroll and expand. Jobright, LinkedIn and standard JobPosting data are supported; Handshake and Symplicity adapters need live acceptance testing. Highlight text to fill gaps manually.</div></div>
+ <div class="notice"><div class="row"><strong>${state.tab ? esc(new URL(state.tab.url).hostname) : "Open a job page"}</strong><span class="tiny">${state.tab && state.sites.includes(state.tab.origin) ? "Collecting" : "Paused"}</span></div><div class="actions">${state.tab && state.sites.includes(state.tab.origin) ? button("pause", "Pause collection") : button("enable", "Collect on this site", true)}${button("scan", "Scan now")}${button("manual", "Add current job")}${!state.tab?button("grant-job-sites", "Allow supported job sites"):""}</div><div class="tiny">Captures observed details as you scroll and expand. Jobright, LinkedIn and standard JobPosting data are supported; Handshake and Symplicity adapters need live acceptance testing. Highlight text to fill gaps manually. Allow supported job sites grants access only to Jobright, LinkedIn, Handshake and RIT Career Connect, not other tabs.</div></div>
  <form id="search-form" class="row"><label class="field" style="flex:1">Find a job<input name="q" value="${esc(searchTerm)}" placeholder="Company, role, or location"></label>${button("search", "Search")}</form>
  <div class="row wrap"><span class="tiny muted">${remoteJobs ? `${remoteJobs.length} of ${remoteTotal} saved jobs` : `${jobs.length} local jobs`}</span><div class="actions">${button("copy", "Copy URLs")}${button("download", "Download .txt")}</div></div>
  ${jobs.length ? `<div class="cards">${jobs.map(card).join("")}</div>${remoteJobs && remoteJobs.length < remoteTotal ? button("more", "Load more") : ""}` : `<div class="empty"><div class="number">01 /</div><h2>Start with a job page.</h2><p class="muted">Enable collection, then scroll or open job details. Missing descriptions and links stay marked so you know what needs another look.</p></div>`}`;
@@ -150,7 +150,10 @@ function render() {
   app.innerHTML = `<header><div class="eyebrow">JobsUtilityExtension / 01</div><div class="brand"><h1>Jobs Utility</h1><div class="mark">j.</div></div><div class="connection"><span class="dot ${state.connection ? "online" : ""}"></span>${state.connection ? "Hosted tracker configured" : "Local storage · connect in Settings"}</div></header><nav role="tablist">${["collection", "capture", "settings"].map((v) => `<button role="tab" aria-selected="${view === v}" data-view="${v}">${v === "collection" ? "Collection" : v === "capture" ? "Applications" : "Settings"}${v === "settings" && state.queue.length ? ` (${state.queue.length})` : ""}</button>`).join("")}</nav><div class="row"><a href="handoff.html" target="_blank">Needs your action</a> · <a href="diagnostics.html" target="_blank">Diagnostics & updates</a> · <a href="https://www.kevinc.dev/jobs/docs" target="_blank">Workflow guide</a></div><main>${editJob ? `<div class="row">${button("close-edit", "← Collection")}</div><h2>Job details</h2><form id="job-form">${jobFields(editJob)}${button("selected-description", "Use highlighted description")}<div class="actions">${button("save-job", "Save job", true)}</div></form>` : view === "collection" ? collection() : view === "capture" ? captureView() : settings()}</main>`;
 }
 async function permit() {
-  if (!state.tab) throw Error("Select a job or application tab first");
+  state=await command('state');
+  if(!state.tab){
+    throw Error('Dia has not granted access to this tab yet. Use Allow supported job sites below, then return to the posting and try again.');
+  }
   const ok = await chrome.permissions.request({
     origins: [state.tab.origin + "/*"],
   });
@@ -196,6 +199,11 @@ app.addEventListener("click", async (event) => {
         },
       });
       toast("Connected to your Job Tracker.");
+    }
+    if(action==='grant-job-sites'){
+      const origins=['https://jobright.ai/*','https://www.linkedin.com/*','https://app.joinhandshake.com/*','https://rit-csm.symplicity.com/*'];
+      if(!await chrome.permissions.request({origins}))throw Error('Site access was declined. No collection was enabled.');
+      await refresh();toast('Access granted for the four supported job sites. Return to the job page and choose Collect on this site.');return;
     }
     if (action === "enable") {
       await permit();

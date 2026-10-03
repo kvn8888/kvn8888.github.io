@@ -334,3 +334,21 @@ test("Handshake and Symplicity use stable listing identities; observed details s
  }
  const detail=doc('<main><h1>Engineer</h1><div data-job-description>Expanded details so far</div></main>');assert.equal(extractJobs(detail,'https://jobright.ai/jobs/info/abc')[0].description_status,'partial');
 });
+
+test("Handshake current search cards and selected description survive collapsed-to-expanded enrichment",()=>{
+ const html='<div data-hook="job-result-card | 123"><a role="button" href="/job-search/123?jobType=3" aria-label="Example Software Intern Internship NY"></a><img alt="Example"><div role="region" aria-labelledby="job-title"><div id="job-title">Software Intern</div></div></div><div data-hook="right-content"><a href="/e/5">Example</a><a href="/jobs/123"><h1>Software Intern</h1></a><div><h3>Job description</h3></div><div><p>First details</p><button aria-label="Show more">More</button></div><button>Quick apply</button></div>';
+ const j=extractJobs(doc(html),'https://app.joinhandshake.com/job-search/123')[0];assert.equal(j.identity_key,'handshake:123');assert.equal(j.role,'Software Intern');assert.equal(j.company,'Example');assert.equal(j.description,'First details');assert.equal(j.description_status,'partial');assert.equal(j.resolution_status,'in_board');
+ const expanded=extractJobs(doc(html.replace('<button aria-label="Show more">More</button>','<p>More requirements after expansion</p>')),'https://app.joinhandshake.com/job-search/123')[0];assert.match(expanded.description!,/More requirements/);assert.equal(expanded.identity_key,j.identity_key);
+});
+test("LinkedIn currentJobId cards avoid duplicated accessible/visual titles",()=>{
+ const j=extractJobs(doc('<a href="/jobs/search-results/?currentJobId=123&trackingId=ignore"><p><span>Backend Engineer</span><span aria-hidden="true">Backend Engineer</span></p><p>Example</p><p> • </p><p>Remote</p></a>'),'https://www.linkedin.com/jobs/')[0];assert.equal(j.identity_key,'linkedin:123');assert.equal(j.role,'Backend Engineer');assert.equal(j.company,'Example');assert.equal(j.location,'Remote');assert.equal(j.source_url,'https://www.linkedin.com/jobs/view/123/');
+});
+test("Jobright captures responsibility/qualification sections and the original employer link",()=>{
+ const html='<div id="overview-1"><div class="index_company-job__x"><span class="index_company-name__x">Selected Company</span><h1>Engineer</h1></div><section><h2>Responsibilities</h2><span class="index_listText__x">Build APIs</span></section><section><h2>Qualification</h2><h4>Required</h4><span class="index_listText__x">Know TypeScript</span><span>Private match score</span></section></div><a href="https://example.myworkdayjobs.com/jobs/123">Original Job Post</a>';
+ const j=extractJobs(doc(html),'https://jobright.ai/jobs/info/abc')[0];assert.equal(j.company,'Selected Company');assert.match(j.description!,/Build APIs/);assert.match(j.description!,/Know TypeScript/);assert.ok(!j.description!.includes('Private match'));assert.equal(j.application_url,'https://example.myworkdayjobs.com/jobs/123');
+});
+
+test("LinkedIn current detail view uses the selected job link rather than a profile-match heading",()=>{
+ const html='<div><a href="/company/example/">Example</a><p><a href="/jobs/view/123/">Cloud Engineer</a></p><p>New York · 2 days ago · 10 applicants</p><a>Hybrid</a></div><h1>Low match to this role</h1><div><h2>About the job</h2></div><div><p>Build cloud infrastructure.</p></div><button aria-label="Easy Apply to this job">Easy Apply</button>';
+ const j=extractJobs(doc(html),'https://www.linkedin.com/jobs/search-results/?currentJobId=123')[0];assert.equal(j.role,'Cloud Engineer');assert.equal(j.company,'Example');assert.match(j.description!,/cloud infrastructure/);assert.equal(j.resolution_status,'in_board');
+});

@@ -87,6 +87,7 @@ export async function collectHosted(
       )
         continue;
       if (priorEdits.includes(key) && !edits.includes(key)) continue;
+      if (['description','description_status'].includes(key) && !edits.includes('description') && current.description_status==='partial' && (job.description_status==='missing' || (job.description_status==='partial' && (job.description?.length||0)<(current.description?.length||0))))continue;
       if (
         key === "description" &&
         current.description_status === "full" &&

@@ -43,6 +43,7 @@ const fixture = createServer((req, res) => {
 });
 await new Promise<void>((r) => fixture.listen(43129, "127.0.0.1", r));
 const extension = resolve("dist/extension");
+assert.ok(!JSON.parse(await readFile(resolve(extension,"manifest.json"),"utf8")).permissions.includes("tabs"),"Do not request browser-wide tab metadata");
 let context!: BrowserContext;
 let panel!: Page;
 let id = "";

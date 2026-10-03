@@ -44,8 +44,9 @@ async function refresh() {
 async function permit() {
   if (!work?.tabId) throw Error("Open the application first");
   const t = await chrome.tabs.get(work.tabId);
-  if (!t.url) throw Error("Application tab is gone");
-  const origins = new Set([new URL(t.url).origin + "/*"]);
+  const expected=work.document.packets[index]?.application_url;
+  if(!expected)throw Error('Choose a saved page first');
+  const origins = new Set([new URL(expected).origin + "/*"]);
   const frames =
     (await chrome.webNavigation.getAllFrames({ tabId: work.tabId })) || [];
   for (const f of frames) {

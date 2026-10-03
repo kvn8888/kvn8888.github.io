@@ -23,10 +23,11 @@ export function extractJobs(doc: Document, url: string): Job[] {
     if(job.application_url){const destination=new URL(job.application_url);if(/^\/(?:careers|jobs|apply)?\/?$/.test(destination.pathname)&&!['job','jobId','job_id','gh_jid','reqId'].some(k=>destination.searchParams.has(k)))job.application_url=null;}
     job.type = category(job.role || "");
     job.role_tags_json = JSON.stringify(job.type ? [job.type] : []);
-    job.resolution_status = job.application_url ? "resolved" : "unresolved";
+    job.resolution_status = job.application_url ? "resolved" : job.resolution_status === "in_board" ? "in_board" : "unresolved";
     job.canonical_url = job.application_url;
     job.metadata_json = JSON.stringify({
-      adapter: "dom-v1",
+      ...JSON.parse(job.metadata_json),
+      adapter: "dom-v2-live",
       coverage: "observed_fields_only",
     });
     if (job.description && job.description.length > 50000) {
@@ -102,28 +103,84 @@ export function extractJobs(doc: Document, url: string): Job[] {
   // Board-specific identities: never treat a recommendation/search URL as a job.
   const board = /(^|\.)jobright\.ai$/.test(host)?'jobright':/(^|\.)joinhandshake\.com$/.test(host)?'handshake':/(^|\.)symplicity\.com$/.test(host)?'symplicity':null;
   if(board){
-    const selector=board==='jobright'?'a[href*="/jobs/info/"]':board==='handshake'?'a[href*="/stu/jobs/"],a[href*="/jobs/"]':'a[href*="/app/jobs/"],a[href*="job_id="],a[href*="jobid="]';
-    const identity=(link:string)=>{const u=new URL(link);return board==='jobright'?u.pathname.match(/\/jobs\/info\/([a-z0-9-]+)/i)?.[1]:board==='handshake'?u.pathname.match(/\/(?:stu\/)?jobs\/(\d+)/)?.[1]:u.pathname.match(/\/app\/jobs\/([a-z0-9-]+)/i)?.[1]||u.searchParams.get('job_id')||u.searchParams.get('jobid');};
+    const selector=board==='jobright'?'a[href*="/jobs/info/"]':board==='handshake'?'a[href*="/stu/jobs/"],a[href*="/jobs/"],a[href*="/job-search/"]':'a[href*="/app/jobs/"],a[href*="job_id="],a[href*="jobid="]';
+    const identity=(link:string)=>{const u=new URL(link);return board==='jobright'?u.pathname.match(/\/jobs\/info\/([a-z0-9-]+)/i)?.[1]:board==='handshake'?u.pathname.match(/\/(?:(?:stu\/)?jobs|job-search)\/(\d+)/)?.[1]:u.pathname.match(/\/app\/jobs\/([a-z0-9-]+)/i)?.[1]||u.searchParams.get('job_id')||u.searchParams.get('jobid');};
     for(const a of doc.querySelectorAll<HTMLAnchorElement>(selector)){
       const link=normalizeUrl(a.getAttribute('href')||'',url);if(!link||new URL(link).hostname!==host)continue;const id=identity(link);if(!id)continue;
-      const card=board==='jobright'?a:(a.closest('[data-job-id],article,[data-testid*="job-card"],li')||a);
+      const card=board==='jobright'?a:(a.closest('[data-hook^="job-result-card"],[data-job-id],article,[data-testid*="job-card"],li')||a);
       const j=emptyJob(link);j.source_job_id=id;j.identity_key=board+':'+id;
       j.role=first(card,'h2,h3,[data-testid="job-title"],[class*="job-title"],.job-title')||txt(a);
-      if(!j.role||j.role.length>300)continue;
+
       j.company=first(card,'[class*="company-name"],[data-testid="employer-name"],[data-testid="company-name"],.employer-name');
       j.location=first(card,'[class*="primary-location"],[data-testid="job-location"],.job-location');
+      if(board==='handshake' && card!==a){
+        const region=card.querySelector('[role="region"][aria-labelledby]');const titleId=region?.getAttribute('aria-labelledby');
+        if(titleId)j.role=txt(doc.getElementById(titleId))||j.role;
+        j.company=card.querySelector('img[alt]')?.getAttribute('alt')||j.company;
+        j.metadata_json=JSON.stringify({card_summary:a.getAttribute('aria-label')||txt(card)});
+      }
       j.posted_at_raw=first(card,'[class*="publish-time"],time');
+      if(!j.role||j.role.length>300)continue;
       finish(j);
     }
     const id=identity(url);
-    if(id){const main=doc.querySelector('main,[role="main"],#jobs-page-main-content')||doc;const j=emptyJob(url);j.source_job_id=id;j.identity_key=board+':'+id;
+    if(id){const main=(board==='handshake'?doc.querySelector('[data-hook="right-content"]'):board==='jobright'?doc.querySelector('[id^="overview-"]'):null)||doc.querySelector('main,[role="main"],#jobs-page-main-content')||doc;const j=emptyJob(url);j.source_job_id=id;j.identity_key=board+':'+id;
       j.role=first(main,'h1,[data-testid="job-title"],[class*="job-title"]');
       j.company=first(main,'[class*="company-name"],[data-testid="employer-name"],[data-testid="company-name"],.employer-name');
       j.description=first(main,'[data-job-description],[itemprop="description"],[class*="job-description"],[data-testid="job-description"],.job-description');
+      if(board==='handshake'){
+        j.company=[...main.querySelectorAll('a[href^="/e/"]')].map(txt).find(Boolean)||j.company;
+        const heading=[...main.querySelectorAll('h3')].find(e=>txt(e)==='Job description');
+        const section=heading?.parentElement?.nextElementSibling;
+        if(section){const copy=section.cloneNode(true) as Element;copy.querySelectorAll('button').forEach(b=>b.remove());j.description=txt(copy);}
+        const glance=[...main.querySelectorAll('h3')].find(e=>txt(e)==='At a glance')?.parentElement?.textContent?.trim();
+        if(glance)j.metadata_json=JSON.stringify({at_a_glance:glance});
+        if([...main.querySelectorAll('button')].some(b=>/^(quick apply|apply on handshake)$/i.test(txt(b)||'')))j.resolution_status='in_board';
+      }
+      if(board==='jobright'){
+        const sections=[...main.querySelectorAll('section')].filter(section=>/^(Responsibilities|Qualification|Benefits)$/i.test(first(section,'h2')||''));
+        const parts=sections.map(section=>{const lines=[...new Set([...section.querySelectorAll('h4,[class*="listText"],li')].map(txt).filter(Boolean))];return [first(section,'h2'),...lines].join('\n');});
+        if(parts.length)j.description=parts.join('\n\n');
+        j.posted_at_raw=first(main,'[class*="publish-time"]');
+        j.metadata_json=JSON.stringify({description_source:'jobright_rendered_sections',sections:sections.map(section=>first(section,'h2'))});
+      }
       j.description_status=j.description?'partial':'missing'; // DOM may still be collapsed; never promise completeness.
-      const apply=main.querySelector<HTMLAnchorElement>('a[data-testid="apply-button"],a[aria-label="Apply externally"],a[href*="myworkdayjobs.com"],a[href*="greenhouse.io"],a[href*="lever.co"],a[href*="ashbyhq.com"]');
+      const apply=(board==='jobright'?doc:main).querySelector<HTMLAnchorElement>('a[data-testid="apply-button"],a[aria-label="Apply externally"],a[href*="myworkdayjobs.com"],a[href*="greenhouse.io"],a[href*="lever.co"],a[href*="ashbyhq.com"]');
       if(apply){const destination=normalizeUrl(apply.getAttribute('href')||'',url);if(destination&&new URL(destination).hostname!==host)j.application_url=destination;}
       if(j.role)finish(j);
+    }
+  }
+  if(/(^|\.)linkedin\.com$/.test(host)){
+    for(const a of doc.querySelectorAll<HTMLAnchorElement>('a[href*="currentJobId="]')){
+      const link=normalizeUrl(a.getAttribute('href')||'',url);if(!link)continue;const id=new URL(link).searchParams.get('currentJobId');if(!id||!/^\d+$/.test(id))continue;
+      const paragraphs=[...a.querySelectorAll('p')];if(paragraphs.length<2)continue;
+      const j=emptyJob(`https://www.linkedin.com/jobs/view/${id}/`);j.source_job_id=id;j.identity_key='linkedin:'+id;
+      j.role=first(paragraphs[0],'[aria-hidden="true"]')||txt(paragraphs[0]);j.company=txt(paragraphs[1]);
+      const bullet=paragraphs.findIndex(p=>txt(p)==='•');if(bullet>=0)j.location=txt(paragraphs[bullet+1]);
+      if(j.role&&j.role.length<=300)finish(j);
+    }
+  }
+  // Current LinkedIn detail views no longer use the older jobs-details classes.
+  if(/(^|\.)linkedin\.com$/.test(host)){
+    const id=new URL(url).searchParams.get('currentJobId')||new URL(url).pathname.match(/\/jobs\/view\/(\d+)/)?.[1];
+    const heading=[...doc.querySelectorAll('h2')].find(h=>txt(h)==='About the job');
+    if(id&&/^\d+$/.test(id)&&heading){
+      const titleLink=[...doc.querySelectorAll<HTMLAnchorElement>('a[href*="/jobs/view/"]')].find(a=>new URL(a.href,url).pathname.match(/\/jobs\/view\/(\d+)/)?.[1]===id);
+      if(titleLink){
+        const j=emptyJob(`https://www.linkedin.com/jobs/view/${id}/`);j.source_job_id=id;j.identity_key='linkedin:'+id;j.role=txt(titleLink);
+        let header:Element|null=titleLink.parentElement;
+        while(header&&!header.querySelector('a[href*="/company/"]'))header=header.parentElement;
+        if(header){j.company=[...header.querySelectorAll('a[href*="/company/"]')].map(txt).find(Boolean)||null;
+          const meta=[...header.querySelectorAll('p')].map(txt).find(t=>t&&t.includes(' · ')&&/ago|applicant/i.test(t));if(meta){j.location=meta.split(' · ')[0];j.posted_at_raw=meta;}
+          const links=[...header.querySelectorAll('a')].map(txt);
+          j.work_mode=links.includes('Remote')?'remote':links.includes('Hybrid')?'hybrid':links.includes('On-site')?'onsite':null;
+          j.employment_type=links.find(t=>t&&/^(Full-time|Part-time|Contract|Internship)$/.test(t))||null;
+        }
+        const description=heading.parentElement?.nextElementSibling;
+        j.description=txt(description||null);j.description_status=j.description?'partial':'missing';
+        if([...doc.querySelectorAll('button')].some(b=>/Easy Apply/i.test(b.getAttribute('aria-label')||txt(b)||'')))j.resolution_status='in_board';
+        if(j.role)finish(j);
+      }
     }
   }
   // LinkedIn list/detail layouts: capture cards as they enter the DOM, including recycled lists.

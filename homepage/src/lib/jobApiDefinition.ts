@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { legacyWorkflowGuide } from './jobWorkflowGuide'
 
 export const API_VERSION = '1.2.0'
-export const CLIENT_VERSION = '0.4.2'
+export const CLIENT_VERSION = '0.4.3'
 export const BASE_URL = 'https://www.kevinc.dev'
 const text = z.string().max(2000)
 const nullableText = text.nullable().optional()
