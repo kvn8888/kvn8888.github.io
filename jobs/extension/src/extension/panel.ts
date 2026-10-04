@@ -878,7 +878,7 @@ chrome.storage.onChanged.addListener(() => {
       view !== "handoffs" &&
       !document.activeElement?.matches("input,textarea,select") &&
       !editJob &&
-      !(view === "capture" && reviewId)
+      !(view === "capture" && state.captures.find((c: Capture) => c.capture_id === reviewId)?.status === "review")
     )
       void refresh().catch((e) => toast(e.message));
   }, 500);

@@ -288,6 +288,7 @@ try {
     async () => (await state()).captures[0].status === "saved",
     "Submission did not save",
   );
+  await panel.getByText(/was saved and read back/).waitFor();
   c = (await state()).captures[0];
   const row = (await db.execute("SELECT * FROM job_applications")).rows[0];
   assert.equal(row.company, "Example Company");
