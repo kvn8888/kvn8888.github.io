@@ -1,0 +1,15 @@
+{
+  "client_version": "0.6.0",
+  "date": "2026-10-04",
+  "extension_unit_tests": 28,
+  "cli_update_tests": 8,
+  "api_regression_suites": 5,
+  "website_typecheck": "passed",
+  "openapi_operations": 35,
+  "contract_hash": "09fe2b2fcf49bc52253b887f0b9374b240a704ea12ca7f130ff26cb5b47fa3a0",
+  "generated_artifacts": "no drift",
+  "integration": "passed with disposable SQLite and synthetic employer pages",
+  "production_writes": 0,
+  "installed_extension_updated": false,
+  "live_site_acceptance": "tracked separately in issues 28 and 29"
+}

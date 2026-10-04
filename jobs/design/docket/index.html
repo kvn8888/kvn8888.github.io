@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Docket — prototype (slice 1)</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- Simulation harness: stands in for the browser tab. Not part of Docket. -->
+<aside class="harness" id="harness" aria-label="Simulation harness (not part of Docket)">
+  <p class="h-title">Simulation harness — not part of Docket</p>
+  <p class="h-sub">Plays the role of the browser tab beside the panel. All data is synthetic; nothing leaves this page.</p>
+  <div id="h-body"></div>
+</aside>
+
+<!-- Product: the Docket side panel -->
+<section class="panel" id="panel" data-theme="system" aria-label="Docket side panel (prototype)">
+  <header class="p-head">
+    <span class="brand">Docket<span class="proto">prototype</span></span>
+    <span class="p-host mono" id="p-host"></span>
+    <button class="chip" id="chip" type="button" data-act="chip"></button>
+  </header>
+  <nav class="tabs" role="tablist" aria-label="Docket sections" id="tabs"></nav>
+  <main class="p-body" id="p-body" role="tabpanel" tabindex="-1"></main>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</section>
+
+<script src="app.js"></script>
+</body>
+</html>

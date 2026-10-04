@@ -1,4 +1,7 @@
-import { descriptionStatusAfterEdit, applicationDestination } from '../shared/collection';
+import {
+  descriptionStatusAfterEdit,
+  applicationDestination,
+} from "../shared/collection";
 import {
   emptyJob,
   exportUrls,
@@ -7,16 +10,26 @@ import {
   type Job,
   type Capture,
 } from "../shared/model";
+import { mountHandoffs } from "./handoff";
 const app = document.querySelector<HTMLDivElement>("#app")!;
 let state: any = { jobs: [], captures: [], queue: [], sites: [] },
-  view = "collection",
+  view = "here",
+  systemReturn = "here",
   reviewId: string | null = null,
-  editJob: Job | null = null,
-  remoteJobs: any[] | null = null,
+  editJob: Job | null = null;
+let remoteJobs: any[] | null = null,
   remoteTotal = 0,
   remoteCursor: string | null = null,
   searchTerm = "",
-  selectedJob: string | null = null;
+  archived = false,
+  loadError = "";
+let appliedJobs: any[] = [],
+  appliedTotal = 0,
+  appliedOffset = 0,
+  appliedSearch = "",
+  appliedDetail: any = null;
+let disposeHandoff: (() => void) | null = null,
+  skipRemember = false;
 const esc = (s: unknown) =>
   String(s ?? "").replace(
     /[&<>"']/g,
@@ -41,7 +54,7 @@ async function refresh() {
   render();
 }
 const button = (action: string, label: string, primary = false, extra = "") =>
-  `<button class="button ${primary ? "primary" : ""}" data-action="${action}" ${extra}>${label}</button>`;
+  `<button type="button" class="button ${primary ? "primary" : ""}" data-action="${action}" ${extra}>${label}</button>`;
 const input = (
   name: string,
   label: string,
@@ -62,7 +75,7 @@ function jobFields(j: Job) {
     )
     .join(
       "",
-    )}</select></label>${input("employment_type", "Employment type", j.employment_type)}${input("posted_at_raw", "Posted date as shown", j.posted_at_raw)}${input("type", "Role category", j.type)}${input("source", "Source", j.source)}${input("application_url", "Application URL", j.application_url)}${input("source_url", "Source URL", j.source_url)}${input("description", "Job description", j.description, true)}</div><label class="check"><input type="checkbox" name="description_full" ${j.description_status==='full'?'checked':''}>The description is complete. Leave unchecked for a preview or unfinished capture.</label>`;
+    )}</select></label>${input("employment_type", "Employment type", j.employment_type)}${input("posted_at_raw", "Posted date as shown", j.posted_at_raw)}${input("type", "Role category", j.type)}${input("source", "Source", j.source)}${input("application_url", "Application URL", j.application_url)}${input("source_url", "Source URL", j.source_url)}${input("description", "Job description", j.description, true)}</div><label class="check"><input type="checkbox" name="description_full" ${j.description_status === "full" ? "checked" : ""}>The description is complete. Leave unchecked for a preview or unfinished capture.</label>`;
 }
 function readJob(form: HTMLFormElement, original: Job) {
   const data = new FormData(form);
@@ -85,12 +98,19 @@ function readJob(form: HTMLFormElement, original: Job) {
     ? normalizeUrl(next.application_url)
     : null;
   next.resolution_status = next.application_url ? "resolved" : "unresolved";
-  if(next.application_url){
-    const destination=applicationDestination(next.application_url,true);
-    if(!destination)throw Error('Use an employer job URL, not a board, login page or careers homepage.');
-    Object.assign(next,destination);
+  if (next.application_url) {
+    const destination = applicationDestination(next.application_url, true);
+    if (!destination)
+      throw Error(
+        "Use an employer job URL, not a board, login page or careers homepage.",
+      );
+    Object.assign(next, destination);
   }
-  next.description_status = descriptionStatusAfterEdit(original,next.description,data.get('description_full')==='on');
+  next.description_status = descriptionStatusAfterEdit(
+    original,
+    next.description,
+    data.get("description_full") === "on",
+  );
   next.updated_at = new Date().toISOString();
   next.last_seen_at = next.updated_at;
   const metadata = JSON.parse(original.metadata_json);
@@ -109,71 +129,328 @@ function readJob(form: HTMLFormElement, original: Job) {
   });
   return jobSchema.parse(next);
 }
-function card(j: Job & {availability?:string}) {
-  return `<article class="card"><div class="eyebrow">${esc(j.company || "Company not captured")}</div><h3>${esc(j.role || "Untitled job")}</h3><div class="subtitle muted">${esc(j.location || "Location unknown")} · ${esc(j.source)}</div><span class="tag ${j.resolution_status === "resolved" ? "" : "warning"}">${j.resolution_status === "resolved" ? "Application link ready" : "Link unresolved"}</span><span class="tag">${esc(j.description_status || "missing")} description</span>${j.availability === "expired" ? '<span class="tag warning">Posting expired</span>' : ""}<div class="actions"><a class="button" href="${esc(j.application_url || j.source_url)}" target="_blank" rel="noopener noreferrer">Open job ↗</a>${button("edit-job", "Details", false, `data-id="${esc(j.id)}"`)}</div></article>`;
+function link(url: unknown, label: string) {
+  const safe = normalizeUrl(String(url || ""));
+  return safe
+    ? `<a class="button" href="${esc(safe)}" target="_blank" rel="noopener noreferrer">${label} <span aria-hidden="true">↗</span></a>`
+    : `<span class="tiny muted">${label}: not seen yet</span>`;
+}
+function answerEditor(f: any) {
+  const choice =
+    f.answer &&
+    typeof f.answer === "object" &&
+    !Array.isArray(f.answer) &&
+    typeof f.answer.checked === "boolean";
+  const editable =
+    choice ||
+    typeof f.answer === "string" ||
+    f.answer === null ||
+    typeof f.answer === "boolean";
+  if (!editable)
+    return `<p class="tiny muted">Change this selection on the application page and resume capture to record it.</p>`;
+  return `<label class="field">Answer${choice || typeof f.answer === "boolean" ? `<select aria-label="Answer" name="answer:${esc(f.field_id)}"><option value="true" ${(choice ? f.answer.checked : f.answer) ? "selected" : ""}>Yes / checked</option><option value="false" ${!(choice ? f.answer.checked : f.answer) ? "selected" : ""}>No / unchecked</option></select>` : `<textarea aria-label="Answer" name="answer:${esc(f.field_id)}">${esc(f.answer ?? "")}</textarea>`}</label>${button("save-answer", "Save answer", false, `data-field="${esc(f.field_id)}"`)}`;
+}
+function answerText(value: any): string {
+  if (value === null || value === "") return "Not recorded";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (Array.isArray(value))
+    return (
+      value
+        .map((v) =>
+          typeof v === "object"
+            ? v.label || v.filename || v.value || JSON.stringify(v)
+            : String(v),
+        )
+        .join("\n") || "No selection"
+    );
+  if (typeof value === "object" && typeof value.checked === "boolean")
+    return value.checked ? "Checked" : "Not checked";
+  return typeof value === "string" ? value : JSON.stringify(value, null, 2);
+}
+const shortId = (id: unknown) =>
+  String(id || "")
+    .slice(0, 8)
+    .toUpperCase();
+function jobRow(j: any) {
+  return `<article class="job-row"><button class="job-open" data-action="edit-job" data-id="${esc(j.id)}"><span class="row"><strong>${esc(j.role || "Role not seen yet")}</strong><span class="mono tiny">#${esc(shortId(j.id))}</span></span><span class="job-meta">${esc(j.company || "Company not seen yet")} · ${esc(j.location || "Location not seen yet")}</span><span class="tiny muted">${j.archived_at ? "Archived" : j.description_status === "full" ? "● Full description" : j.description_status === "partial" ? "◐ Description excerpt" : "◐ Lead"}${j.application_url ? " · Apply link saved" : " · Apply link not seen yet"}${j.availability === "expired" ? " · Posting expired" : ""}</span></button></article>`;
 }
 function collection() {
   const jobs =
-    (remoteJobs ?? state.jobs).filter(
+    remoteJobs ??
+    state.jobs.filter(
       (j: Job) =>
-        !j.archived_at && (!searchTerm ||
-        `${j.company} ${j.role} ${j.location}`
-          .toLowerCase()
-          .includes(searchTerm.toLowerCase())),
+        Boolean(j.archived_at) === archived &&
+        (!searchTerm ||
+          `${j.company} ${j.role}`
+            .toLowerCase()
+            .includes(searchTerm.toLowerCase())),
     );
-  const ready = state.jobs.filter(
-    (j: Job) => !j.archived_at && j.resolution_status === "resolved",
-  ).length;
-  return `<div class="eyebrow">Your next opportunity</div><h2>A little less busywork.</h2><p class="muted">Browse jobs normally. Keep the details and application links here.</p><div class="stats"><div><strong>${state.jobs.length}</strong><span>ON THIS DEVICE</span></div><div><strong>${ready}</strong><span>LINKS READY</span></div><div><strong>${state.queue.length}</strong><span>WAITING TO SYNC</span></div></div>
- <div class="notice"><div class="row"><strong>${state.tab ? esc(new URL(state.tab.url).hostname) : "Open a job page"}</strong><span class="tiny">${esc(state.mode||'paused')}</span></div><label class="field">Collection mode for this site<select id="collection-mode">${[['auto','Auto — add jobs as I browse'],['manual','Manual — add only jobs I choose'],['paused','Paused — stop gathering']].map(([v,label])=>`<option value="${v}" ${v===(state.mode==='paused'?(state.tab?.origin.includes('symplicity')?'manual':'auto'):state.mode)?'selected':''}>${label}</option>`).join('')}</select></label><div class="actions">${button('set-mode','Save mode')}${state.mode!=='paused' ? button("pause", "Pause collection") : button("enable", "Collect on this site", true)}${button("add-selected", "Add this job", true)}${button("scan", "Scan now")}${!state.tab?button("grant-job-sites", "Allow supported job sites"):""}</div><div class="tiny">Auto adds visible listings. Manual adds only the posting you choose; revisiting saved jobs enriches them. Open and expand details to capture more. Paused stops both. Your choice is saved per site.</div>${button("manual", "Enter details manually")}</div>
- ${state.jobs.some((j:Job)=>!j.archived_at)?`<details class="notice"><summary>Link an employer application page</summary><p class="tiny">If an Apply redirect was not linked, open the employer's job page, select the matching saved job below, then save its destination. Check the company and role first.</p><label class="field">Saved job<select id="destination-job"><option value="">Choose a job</option>${state.jobs.filter((j:Job)=>!j.archived_at).map((j:Job)=>`<option value="${esc(j.id)}">${esc(j.company||'Unknown company')} — ${esc(j.role||'Untitled')}</option>`).join('')}</select></label>${button('link-destination','Use current page as application destination')}</details>`:''}
- <form id="search-form" class="row"><label class="field" style="flex:1">Find a job<input name="q" value="${esc(searchTerm)}" placeholder="Company, role, or location"></label>${button("search", "Search")}</form>
- <div class="row wrap"><span class="tiny muted">${remoteJobs ? `${remoteJobs.length} of ${remoteTotal} saved jobs` : `${jobs.length} local jobs`}</span><div class="actions">${button("copy", "Copy URLs")}${button("download", "Download .txt")}</div></div>
- ${jobs.length ? `<div class="cards">${jobs.map(card).join("")}</div>${remoteJobs && remoteJobs.length < remoteTotal ? button("more", "Load more") : ""}` : `<div class="empty"><div class="number">01 /</div><h2>Start with a job page.</h2><p class="muted">Enable collection, then scroll or open job details. Missing descriptions and links stay marked so you know what needs another look.</p></div>`}`;
+  return `<div class="section-heading"><div><h1>Saved jobs</h1><p class="muted">Leads grow as you browse.</p></div>${button("manual", "Add manually")}</div><form id="search-form" class="search-row"><label class="sr" for="job-search">Search company or role</label><input id="job-search" name="q" value="${esc(searchTerm)}" placeholder="Company or role">${button("search", "Search")}</form><div class="row toolbar"><div class="segmented" aria-label="Job list"><button data-action="active-jobs" aria-pressed="${!archived}">Active</button><button data-action="archived-jobs" aria-pressed="${archived}">Archived</button></div><span class="tiny muted">${remoteJobs ? `${remoteJobs.length} of ${remoteTotal}` : `${jobs.length} on this device`}</span></div>${loadError ? `<div class="notice warning" role="alert">${esc(loadError)} Local data is preserved. ${button("search", "Try again")}</div>` : ""}${jobs.length ? `<div class="cards">${jobs.map(jobRow).join("")}</div>` : `<div class="empty"><h2>${archived ? "No archived jobs" : "A place for your next role"}</h2><p>Open a posting, then use Here to save it. Missing details can be added as you browse.</p></div>`}${remoteCursor ? button("more", "Load more") : ""}<details class="spacer"><summary>Export application links</summary><p class="tiny muted">Exports resolved employer links from the jobs loaded in this view.</p><div class="actions">${button("copy", "Copy URLs")}${button("download", "Download .txt")}</div></details>`;
+}
+function here() {
+  const origin = state.tab?.origin;
+  const jobs = state.jobs.filter(
+    (j: Job) =>
+      !j.archived_at && origin && new URL(j.source_url).origin === origin,
+  );
+  const captures = state.captures.filter((c: Capture) => c.status !== "saved");
+  return `<div class="section-heading"><div><p class="eyebrow">Current page</p><h1>${esc(origin ? new URL(origin).hostname : "Open a job site")}</h1></div>${button("refresh-page", "Refresh")}</div>
+  ${!state.connection ? `<div class="notice">Connect your tracker to start saving jobs. ${button("system", "Connect tracker", true)}</div>` : ""}
+  ${state.tab ? `<fieldset class="mode-picker"><legend>Collection on this site</legend><div class="segmented">${["auto", "manual", "paused"].map((mode) => `<label><input type="radio" name="site-mode" value="${mode}" ${state.mode === mode ? "checked" : ""}><span>${mode === "auto" ? "Auto" : mode === "manual" ? "Manual" : "Paused"}</span></label>`).join("")}</div></fieldset><p class="mode-note">${state.mode === "auto" ? "Visible listings are saved automatically. Open and expand a posting to add details." : state.mode === "manual" ? "Only jobs you choose are added. Saved jobs still gain details as you browse." : "Collection and enrichment are paused on this site."}</p><div class="actions">${button("add-selected", "Save this job", true)}${button("scan", "Refresh details")}</div><p class="tiny muted">Select one posting before saving. Incomplete listings are useful leads.</p>` : `<div class="empty"><p>Switch to a supported job or application tab. If its address is unavailable, allow access below.</p>${button("grant-job-sites", "Allow supported job sites", true)}</div>`}
+  <section class="section"><div class="section-heading"><h2>Saved on this site</h2><span class="tiny muted">${jobs.length}</span></div>${jobs.length ? jobs.slice(-8).reverse().map(jobRow).join("") : '<p class="muted">No saved jobs from this site on this device yet.</p>'}${jobs.length > 8 ? button("all-jobs", "See all jobs") : ""}</section>
+  <section class="section"><div class="section-heading"><h2>Application capture</h2>${button("captures", "Open drafts")}</div><p class="muted">Keep answers across steps, then review them before recording a confirmed application.</p><label class="field">Attach collected job<select id="attach-job"><option value="">Use the current application page</option>${state.jobs
+    .filter((j: Job) => !j.archived_at)
+    .map(
+      (j: Job) =>
+        `<option value="${esc(j.id)}">${esc(j.company || "Unknown company")} — ${esc(j.role || "Untitled")}</option>`,
+    )
+    .join(
+      "",
+    )}</select></label>${button("start", "Start capture on this tab", true)}<p class="tiny muted">${captures.length} local draft${captures.length === 1 ? "" : "s"} · Passwords, verification codes and file contents are excluded.</p></section>
+  ${
+    state.jobs.some((j: Job) => !j.archived_at)
+      ? `<details class="section"><summary>Link an employer application page</summary><p class="muted">Apply navigation normally links supported destinations. For an unmatched page, choose the saved job and confirm its employer and role.</p><label class="field">Saved job<select id="destination-job"><option value="">Choose a job</option>${state.jobs
+          .filter((j: Job) => !j.archived_at)
+          .map(
+            (j: Job) =>
+              `<option value="${esc(j.id)}">${esc(j.company)} — ${esc(j.role)} · #${esc(shortId(j.id))}</option>`,
+          )
+          .join(
+            "",
+          )}</select></label>${button("link-destination", "Link current application page")}</details>`
+      : ""
+  }`;
 }
 function captureView() {
   const c = state.captures.find((c: Capture) => c.capture_id === reviewId) as
     Capture | undefined;
-  if (c) {
-    const editable = c.status === "review";
-    return `<div class="row">${button("back-captures", "← All captures")}<span class="tag">${esc(c.status)}</span></div><h2>${esc(c.job.company || "Application capture")}</h2><p>${esc(c.job.role || "Add job details below")}</p><div class="notice warning">${esc(c.gaps.join(" "))} ${c.pages.flatMap((p) => p.gaps).length} section warnings.</div>
- <form id="capture-form">${editable ? `<details open><summary>Job details</summary>${jobFields(c.job)}</details>${button("save-details", "Save details")}` : ""}
- ${c.pages.map((p) => `<details open><summary>${esc(p.title)} · ${p.fields.length} fields</summary>${p.gaps.map((g) => `<p class="tiny muted">${esc(g)}</p>`).join("")}${p.fields.map((f) => `<div class="answer"><div class="row"><strong>${esc(f.label)}</strong>${editable ? button("remove-field", "Remove", false, `data-field="${esc(f.field_id)}"`) : ""}</div><div class="tiny muted">${esc(f.control_type)} · ${esc(f.answer_state)}</div><pre>${esc(typeof f.answer === "string" ? f.answer : JSON.stringify(f.answer, null, 2))}</pre></div>`).join("")}</details>`).join("")}
- ${editable ? `<label class="field">When did you submit? <input type="datetime-local" name="submittedAt" value="${new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)}" required></label><label class="check"><input type="checkbox" name="confirmed">I submitted this application on the employer's site and have reviewed this capture.</label><div class="actions">${button("submit-capture", "Save submitted application", true)}${button("resume", "Resume capture")}</div>` : c.status === "recording" ? `<div class="actions">${button("capture-section", "Capture this section", true)}${button("finish", "Finish & review")}</div>` : c.status === "saved" ? `<div class="notice">Saved to job_applications · Record ${c.application_id}</div>` : `<div class="notice">Saved locally and queued for sync. Keep the backend running.</div>`}</form>`;
-  }
-  return `<div class="eyebrow">Keep what you wrote</div><h2>Your application notebook.</h2><p class="muted">Capture each section as you apply. Review your answers in one place, even when the employer doesn't offer a review page.</p><label class="field">Attach collected job<select id="attach-job"><option value="">Use the current application page</option>${state.jobs.map((j: Job) => `<option value="${esc(j.id)}">${esc(j.company || "Unknown")} — ${esc(j.role || "Untitled")}</option>`).join("")}</select></label><div class="actions">${button("start", "Start capture on this tab", true)}</div><p class="tiny muted">Capture is limited to this tab and site. Passwords and verification codes are excluded.</p>${state.captures.length ? state.captures.map((c: Capture) => `<article class="card"><span class="eyebrow">${esc(c.status)}</span><h3>${esc(c.job.company || "New application")}</h3><p class="muted">${esc(c.job.role || "Job details not added")} · ${c.pages.length} sections</p><div class="actions">${button("open-capture", "Open capture", false, `data-id="${c.capture_id}"`)}${c.status !== "queued" ? button("discard", "Remove local copy", false, `data-id="${c.capture_id}"`) : ""}</div></article>`).join("") : `<div class="empty"><div class="number">02 /</div><p class="muted">Open an application and start before filling out the first section.</p></div>`}`;
-}
-function settings() {
-  return `<div class="eyebrow">Your shared tracker</div><h2>Connect to KevinC.dev.</h2><p class="muted">Paste your dedicated extension API key (JOBS_EXTENSION_API_KEY) for human handoffs. Jobs and confirmed applications will be saved through your private site's API.</p><form id="connection-form"><label class="field">API URL<input id="api-url" type="url" value="${esc(state.connection?.baseUrl || "https://www.kevinc.dev")}" required></label><label class="field">Job Tracker API key<input id="api-key" type="password" autocomplete="off" placeholder="Paste your API key" required></label>${button("connect-key", "Connect", true)}</form>${state.connection ? `<div class="notice">Connected: ${esc(state.connection.baseUrl)}<br>Last sync: ${state.lastSync ? esc(new Date(state.lastSync).toLocaleString()) : "No writes yet"}</div>` : ""}<h3 class="spacer">Sync queue</h3><p>${state.queue.length} pending operations.</p>${button("retry", "Retry sync")}${state.queue
-    .filter((q: any) => q.error)
-    .map(
-      (q: any) =>
-        `<div class="notice warning">${esc(q.kind)}: ${esc(q.error)}</div>`,
-    )
+  if (!c)
+    return `<div class="section-heading"><h1>Capture drafts</h1>${button("back-here", "← Here")}</div><p class="muted">A finished capture is a record of your answers. It becomes an application only after you confirm submission.</p>${state.captures.length ? state.captures.map((c: Capture) => `<article class="job-row"><span class="eyebrow">${esc(c.paused ? "Paused draft" : c.status === "review" ? "Ready to review" : c.status === "recording" ? "Recording" : c.status === "queued" ? "Save pending" : "Saved application")}</span><h2>${esc(c.job.company || "Application capture")}</h2><p class="muted">${esc(c.job.role || "Job details not added")} · ${c.pages.length} sections</p><div class="actions">${button("open-capture", "Open capture", true, `data-id="${c.capture_id}"`)}${c.status !== "queued" ? button("discard", "Remove local copy", false, `data-id="${c.capture_id}"`) : ""}</div></article>`).join("") : '<div class="empty"><h2>No drafts yet</h2><p>Start capture from Here while your application tab is open.</p></div>'}`;
+  const editable = c.status === "review";
+  return `${button("back-captures", "← Drafts")}<div class="section-heading"><div><p class="eyebrow">${esc(c.paused ? "Paused draft" : c.status)}</p><h1>${esc(c.job.company || "Application capture")}</h1><p>${esc(c.job.role || "Job details not added")}</p></div></div>
+  ${c.status === "recording" ? `<div class="actions">${button("capture-section", "Capture this section", true)}${button("pause-capture", "Pause capture")}${button("finish", "Finish & review")}</div>` : ""}
+  ${c.paused ? `<div class="notice">Your draft is preserved. Resume to capture another section, or finish to review the complete capture.<div class="actions">${button("resume", "Resume capture", true)}${button("finish-paused", "Finish & review")}</div></div>` : ""}
+  <details class="notice"><summary>Coverage and excluded information</summary><p>${esc(c.gaps.join(" "))}</p>${c.pages
+    .flatMap((p) => p.gaps)
+    .map((g) => `<p>${esc(g)}</p>`)
     .join(
       "",
-    )}<p class="tiny muted spacer">Your API key is stored only in the extension's private local storage. Website scripts cannot read it. The Turso database token stays on the server.</p>`;
+    )}<p>Unobserved steps are not inferred. Passwords, codes and file contents are not recorded.</p></details>
+  <form id="capture-form" data-draft="capture:${c.capture_id}">${editable ? `<details><summary>Job details</summary>${jobFields(c.job)}${button("save-details", "Save details")}</details>` : ""}
+  ${c.pages.map((p) => `<details open class="section"><summary>${esc(p.title)} · ${p.fields.length} fields</summary>${p.fields.map((f) => `<div class="answer"><div class="row"><strong>${esc(f.label)}</strong><span class="tiny muted">${esc(f.answer_state)}</span></div><pre>${esc(answerText(f.answer))}</pre>${editable ? `<details><summary>Edit or exclude answer</summary>${answerEditor(f)}<div class="actions">${button("remove-field", "Exclude answer", false, `data-field="${esc(f.field_id)}"`)}</div></details>` : ""}</div>`).join("")}</details>`).join("")}
+  ${editable && !c.paused ? `<section class="section"><h2>Record a confirmed application</h2><p>Finishing capture does not submit anything. Confirm only after you have submitted on the employer’s site.</p><label class="field">When did you submit?<input type="datetime-local" name="submittedAt" value="${new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)}" required></label><label class="check"><input type="checkbox" name="confirmed">I submitted this application on the employer's site and have reviewed this capture.</label><div class="actions">${button("submit-capture", "Save submitted application", true)}${button("resume", "Resume capture")}</div></section>` : c.status === "saved" ? `<div class="notice">Application #${esc(c.application_id)} was saved and read back. ${button("view-applied", "View application", false, `data-id="${c.application_id}"`)}</div>` : c.status === "queued" ? `<div class="notice">Saved locally; waiting for the tracker to confirm the write. ${button("system", "View sync status")}</div>` : ""}</form>`;
+}
+function settings() {
+  const compat = state.compatibility;
+  const label =
+    compat?.status === "verified"
+      ? "Verified"
+      : compat?.status === "incompatible"
+        ? "Update required"
+        : compat?.status === "offline"
+          ? "Unable to check"
+          : "Not recently checked";
+  return `<div class="section-heading"><h1>System</h1>${button("close-system", "Done")}</div><section><h2>Connection</h2><p>${state.connection ? esc(state.connection.baseUrl) : "Connect to keep jobs and applications in your shared tracker."}</p><p class="status-line">${esc(label)}${compat?.checked_at ? ` · ${esc(new Date(compat.checked_at).toLocaleString())}` : ""}</p>${state.connection ? button("check-compatibility", "Check now") : ""}<details ${!state.connection ? "open" : ""}><summary>${state.connection ? "Replace connection key" : "Connect tracker"}</summary><form id="connection-form"><label class="field">API URL<input id="api-url" type="url" value="${esc(state.connection?.baseUrl || "https://www.kevinc.dev")}" required></label><label class="field">Extension API key<input id="api-key" type="password" autocomplete="off" placeholder="Paste your dedicated extension key" required></label>${button("connect-key", "Connect", true)}</form><p class="tiny muted">Use your dedicated human extension key. Stored keys are never displayed.</p></details></section><section class="section"><div class="section-heading"><h2>Sync queue</h2><span class="tiny muted">${state.queue.length} pending</span></div>${state.queue.length ? `<p>Local work is preserved while these writes wait.</p>${state.queue.map((q: any) => `<div class="queue-row"><strong>${esc(q.kind === "application" ? "Confirmed application" : q.kind === "capture" ? "Answer capture" : "Job details")}</strong><p class="tiny ${q.error ? "attention" : "muted"}">${esc(q.error || "Waiting to sync")}</p></div>`).join("")}${button("retry", "Retry sync")}` : '<p class="muted">No pending writes.</p>'}<p class="tiny muted">Last completed sync: ${state.lastSync ? esc(new Date(state.lastSync).toLocaleString()) : "No writes yet"}</p></section><section class="section"><h2>Version & updates</h2><p>Jobs Utility ${esc(chrome.runtime.getManifest().version)}</p><p class="muted">Pause collection on every site, finish active captures and attempts, and wait for pending writes. Stage the update, reload this same extension entry, then verify a fresh diagnostics report. Review drafts remain saved.</p><div class="actions">${button("diagnostics", "Download diagnostics")}<a class="button" href="diagnostics.html" target="_blank">Diagnostics & updates ↗</a></div><p class="tiny muted">Diagnostics contain version, compatibility and activity counts. No keys or captured answers.</p><a href="https://www.kevinc.dev/jobs/docs" target="_blank" rel="noopener noreferrer">Setup, releases & workflow guide ↗</a></section>`;
+}
+function applicationView() {
+  if (appliedDetail) {
+    const j = appliedDetail;
+    let capture: any = null;
+    try {
+      capture =
+        typeof j.other_details === "string"
+          ? JSON.parse(j.other_details)
+          : j.other_details;
+    } catch {}
+    return `${button("back-applied", "← Applied")}<p class="eyebrow spacer">Application #${esc(j.id)} · ${esc(j.date)}</p><h1>${esc(j.role || "Application")}</h1><p>${esc(j.company)}</p><dl class="facts">${Object.entries(
+      j,
+    )
+      .filter(
+        ([k, v]) =>
+          v !== null &&
+          v !== "" &&
+          ![
+            "id",
+            "role",
+            "company",
+            "other_details",
+            "description",
+            "cover_letter_text",
+          ].includes(k),
+      )
+      .map(
+        ([k, v]) =>
+          `<div><dt>${esc(k.replaceAll("_", " "))}</dt><dd>${esc(typeof v === "boolean" ? (v ? "Yes" : "No") : typeof v === "object" ? JSON.stringify(v) : v)}</dd></div>`,
+      )
+      .join(
+        "",
+      )}</dl>${j.description ? `<details><summary>Job description</summary><div class="description">${esc(j.description)}</div></details>` : ""}${capture ? `<details><summary>Saved answers & capture record</summary><div class="readback answers-readback">${(capture.pages || []).map((p: any) => `<section><h3>${esc(p.title)}</h3>${(p.fields || []).map((f: any) => `<div class="answer"><strong>${esc(f.label)}</strong><pre>${esc(answerText(f.answer))}</pre></div>`).join("")}</section>`).join("")}${(capture.packets || []).map((p: any, i: number) => `<section><h3>Original saved page ${i + 1}</h3>${(p.fields || []).map((f: any) => `<div class="answer"><strong>${esc(f.label || f.name)}</strong><pre>${esc(answerText(f.value))}</pre></div>`).join("")}</section>`).join("")}${capture.human_final_page ? `<section><h3>Your final captured page</h3>${(capture.human_final_page.fields || []).map((f: any) => `<div class="answer"><strong>${esc(f.label || f.name)}</strong><pre>${esc(answerText(f.value))}</pre></div>`).join("")}</section>` : ""}</div><details><summary>Raw capture document</summary><pre class="readback">${esc(JSON.stringify(capture, null, 2))}</pre></details></details>` : j.other_details ? `<details><summary>Other details</summary><div class="description">${esc(j.other_details)}</div></details>` : ""}${j.cover_letter_text ? `<details><summary>Cover letter</summary><div class="description">${esc(j.cover_letter_text)}</div></details>` : ""}<p class="tiny muted">Loaded from the saved tracker record.</p>`;
+  }
+  return `<h1>Applied</h1><p class="muted">Submitted applications and existing tracker history.</p><form id="applied-search-form" class="search-row"><label class="sr" for="applied-search">Search company</label><input id="applied-search" name="application-q" placeholder="Company" value="${esc(appliedSearch)}">${button("search-applied", "Search")}</form>${loadError ? `<div class="notice warning" role="alert">${esc(loadError)} ${button("reload-applied", "Try again")}</div>` : ""}${appliedJobs.length ? appliedJobs.map((j) => `<article class="job-row"><button class="job-open" data-action="view-applied" data-id="${j.id}"><span class="row"><strong>${esc(j.role || "Application")}</strong><span class="mono tiny">#${j.id}</span></span><span class="job-meta">${esc(j.company)}</span><span class="tiny muted">${esc(j.date)} · ${esc(j.status || "Legacy tracker record")}</span></button></article>`).join("") : `<div class="empty"><h2>${state.connection ? "No applications in this view" : "Connect to view applications"}</h2><p>Collected, blocked and skipped opportunities belong in Jobs and Handoffs.</p></div>`}${appliedTotal > 20 ? `<nav class="pagination" aria-label="Application pages">${button("previous-applied", "Previous", false, appliedOffset === 0 ? "disabled" : "")}<span>Page ${appliedOffset / 20 + 1} of ${Math.ceil(appliedTotal / 20)}</span>${button("next-applied", "Next", false, appliedOffset + 20 >= appliedTotal ? "disabled" : "")}</nav>` : ""}`;
+}
+function jobDetail() {
+  const j = editJob!;
+  return `${button("close-edit", "← Back")}<p class="eyebrow spacer">${j.archived_at ? "Archived opportunity" : "Saved job"} · #${esc(shortId(j.id))}</p><h1>${esc(j.role || "Job details")}</h1><p class="muted">${esc(j.company || "Company not seen yet")}</p><div class="links-row">${link(j.source_url, "Posting")}${link(j.application_url, "Apply at")}</div><form id="job-form" data-draft="job:${esc(j.id)}">${jobFields(j)}${button("selected-description", "Use highlighted description")}<div class="actions">${button("save-job", "Save job", true)}</div></form>${state.connection ? `<details class="section"><summary>${j.archived_at ? "Restore opportunity" : "Archive opportunity"}</summary><p class="muted">${j.archived_at ? "Return this opportunity to normal lists. Its history and application status are retained." : "Hide this opportunity while keeping its history. Active attempts must be resolved first."}</p>${input("archive_reason", "Reason")}${button(j.archived_at ? "restore-job" : "archive-job", j.archived_at ? "Restore job" : "Archive job")}</details>` : ""}`;
+}
+const drafts = new Map<
+  string,
+  Record<string, { value: string; checked: boolean }>
+>();
+function rememberDrafts() {
+  document
+    .querySelectorAll<HTMLFormElement>("form[data-draft]")
+    .forEach((form) => {
+      const values: Record<string, { value: string; checked: boolean }> = {};
+      form
+        .querySelectorAll<
+          HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+        >("[name]")
+        .forEach(
+          (el) =>
+            (values[el.name] = {
+              value: el.value,
+              checked: (el as HTMLInputElement).checked,
+            }),
+        );
+      drafts.set(form.dataset.draft!, values);
+    });
 }
 function render() {
-  const archiveControls=editJob&&state.connection?`<details class="notice"><summary>Archive this opportunity</summary><p class="tiny">Hide an irrelevant job from the collection while retaining its history. Missing details alone do not require archiving.</p>${input('archive_reason','Reason')}${button('archive-job','Archive job')}</details>`:'';
-  app.innerHTML = `<header><div class="eyebrow">JobsUtilityExtension / 01</div><div class="brand"><h1>Jobs Utility</h1><div class="mark">j.</div></div><div class="connection"><span class="dot ${state.connection ? "online" : ""}"></span>${state.connection ? "Hosted tracker configured" : "Local storage · connect in Settings"}</div></header><nav role="tablist">${["collection", "capture", "settings"].map((v) => `<button role="tab" aria-selected="${view === v}" data-view="${v}">${v === "collection" ? "Collection" : v === "capture" ? "Applications" : "Settings"}${v === "settings" && state.queue.length ? ` (${state.queue.length})` : ""}</button>`).join("")}</nav><div class="row"><a href="handoff.html" target="_blank">Needs your action</a> · <a href="diagnostics.html" target="_blank">Diagnostics & updates</a> · <a href="https://www.kevinc.dev/jobs/docs" target="_blank">Workflow guide</a></div><main>${editJob ? `<div class="row">${button("close-edit", "← Collection")}</div><h2>Job details</h2><form id="job-form">${jobFields(editJob)}${button("selected-description", "Use highlighted description")}<div class="actions">${button("save-job", "Save job", true)}</div></form>${archiveControls}` : view === "collection" ? collection() : view === "capture" ? captureView() : settings()}</main>`;
+  if (!skipRemember) rememberDrafts();
+  skipRemember = false;
+  const focus = (document.activeElement as HTMLInputElement)?.name;
+  const position = (document.activeElement as HTMLInputElement)?.selectionStart;
+  const compat = state.compatibility;
+  const status = !state.connection
+    ? "Not connected"
+    : state.queue.some((q: any) => q.error)
+      ? "Needs attention"
+      : state.queue.length
+        ? `${state.queue.length} pending`
+        : compat?.status === "verified"
+          ? "Connected"
+          : compat?.status === "incompatible"
+            ? "Update required"
+            : "Check connection";
+  const body = editJob
+    ? jobDetail()
+    : view === "here"
+      ? here()
+      : view === "jobs"
+        ? collection()
+        : view === "capture"
+          ? captureView()
+          : view === "applied"
+            ? applicationView()
+            : view === "handoffs"
+              ? '<div id="handoff-root"></div>'
+              : settings();
+  app.innerHTML = `<header class="app-header"><span class="wordmark">Jobs Utility</span><button class="status-chip" data-action="system" aria-label="System: ${esc(status)}"><span aria-hidden="true">${state.queue.some((q: any) => q.error) ? "!" : "○"}</span> ${esc(status)}</button></header><nav class="tabs" role="tablist" aria-label="Main navigation">${[
+    ["here", "Here"],
+    ["jobs", "Jobs"],
+    ["handoffs", "Handoffs"],
+    ["applied", "Applied"],
+  ]
+    .map(
+      ([id, label]) =>
+        `<button data-view="${id}" role="tab" aria-selected="${view === id || (id === "here" && view === "capture")}">${label}</button>`,
+    )
+    .join("")}</nav><main id="main" tabindex="-1">${body}</main>`;
+  document
+    .querySelectorAll<HTMLFormElement>("form[data-draft]")
+    .forEach((form) => {
+      const saved = drafts.get(form.dataset.draft!);
+      if (!saved) return;
+      form
+        .querySelectorAll<
+          HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+        >("[name]")
+        .forEach((el) => {
+          const value = saved[el.name];
+          if (value) {
+            el.value = value.value;
+            if (el instanceof HTMLInputElement) el.checked = value.checked;
+          }
+        });
+    });
+  if (focus) {
+    const el = [...document.querySelectorAll<HTMLInputElement>("[name]")].find(
+      (el) => el.name === focus,
+    );
+    if (el) {
+      el.focus();
+      if (position !== null && ["text", "search", "url"].includes(el.type))
+        el.setSelectionRange(position, position);
+    }
+  }
+  disposeHandoff?.();
+  disposeHandoff = null;
+  if (view === "handoffs" && !editJob)
+    disposeHandoff = mountHandoffs(document.querySelector("#handoff-root")!);
+}
+async function loadJobs(more = false) {
+  if (!state.connection) {
+    remoteJobs = null;
+    return;
+  }
+  const r = await command("search", {
+    filters: {
+      q: searchTerm,
+      archived: String(archived),
+      limit: "30",
+      ...(more && remoteCursor ? { cursor: remoteCursor } : {}),
+    },
+  });
+  remoteJobs = more ? [...(remoteJobs || []), ...r.jobs] : r.jobs;
+  remoteTotal = r.total;
+  remoteCursor = r.next_cursor;
+}
+async function loadApplications() {
+  if (!state.connection) {
+    appliedJobs = [];
+    appliedTotal = 0;
+    return;
+  }
+  const r = await command("applications", {
+    offset: appliedOffset,
+    q: appliedSearch,
+  });
+  appliedJobs = r.jobs;
+  appliedTotal = r.total;
+}
+async function navigate(next: string) {
+  rememberDrafts();
+  view = next;
+  editJob = null;
+  loadError = "";
+  state = await command("state");
+  try {
+    if (next === "jobs") await loadJobs();
+    if (next === "applied") await loadApplications();
+  } catch (e) {
+    loadError = (e as Error).message;
+    if (next === "jobs") remoteJobs = null;
+  }
+  render();
+  document.querySelector<HTMLElement>("#main")?.focus({ preventScroll: true });
+  window.scrollTo(0, 0);
 }
 async function permit() {
-  state=await command('state');
-  if(!state.tab){
-    throw Error('Dia has not granted access to this tab yet. Use Allow supported job sites below, then return to the posting and try again.');
-  }
-  const ok = await chrome.permissions.request({
-    origins: [state.tab.origin + "/*"],
-  });
-  if (!ok) throw Error("Site permission was declined");
+  state = await command("state");
+  if (!state.tab)
+    throw Error(
+      "Allow access to supported job sites, then return to the posting and try again.",
+    );
+  if (
+    !(await chrome.permissions.request({ origins: [state.tab.origin + "/*"] }))
+  )
+    throw Error("Site permission was declined.");
 }
 async function snapshot() {
-  if (!state.tab) throw Error("Open the application tab");
+  if (!state.tab) throw Error("Open the application tab.");
   await command("scan");
-  const reply = await chrome.tabs.sendMessage(state.tab.id, { type: "scan" });
-  if (!reply?.ok)
-    throw Error(reply?.error || "Section capture did not complete.");
+  const r = await chrome.tabs.sendMessage(state.tab.id, { type: "scan" });
+  if (!r?.ok) throw Error(r?.error || "Section capture did not complete.");
 }
 function download(text: string, name: string, mime = "text/plain") {
   const url = URL.createObjectURL(new Blob([text], { type: mime }));
@@ -183,21 +460,95 @@ function download(text: string, name: string, mime = "text/plain") {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
-app.addEventListener("submit", (e) => e.preventDefault());
-app.addEventListener("click", async (event) => {
-  const el = (event.target as Element).closest<HTMLElement>(
+let busy = false;
+async function run(fn: () => Promise<void>) {
+  if (busy) return;
+  busy = true;
+  app.setAttribute("aria-busy", "true");
+  try {
+    await fn();
+  } catch (e) {
+    toast((e as Error).message);
+  } finally {
+    busy = false;
+    app.removeAttribute("aria-busy");
+  }
+}
+function discardFormDraft(key: string) {
+  drafts.delete(key);
+  skipRemember = true;
+}
+app.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const id = (e.target as HTMLElement).id;
+  document
+    .querySelector<HTMLButtonElement>(
+      id === "search-form"
+        ? '[data-action="search"]'
+        : id === "applied-search-form"
+          ? '[data-action="search-applied"]'
+          : id === "job-form"
+            ? '[data-action="save-job"]'
+            : id === "capture-form"
+              ? '[data-action="save-details"]'
+              : '[data-action="connect-key"]',
+    )
+    ?.click();
+});
+app.addEventListener("change", (e) => {
+  const el = e.target as HTMLInputElement;
+  if (el.name === "site-mode")
+    void run(async () => {
+      try {
+        if (el.value === "paused") await command("pause");
+        else {
+          await permit();
+          await command("enable", { mode: el.value });
+          await snapshot();
+        }
+      } finally {
+        await refresh();
+      }
+    });
+});
+app.addEventListener("click", (e) => {
+  const el = (e.target as Element).closest<HTMLElement>(
     "[data-action],[data-view]",
   );
   if (!el) return;
-  event.preventDefault();
-  if (el.dataset.view) {
-    view = el.dataset.view;
-    editJob = null;
-    await refresh();
-    return;
-  }
-  const action = el.dataset.action;
-  try {
+  e.preventDefault();
+  void run(async () => {
+    if (el.dataset.view) {
+      await navigate(el.dataset.view);
+      return;
+    }
+    const action = el.dataset.action;
+    if (action === "system") {
+      systemReturn = view === "system" ? systemReturn : view;
+      await navigate("system");
+      return;
+    }
+    if (action === "close-system") {
+      await navigate(systemReturn);
+      return;
+    }
+    if (action === "back-here") {
+      await navigate("here");
+      return;
+    }
+    if (action === "all-jobs") {
+      await navigate("jobs");
+      return;
+    }
+    if (action === "captures") {
+      reviewId = null;
+      await navigate("capture");
+      return;
+    }
+    if (action === "refresh-page") {
+      await refresh();
+      return;
+    }
     if (action === "connect-key") {
       await command("connect", {
         connection: {
@@ -207,38 +558,57 @@ app.addEventListener("click", async (event) => {
             .value,
         },
       });
-      toast("Connected to your Job Tracker.");
+      toast("Connected to your tracker.");
     }
-    if(action==='grant-job-sites'){
-      const origins=['https://jobright.ai/*','https://www.linkedin.com/*','https://app.joinhandshake.com/*','https://rit-csm.symplicity.com/*'];
-      if(!await chrome.permissions.request({origins}))throw Error('Site access was declined. No collection was enabled.');
-      await refresh();toast('Access granted for the four supported job sites. Return to the job page and choose Collect on this site.');return;
+    if (action === "check-compatibility") {
+      try {
+        await command("checkCompatibility");
+        toast("Current client compatibility verified.");
+      } finally {
+        await refresh();
+      }
     }
-    if (action === "enable") {
-      const mode=(document.querySelector('#collection-mode') as HTMLSelectElement)?.value;
+    if (action === "diagnostics")
+      download(
+        JSON.stringify(await command("diagnostics"), null, 2),
+        "jobs-workflow-diagnostics.json",
+        "application/json",
+      );
+    if (action === "grant-job-sites") {
+      if (
+        !(await chrome.permissions.request({
+          origins: [
+            "https://jobright.ai/*",
+            "https://www.linkedin.com/*",
+            "https://app.joinhandshake.com/*",
+            "https://rit-csm.symplicity.com/*",
+          ],
+        }))
+      )
+        throw Error("Site access was declined.");
+      toast("Access granted. Return to a posting and choose Auto or Manual.");
+    }
+    if (action === "add-selected") {
       await permit();
-      await command("enable",{mode:mode==='manual'?'manual':'auto'});
+      await command("addSelected");
       await snapshot();
+      remoteJobs = null;
+      toast("Job saved. Expanded details will enrich the same record.");
     }
-    if(action==='set-mode'){
-      const mode=(document.querySelector('#collection-mode') as HTMLSelectElement).value;
-      if(mode==='paused')await command('pause');
-      else{await permit();await command('enable',{mode});await snapshot();}
-    }
-    if(action==='add-selected'){
-      await permit();await command('addSelected');await snapshot();
-      remoteJobs=null;toast('Selected job saved. Open or expand its details to enrich it.');
-    }
-    if(action==='link-destination'){
-      const id=(document.querySelector('#destination-job') as HTMLSelectElement).value;
-      if(!id)throw Error('Choose the matching saved job first.');
-      await permit();await command('linkDestination',{id});remoteJobs=null;toast('Application destination saved.');
-    }
-    if (action === "pause") await command("pause");
     if (action === "scan") {
       await permit();
       await snapshot();
-      toast("Page scanned. Open job details if descriptions are missing.");
+      toast("Visible details refreshed.");
+    }
+    if (action === "link-destination") {
+      const id = (
+        document.querySelector("#destination-job") as HTMLSelectElement
+      ).value;
+      if (!id) throw Error("Choose the matching saved job first.");
+      await permit();
+      await command("linkDestination", { id });
+      remoteJobs = null;
+      toast("Application destination saved.");
     }
     if (action === "manual") {
       editJob = emptyJob(state.tab?.url || "https://example.com");
@@ -246,25 +616,28 @@ app.addEventListener("click", async (event) => {
       return;
     }
     if (action === "edit-job") {
-      editJob =
-        state.jobs.find((j: Job) => j.id === el.dataset.id) ||
-        jobSchema.parse((await command("getJob", { id: el.dataset.id })).job);
+      editJob = state.connection
+        ? (await command("getJob", { id: el.dataset.id })).job
+        : state.jobs.find((j: Job) => j.id === el.dataset.id);
+      if (!editJob) throw Error("Job is not available on this device.");
       render();
       return;
     }
     if (action === "close-edit") {
       editJob = null;
+      await navigate(view);
+      return;
     }
-    if(action==='archive-job'){
-      const reason=(document.querySelector('[name="archive_reason"]') as HTMLInputElement).value;
-      await command('archiveJob',{id:editJob!.id,reason});
-      editJob=null;remoteJobs=null;toast('Archived. The record and its history are retained.');
-    }
-    if(action==='selected-description'){
-      await permit();const value=await command('selected-text');
-      if(new URL(value.url).origin!==new URL(editJob!.source_url).origin)throw Error('Selected text is from a different site');
-      (document.querySelector('[name="description"]') as HTMLTextAreaElement).value=value.text;
-      toast('Selected text added. Review the job identity and save.');return;
+    if (action === "selected-description") {
+      await permit();
+      const value = await command("selected-text");
+      if (new URL(value.url).origin !== new URL(editJob!.source_url).origin)
+        throw Error("Selected text is from a different site.");
+      (
+        document.querySelector('[name="description"]') as HTMLTextAreaElement
+      ).value = value.text;
+      toast("Selected text added. Review and save.");
+      return;
     }
     if (action === "save-job") {
       await command("manualJob", {
@@ -273,56 +646,71 @@ app.addEventListener("click", async (event) => {
           editJob!,
         ),
       });
+      discardFormDraft("job:" + editJob!.id);
       editJob = null;
-      toast("Job saved locally and queued.");
+      remoteJobs = null;
+      toast("Saved locally and queued for sync.");
     }
-    if (action === "search" || action === "more") {
-      searchTerm = (
-        document.querySelector<HTMLInputElement>('[name="q"]')?.value ||
-        searchTerm
-      ).trim();
-      if (state.connection) {
-        const r = await command("search", {
-          filters: {
-            q: searchTerm,
-            limit: "50",
-            ...(action === "more" && remoteCursor
-              ? { cursor: remoteCursor }
-              : {}),
-          },
-        });
-        remoteJobs =
-          action === "more" ? [...(remoteJobs || []), ...r.jobs] : r.jobs;
-        remoteTotal = r.total;
-        remoteCursor = r.next_cursor;
-      } else remoteJobs = null;
+    if (action === "archive-job" || action === "restore-job") {
+      const reason = (
+        document.querySelector('[name="archive_reason"]') as HTMLInputElement
+      ).value;
+      await command(action === "archive-job" ? "archiveJob" : "restoreJob", {
+        id: editJob!.id,
+        reason,
+      });
+      discardFormDraft("job:" + editJob!.id);
+      editJob = null;
+      remoteJobs = null;
+      await loadJobs();
+      toast(
+        action === "archive-job"
+          ? "Archived with history retained. Restore it from Archived."
+          : "Restored with history retained.",
+      );
+    }
+    if (["search", "more", "active-jobs", "archived-jobs"].includes(action!)) {
+      const q = document.querySelector<HTMLInputElement>('[name="q"]');
+      searchTerm = q ? q.value.trim() : searchTerm;
+      if (action === "active-jobs" || action === "archived-jobs")
+        archived = action === "archived-jobs";
+      loadError = "";
+      await loadJobs(action === "more");
     }
     if (action === "copy" || action === "download") {
-      const jobs = (remoteJobs || state.jobs) as Job[];
-      const urls = exportUrls(jobs);
-      if (!urls) throw Error("No resolved application URLs in this view yet.");
+      const urls = exportUrls((remoteJobs || state.jobs) as Job[]);
+      if (!urls) throw Error("No employer application URLs in this view yet.");
       if (action === "copy") {
         await navigator.clipboard.writeText(urls);
         toast("Application URLs copied.");
       } else download(urls, "job-application-urls.txt");
     }
     if (action === "start") {
-      await permit();
       const id = (document.querySelector("#attach-job") as HTMLSelectElement)
         .value;
+      await permit();
       reviewId = await command("start", {
         job: state.jobs.find((j: Job) => j.id === id),
       });
+      view = "capture";
       await snapshot();
     }
-    if (action === "open-capture") reviewId = el.dataset.id!;
+    if (action === "open-capture") {
+      reviewId = el.dataset.id!;
+      view = "capture";
+    }
     if (action === "back-captures") reviewId = null;
     if (action === "capture-section") {
       await snapshot();
       toast("Current section captured.");
     }
-    if (action === "finish") {
+    if (action === "pause-capture") {
       await snapshot();
+      await command("pauseCapture", { id: reviewId });
+      toast("Capture paused. Your draft is saved on this device.");
+    }
+    if (action === "finish" || action === "finish-paused") {
+      if (action === "finish") await snapshot();
       await command("review", { id: reviewId });
     }
     if (action === "resume") {
@@ -331,48 +719,154 @@ app.addEventListener("click", async (event) => {
       await snapshot();
     }
     if (
-      action === "save-details" ||
-      action === "remove-field" ||
-      action === "submit-capture"
+      [
+        "save-details",
+        "save-answer",
+        "remove-field",
+        "submit-capture",
+      ].includes(action!)
     ) {
       const c = state.captures.find((c: Capture) => c.capture_id === reviewId);
       const form = document.querySelector<HTMLFormElement>("#capture-form")!;
+      let fieldEdit;
+      if (action === "save-answer") {
+        const f = c.pages
+          .flatMap((p: any) => p.fields)
+          .find((f: any) => f.field_id === el.dataset.field);
+        const value = String(
+          new FormData(form).get("answer:" + el.dataset.field) ?? "",
+        );
+        fieldEdit = {
+          field_id: f.field_id,
+          answer:
+            typeof f.answer === "boolean"
+              ? value === "true"
+              : f.answer &&
+                  typeof f.answer === "object" &&
+                  !Array.isArray(f.answer)
+                ? { ...f.answer, checked: value === "true" }
+                : value,
+        };
+      }
+      const data = new FormData(form);
+      if (action === "submit-capture" && data.get("confirmed") !== "on")
+        throw Error(
+          "Confirm submission on the employer site before saving an application.",
+        );
       await command("editCapture", {
         id: reviewId,
         job: readJob(form, c.job),
-        removeField: el.dataset.field,
+        removeField: action === "remove-field" ? el.dataset.field : undefined,
+        fieldEdit,
       });
+      discardFormDraft("capture:" + reviewId);
       if (action === "submit-capture") {
-        const data = new FormData(form);
         await command("submit", {
           id: reviewId,
-          confirm: data.get("confirmed") === "on",
+          confirm: true,
           submittedAt: String(data.get("submittedAt") || ""),
         });
-        toast("Confirmed application queued for saving.");
+        toast(
+          "Confirmed application queued. We will read it back after saving.",
+        );
       } else
         toast(
           action === "remove-field"
-            ? "Field removed from this capture."
-            : "Details saved.",
+            ? "Answer excluded from this capture."
+            : "Capture changes saved locally.",
         );
+    }
+    if (action === "discard") {
+      if (
+        !confirm(
+          "Remove this local capture? Its saved tracker records will remain.",
+        )
+      )
+        return;
+      await command("discard", { id: el.dataset.id });
+      drafts.delete("capture:" + el.dataset.id);
     }
     if (action === "retry") {
       await command("retry");
       toast("Sync retry requested.");
     }
-    if (action === "discard") {
-      if (
-        !confirm(
-          "Remove this local capture? Any saved database record will remain.",
-        )
-      )
-        return;
-      await command("discard", { id: el.dataset.id });
+    if (action === "view-applied") {
+      appliedDetail = (await command("application", { id: el.dataset.id })).job;
+      await navigate("applied");
+      return;
+    }
+    if (action === "back-applied") appliedDetail = null;
+    if (
+      [
+        "search-applied",
+        "reload-applied",
+        "next-applied",
+        "previous-applied",
+      ].includes(action!)
+    ) {
+      if (action === "search-applied") {
+        appliedSearch = (
+          document.querySelector("#applied-search") as HTMLInputElement
+        ).value.trim();
+        appliedOffset = 0;
+      }
+      if (action === "next-applied") appliedOffset += 20;
+      if (action === "previous-applied")
+        appliedOffset = Math.max(0, appliedOffset - 20);
+      loadError = "";
+      await loadApplications();
     }
     await refresh();
-  } catch (e) {
-    toast((e as Error).message);
+  });
+});
+document.addEventListener("keydown", (e) => {
+  if (
+    (e.target as Element).closest(
+      'input,textarea,select,[contenteditable="true"]',
+    ) ||
+    e.altKey ||
+    e.metaKey ||
+    e.ctrlKey
+  )
+    return;
+  if (
+    (e.target as Element).closest(".tabs") &&
+    ["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)
+  ) {
+    e.preventDefault();
+    const tabs = ["here", "jobs", "handoffs", "applied"];
+    const current = Math.max(0, tabs.indexOf(view));
+    const index =
+      e.key === "Home"
+        ? 0
+        : e.key === "End"
+          ? 3
+          : (current + (e.key === "ArrowRight" ? 1 : 3)) % 4;
+    void run(async () => {
+      await navigate(tabs[index]);
+      document
+        .querySelector<HTMLElement>(`[data-view="${tabs[index]}"]`)
+        ?.focus();
+    });
+    return;
+  }
+  const next: Record<string, string> = {
+    "1": "here",
+    "2": "jobs",
+    "3": "handoffs",
+    "4": "applied",
+  };
+  if (next[e.key]) {
+    e.preventDefault();
+    void run(() => navigate(next[e.key]));
+  }
+  if (e.key === "/" && view === "jobs") {
+    e.preventDefault();
+    document.querySelector<HTMLInputElement>("#job-search")?.focus();
+  }
+  if (e.key === "Escape" && (editJob || view === "system")) {
+    e.preventDefault();
+    void run(() => navigate(view === "system" ? systemReturn : view));
   }
 });
 let updateTimer: ReturnType<typeof setTimeout>;
@@ -380,17 +874,15 @@ chrome.storage.onChanged.addListener(() => {
   clearTimeout(updateTimer);
   updateTimer = setTimeout(() => {
     if (
+      !busy &&
+      view !== "handoffs" &&
       !document.activeElement?.matches("input,textarea,select") &&
       !editJob &&
-      !(
-        view === "capture" &&
-        state.captures.find((c: Capture) => c.capture_id === reviewId)
-          ?.status === "review"
-      )
+      !(view === "capture" && reviewId)
     )
-      void refresh();
+      void refresh().catch((e) => toast(e.message));
   }, 500);
 });
-void refresh().catch((e) => {
-  app.textContent = "Unable to load extension: " + e.message;
-});
+void refresh().catch(
+  (e) => (app.textContent = "Unable to load extension: " + e.message),
+);
