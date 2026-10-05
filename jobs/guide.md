@@ -73,7 +73,7 @@ The Google Drive job-search folder is a retained migration snapshot after the ve
 
 ## Unified collection and human handoffs (API 1.2, extension 0.4)
 
-Install **JobsUtilityExtension 0.4** for collection, capture, and the **Needs your action** queue. Do not install a second handoff extension. The older ATS Captcha Handoff package remains a standalone compatibility tool; its packet schema 1.0 and agent producer are reused by the combined extension. Existing Jobs Utility installations must retain their loaded directory/extension ID and settings during update. Dia live acceptance is pending until Kevin installs and tests the combined build; fixture success is not certification of every live site.
+Use the current verified **Jobs Utility** release advertised by discovery for collection, capture, and the human handoff queue. Do not install a second handoff extension. The older ATS Captcha Handoff package remains a standalone compatibility tool; its packet schema 1.0 and agent producer are reused by the combined extension. Existing installations must retain their loaded directory/extension ID and settings during update. Running-version diagnostics and live-site acceptance are separate evidence: consult the dated verification summary in the private shared workspace. Fixture success is not certification of every live site.
 
 Use `JOBS_API_KEY` for agent work and the separately configured `JOBS_EXTENSION_API_KEY` for the human extension. A signed-in website user can also perform manual actions. Never give the human extension key to an application agent to bypass a blocker. The R2 workspace token is a separate document credential.
 
@@ -94,7 +94,7 @@ A closed posting is separate from a lost lease, a skipped application, or an old
 
 Existing blocked/skipped/CAPTCHA rows in the legacy applications table remain untouched and excluded by the applied-only view. Legacy non-submitted inserts now return a deprecation link; update agents to workflow endpoints. Run `node jobs/scripts/audit-legacy.mjs PRIVATE_REPORT_PATH` with the writer key only to produce a read-only link-candidate and duplicate report. It never rewrites IDs, fabricates receipt evidence, or creates historical attempts. Review the mapping before a separate backfill.
 
-### Dia tab access and current board layouts (0.4.4)
+### Dia tab access and board collectors (introduced in 0.4.4)
 
 A side panel does not automatically inherit active-tab access when you navigate to a different site. If the current job tab cannot be identified, use **Allow supported job sites** to approve access to Jobright, LinkedIn, Handshake and RIT Career Connect, then return to the job page and enable collection. This uses the existing optional host permissions and adds no browser-wide tabs permission. Other sites still require their own explicit site access.
 
@@ -129,3 +129,7 @@ The header status opens **System** for connection setup, sync retries, updates a
 Capture pause preserves a local review draft without confirming an application. Finish records observed sections for review. Simple text and checkbox answers can be corrected while reviewing; complex selections should be corrected on the original page and recaptured. Exclusion affects the reviewed local capture; existing immutable server revisions remain historical evidence. Tab navigation preserves unsaved field edits while the panel stays open. Save edits explicitly before closing it. Submission confirmation is always explicit; neither a detected receipt, Finish, nor a field restore clicks Submit or automatically marks an application applied.
 
 The independent design in jobs/design/docket is a synthetic prototype, not an API definition or permission to submit. Actual lease durations and supported operations remain defined by the hosted guide/OpenAPI. Per-field provenance and conflict merging remain future proposals.
+
+### Release metadata verification (0.6.1)
+
+Published release metadata must satisfy the shared response schema, including a verification timestamp. Discovery ignores incomplete manifests. Release operators run `npm run verify:release --prefix jobs -- DEPLOYED_COMMIT` with a configured tracker credential after the compatible backend is deployed and before uploading the final manifest. The tool validates actual public responses, artifact checksums and authenticated read access, then records verified_at. Published artifact bytes remain immutable; corrected releases use a new version.

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { published } from './jobWorkflowPublished'
 import { workflowChanges } from './jobWorkflowChanges'
+import { responseSchemas } from './jobApiDefinition'
 
 export const publicWorkflowResources = ['discovery','openapi.json','guide','changes','releases'] as const
 export function isPublicWorkflowRequest(pathname: string, method: string) {
@@ -13,6 +14,7 @@ export async function verifiedReleases() {
   const response=await fetch(releaseBase+'release.json',{cache:'no-store',signal:AbortSignal.timeout(4000)})
   if(!response.ok)return []
   const release=await response.json()
+  if(!responseSchemas.releases.safeParse({releases:[release]}).success || !Number.isFinite(Date.parse(release.verified_at)))return []
   if(release.verified!==true || release.version!==published.client_version || release.contract_hash!==published.contract_hash || !/^[a-f0-9]{40}$/.test(release.source_commit) || (!Array.isArray(release.artifacts) || !release.artifacts.some((a:{kind:string})=>a.kind==='cli') || !release.artifacts.some((a:{kind:string})=>a.kind==='extension')))return []
   if(!release.artifacts.every((a:{url:string;sha256:string;size:number;kind:string})=>typeof a.url==='string' && a.url.startsWith(releaseBase) && ['cli','extension','zip'].includes(a.kind) && /^[a-f0-9]{64}$/.test(a.sha256) && Number.isSafeInteger(a.size) && a.size>0 && a.size<20_000_000))return []
   return [release]
