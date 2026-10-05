@@ -12,3 +12,5 @@ Release: update API/client versions and `jobWorkflowChanges`, regenerate, run ch
 The public entry points are static metadata and must not initialize a database or accept mutations. All runtime job data retains existing authentication. Protocol changes require a changelog and compatibility review; a breaking contract change requires a major API version and migration instructions.
 
 Hermes bootstrap adds a narrow managed pointer to SOUL.md because the inspected Hermes runtime loads that globally; a home-level AGENTS.md is not its global instruction source. Existing persona text is preserved.
+
+Implementation backlog: https://github.com/users/kvn8888/projects/5/views/2 . Keep pending work and acceptance criteria in linked repository issues. Independent synthetic UI design and implementation boundaries are retained in `jobs/design/docket/`.

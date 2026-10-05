@@ -421,6 +421,10 @@ async function handle(m: any, sender: chrome.runtime.MessageSender) {
       const value=r[0]?.result;if(!value?.text.trim())throw Error('Highlight the expanded job description on the job page first');
       if(value.text.length>50000)throw Error('Selection exceeds 50,000 characters');return value;
     }
+    case "checkCompatibility": {
+      if(!s.connection)throw Error("Connect to the tracker first.");
+      await preflight(s.connection.baseUrl,true);return compatibilitySnapshot();
+    }
     case "diagnostics": {
       const info = await (await fetch(chrome.runtime.getURL('build-info.json'))).json();
       const active = s.captures.filter(c => c.status === 'recording').length;
@@ -438,6 +442,7 @@ async function handle(m: any, sender: chrome.runtime.MessageSender) {
         connection: s.connection ? { baseUrl: s.connection.baseUrl } : null,
         tab,
         mode:tab?collectionMode(s,tab.origin):'paused',
+        compatibility:compatibilitySnapshot(),
       };
     }
     case "connect": {
@@ -532,12 +537,13 @@ async function handle(m: any, sender: chrome.runtime.MessageSender) {
       }
       await save(s);return j;
     }
-    case 'archiveJob': {
+    case 'archiveJob':
+    case 'restoreJob': {
       if(!s.connection)throw Error('Connect before archiving a saved job.');
       if(s.queue.some(q=>q.id===m.id))throw Error('Wait for this job to finish syncing before archiving.');
       const current=(await hostedRequest(s.connection,'/api/job-collection/'+encodeURIComponent(m.id))).job;
-      const reason=String(m.reason||'').trim();if(!reason)throw Error('Enter an archive reason.');
-      const saved=decodeJob((await hostedRequest(s.connection,'/api/job-collection/'+encodeURIComponent(m.id),'PATCH',{archived_at:new Date().toISOString(),status_notes:reason},{'If-Match':`"${current.version}"`})).job);
+      const reason=String(m.reason||'').trim();if(!reason)throw Error('Enter a reason.');
+      const saved=decodeJob((await hostedRequest(s.connection,'/api/job-collection/'+encodeURIComponent(m.id),'PATCH',{archived_at:m.type==='restoreJob'?null:new Date().toISOString(),status_notes:reason},{'If-Match':`"${current.version}"`})).job);
       s.jobs=s.jobs.filter(j=>j.id!==saved.id);s.jobs.push(saved);
       s.destinationWatches=(s.destinationWatches||[]).filter(w=>w.jobId!==saved.id);
       await save(s);return true;
@@ -594,15 +600,22 @@ async function handle(m: any, sender: chrome.runtime.MessageSender) {
         throw Error("Finish the other capture first");
       c.tab_id = t.id;
       c.status = "recording";
+      c.paused = false;
       await save(s);
       await inject(t.id, t.origin);
       return true;
+    }
+    case "pauseCapture": {
+      const c=s.captures.find(c=>c.capture_id===m.id);
+      if(!c || c.status!=="recording")throw Error("Only an active capture can be paused");
+      c.status="review";c.paused=true;await save(s);return true;
     }
     case "review": {
       const c = s.captures.find((c) => c.capture_id === m.id);
       if (!c || !["recording", "review"].includes(c.status))
         throw Error("Capture is already queued or saved");
       c.status = "review";
+      c.paused = false;
       c.finished_at = new Date().toISOString();
       c.cloud_revision = (c.cloud_revision || 0) + 1;
       s.queue.push({
@@ -631,15 +644,25 @@ async function handle(m: any, sender: chrome.runtime.MessageSender) {
       if (!c || c.status !== "review")
         throw Error("Finish capture before editing");
       c.job = jobSchema.parse(m.job);
+      if (m.fieldEdit) {
+        const field=c.pages.flatMap(p=>p.fields).find(f=>f.field_id===m.fieldEdit.field_id);
+        if(!field)throw Error("Captured field not found");
+        const answer=m.fieldEdit.answer;
+        const choice=field.answer&&typeof field.answer==='object'&&!Array.isArray(field.answer)&&typeof (field.answer as any).checked==='boolean';
+        const valid=choice?answer&&typeof answer==='object'&&typeof answer.checked==='boolean'&&answer.value===(field.answer as any).value&&Object.keys(answer).every(k=>['checked','value'].includes(k)):typeof field.answer==='boolean'?typeof answer==='boolean':(typeof field.answer==='string'||field.answer===null)&&typeof answer==='string';
+        if(!valid || JSON.stringify(answer).length>50000)throw Error("Answer type changed or value is too large; recapture complex controls on the original page.");
+        field.answer=answer;field.answer_state=answer===null||answer===''?'blank':'answered';
+      }
       if (m.removeField)
         for (const p of c.pages)
           p.fields = p.fields.filter((f) => f.field_id !== m.removeField);
+      if(JSON.stringify(c).length>1_000_000)throw Error("Capture is too large. Exclude unnecessary answers before saving.");
       await save(s);
       return true;
     }
     case "submit": {
       const c = s.captures.find((c) => c.capture_id === m.id);
-      if (!c || c.status !== "review" || m.confirm !== true)
+      if (!c || c.status !== "review" || c.paused || m.confirm !== true)
         throw Error("Review and confirm submission first");
       if (!c.job.company?.trim() || !c.job.role?.trim())
         throw Error("Enter company and role before saving");
@@ -695,8 +718,15 @@ async function handle(m: any, sender: chrome.runtime.MessageSender) {
       return request(s, "/jobs?" + new URLSearchParams(m.filters || {}));
     case "getJob":
       return request(s, "/jobs/" + encodeURIComponent(m.id));
-    case "applications":
-      return request(s, "/applications");
+    case "applications": {
+      if(!s.connection)throw Error("Connect to load applications.");
+      const offset=Math.max(0,Number(m.offset)||0);
+      return hostedRequest(s.connection,"/api/jobs?"+new URLSearchParams({view:'applied',limit:'20',offset:String(offset),q:String(m.q||'')}));
+    }
+    case "application": {
+      if(!s.connection)throw Error("Connect to read an application.");
+      return hostedRequest(s.connection,"/api/jobs/"+encodeURIComponent(m.id));
+    }
     case "discard": {
       const c = s.captures.find((c) => c.capture_id === m.id);
       if (c?.status === "queued")

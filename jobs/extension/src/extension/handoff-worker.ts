@@ -109,6 +109,13 @@ export async function handoffHandle(m: any, connection?: Connection) {
     }
   }
   if (!w) throw Error("Take a handoff first.");
+  if (m.type === "handoff-check") {
+    try {
+      await api(`attempts/${w.id}/heartbeat`,"POST",{claim_token:w.token,...(w.stage==='submit_started'?{stage:'submit_started'}:{})});
+      w.error=undefined;await store(w);return safe(w);
+    } catch(e){w.error=e instanceof Error?e.message:'Ownership check failed';await store(w);throw e;}
+  }
+
   const packet = () => {
     const i = Number(m.packetIndex || 0);
     if (!Number.isSafeInteger(i) || i < 0 || i >= w!.document.packets.length)

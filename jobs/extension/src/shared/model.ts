@@ -98,6 +98,7 @@ export type PageSnapshot = {
   gaps: string[];
 };
 export type Capture = {
+  paused?: boolean;
   cloud_revision?: number;
   schema_version: 1;
   capture_id: string;

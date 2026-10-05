@@ -119,3 +119,13 @@ jobs-workflow collection restore --id COLLECTION_UUID --reason "Reviewed: recons
 ```
 
 Audit is read-only and reports enrichment needs and possible company/title duplicates. Those are review candidates, not proof of duplicate openings or instructions to discard incomplete records. Archive/restore requires a writer credential, fetches the current version, PATCHes with If-Match and verifies readback. Restore removes the archive marker; it does not erase attempts or change applied/blocked/not-applicable status. Version conflicts stop for reread. There is no background cleanup agent, bulk deletion, or automatic merge of existing records. Use evidence-backed availability changes for expired postings, and preserve unresolved submission history.
+
+## Extension navigation and capture review (0.6.0)
+
+**Here** holds per-site Auto/Manual/Paused collection, explicit saving and refresh of a selected posting, employer-page linking, and capture start. **Jobs** searches the shared collection and provides archived views and reasoned restore. **Handoffs** brings the existing human lease, page-scoped restore, submission intent, recovery and explicit confirmed completion into the side panel. **Applied** reads the existing applied-only tracker view, including compatible legacy tracker records, and expands the saved record and captured answers. The optional full-page handoff view remains available.
+
+The header status opens **System** for connection setup, sync retries, updates and sanitized diagnostics. A stale compatibility check means verification needs refreshing; it is distinct from an unsupported client. New work still requires successful current verification. Existing drafts and recovery remain available.
+
+Capture pause preserves a local review draft without confirming an application. Finish records observed sections for review. Simple text and checkbox answers can be corrected while reviewing; complex selections should be corrected on the original page and recaptured. Exclusion affects the reviewed local capture; existing immutable server revisions remain historical evidence. Tab navigation preserves unsaved field edits while the panel stays open. Save edits explicitly before closing it. Submission confirmation is always explicit; neither a detected receipt, Finish, nor a field restore clicks Submit or automatically marks an application applied.
+
+The independent design in jobs/design/docket is a synthetic prototype, not an API definition or permission to submit. Actual lease durations and supported operations remain defined by the hosted guide/OpenAPI. Per-field provenance and conflict merging remain future proposals.
