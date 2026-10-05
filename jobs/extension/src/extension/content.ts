@@ -7,7 +7,8 @@ if (!win.__jobsUtility) {
   let fingerprint = "";
   let lastError: string | null = null;
   let summary = {mode:"paused",found:0,queued:0,skipped:0};
-  const send = (message: unknown) => chrome.runtime.sendMessage(message);
+  // A reloaded extension can invalidate old page scripts; turn synchronous API errors into rejections.
+  const send = async (message: unknown) => chrome.runtime.sendMessage(message);
   async function performScan(force = false) {
     const trace_id=crypto.randomUUID();
     try {
