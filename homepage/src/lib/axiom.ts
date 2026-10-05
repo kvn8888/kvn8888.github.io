@@ -134,6 +134,7 @@ export async function queryServerEvents(args: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
+      signal: AbortSignal.timeout(5000),
       body: JSON.stringify({
         apl,
         startTime: args.startTime ?? 'now-24h',

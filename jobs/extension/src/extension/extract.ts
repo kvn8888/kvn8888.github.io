@@ -187,8 +187,11 @@ export function extractJobs(doc: Document, url: string): Job[] {
       facts(main,j);
       j.metadata_json=JSON.stringify({...JSON.parse(j.metadata_json),collection_context:'detail'});
       j.description_status=j.description?'partial':'missing'; // DOM may still be collapsed; never promise completeness.
-      const apply=(board==='jobright'?doc:main).querySelector<HTMLAnchorElement>('a[data-testid="apply-button"],a[aria-label="Apply externally"],a[href*="myworkdayjobs.com"],a[href*="greenhouse.io"],a[href*="lever.co"],a[href*="ashbyhq.com"]');
-      if(apply){const destination=normalizeUrl(apply.getAttribute('href')||'',url);if(destination&&new URL(destination).hostname!==host)j.application_url=destination;}
+      // Jobright explicitly labels the employer source, including custom ATS domains.
+      // Scope this to the selected posting; recommendation-card links are not destinations.
+      const original = board==='jobright' ? [...doc.querySelectorAll<HTMLAnchorElement>('a[href]')].find(a=>/^Original Job Post$/i.test(txt(a)||'')) : null;
+      const apply=original || (board==='jobright'?doc:main).querySelector<HTMLAnchorElement>('a[data-testid="apply-button"],a[aria-label="Apply externally"],a[href*="myworkdayjobs.com"],a[href*="greenhouse.io"],a[href*="lever.co"],a[href*="ashbyhq.com"]');
+      if(apply){const destination=normalizeUrl(apply.getAttribute('href')||'',url);if(destination&&new URL(destination).hostname!==host){const valid=applicationDestination(destination,true);if(valid){Object.assign(j,valid);j.metadata_json=JSON.stringify({...JSON.parse(j.metadata_json),destination_source:original?'jobright_original_post':'employer_link'});}}}
       if(j.role)finish(j);
     }
   }

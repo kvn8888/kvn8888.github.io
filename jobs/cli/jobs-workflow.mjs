@@ -7,7 +7,7 @@ import {createHash,randomUUID} from 'node:crypto';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {maintainCollection} from './collection.mjs';
 
-export const VERSION='0.6.1';
+export const VERSION='0.7.0';
 const BASE='https://www.kevinc.dev';
 const REPOSITORY='https://github.com/kvn8888/kvn8888.github.io/releases/download/';
 export const sha256=data=>createHash('sha256').update(data).digest('hex');

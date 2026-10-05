@@ -172,3 +172,20 @@ test("navigation watches expire and reject unrelated tabs; only selected Apply c
     null,
   );
 });
+
+
+test('Jobright Original Job Post captures a custom employer destination on the same selected identity',()=>{
+ const url='https://jobright.ai/jobs/info/selected-123';
+ const html='<a href="https://jobs.example.com/job/city/software-engineer/123/456?jr_id=selected-123"><svg aria-label="job post link"></svg><span>Original Job Post</span></a><div id="overview-1"><h1>Software Engineer 1</h1><div class="company-name">Example</div><section><h2>Responsibilities</h2><ul><li>Build services</li></ul></section></div>';
+ const job=extractSelectedJob(doc(html),url)!;
+ assert.equal(job.identity_key,'jobright:selected-123');
+ assert.equal(job.source_url,url);
+ assert.equal(job.application_url,'https://jobs.example.com/job/city/software-engineer/123/456');
+ assert.equal(job.resolution_status,'resolved');
+ assert.equal(JSON.parse(job.metadata_json).destination_source,'jobright_original_post');
+ for(const bad of ['javascript:alert(1)','https://jobs.example.com/login','https://jobs.example.com/careers','https://jobright.ai/jobs/recommend']){
+  const rejected=extractSelectedJob(doc(html.replace('https://jobs.example.com/job/city/software-engineer/123/456?jr_id=selected-123',bad)),url)!;
+  assert.equal(rejected.application_url,null);
+ }
+ assert.equal(extractJobs(doc(html),'https://jobright.ai/jobs/recommend').length,0,'Unselected board must not attach the link to unrelated cards');
+});

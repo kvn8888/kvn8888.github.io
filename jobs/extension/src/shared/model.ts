@@ -116,6 +116,7 @@ export type Capture = {
   existing_application_id?: number;
 };
 export type QueueItem = {
+  trace_id?: string;
   claimToken?: string;
   id: string;
   kind: "job" | "application" | "capture";

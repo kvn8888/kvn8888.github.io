@@ -6,12 +6,16 @@ if (!win.__jobsUtility) {
   let flight: Promise<void> | null = null;
   let fingerprint = "";
   let lastError: string | null = null;
-  const send = (message: unknown) => chrome.runtime.sendMessage(message);
+  let summary = {mode:"paused",found:0,queued:0,skipped:0};
+  // A reloaded extension can invalidate old page scripts; turn synchronous API errors into rejections.
+  const send = async (message: unknown) => chrome.runtime.sendMessage(message);
   async function performScan(force = false) {
+    const trace_id=crypto.randomUUID();
     try {
       lastError = null;
       const context = await send({ type: "context" });
-      if (!context?.ok) return;
+      if (!context?.ok) throw Error(context?.error || "Collector context unavailable");
+      summary={mode:context.data.mode,found:0,queued:0,skipped:0};
       if (context.data.collect) {
         const jobs = extractJobs(document, location.href);
         const signature = JSON.stringify(
@@ -20,11 +24,9 @@ if (!win.__jobsUtility) {
           ),
         );
         if (force || signature !== fingerprint) {
-          if (jobs.length) {
-            const r = await send({ type: "observed", jobs });
-            if (r?.ok) fingerprint = signature;
-            else throw Error(r?.error || "Job capture failed");
-          }
+          const r = await send({ type: "observed", jobs,trace_id });
+          if (r?.ok) {fingerprint = signature;summary=r.data;}
+          else throw Error(r?.error || "Job capture failed");
         }
       }
       if (context.data.capture) {
@@ -38,6 +40,7 @@ if (!win.__jobsUtility) {
       }
     } catch (e) {
       lastError = e instanceof Error ? e.message : "Capture failed";
+      void send({type:"scanFailed",trace_id}).catch(()=>{});
     }
   }
   function scan(force = false): Promise<void> {
@@ -76,7 +79,7 @@ if (!win.__jobsUtility) {
   setInterval(() => void scan(), 3000);
   chrome.runtime.onMessage.addListener((message, _sender, respond) => {
     if (message.type === "scan") {
-      scan(true).then(() => respond({ ok: !lastError, error: lastError }));
+      scan(true).then(() => respond({ ok: !lastError, error: lastError,summary }));
       return true;
     }
     if (message.type === "readPage") {

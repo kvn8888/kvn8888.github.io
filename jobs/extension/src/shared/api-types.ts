@@ -1,4 +1,22 @@
 export interface paths {
+    "/api/job-workflow/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read technical workflow events through configured Axiom query access, or identify runtime-log fallback */
+        get: operations["readWorkflowEvents"];
+        put?: never;
+        /** Record bounded technical client events; no page content, answers, URLs or credentials */
+        post: operations["recordClientEvents"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/job-workflow/discovery": {
         parameters: {
             query?: never;
@@ -521,6 +539,36 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        clientEvents: {
+            /** Format: uuid */
+            client_id: string;
+            client_version: string;
+            events: {
+                /** Format: uuid */
+                id: string;
+                /** Format: date-time */
+                at: string;
+                /** Format: uuid */
+                trace_id: string;
+                /** @enum {string} */
+                name: "worker_started" | "scan_finished" | "scan_failed" | "sync_succeeded" | "sync_failed" | "site_mode" | "destination_saved";
+                /** @enum {string} */
+                source?: "jobright" | "handshake" | "linkedin" | "symplicity" | "other";
+                /** @enum {string} */
+                mode?: "auto" | "manual" | "paused";
+                /** @enum {string} */
+                operation?: "job" | "capture" | "application";
+                found?: number;
+                queued?: number;
+                skipped?: number;
+                queue_depth?: number;
+                duration_ms?: number;
+                http_status?: number;
+                /** @enum {string} */
+                error_code?: "unauthorized" | "forbidden" | "invalid_input" | "conflict" | "rate_limited" | "unavailable" | "network" | "timeout" | "context_invalidated" | "unknown";
+            }[];
+            dropped?: number;
+        };
         parse: {
             text: string;
         } & {
@@ -771,6 +819,15 @@ export interface components {
             notes: string;
             /** @description Arbitrary JSON value; transport accepts JSON only */
             resolution?: unknown;
+        };
+        clientEventsResponse: {
+            accepted: number;
+        };
+        eventQueryResponse: {
+            /** @enum {string} */
+            backend: "axiom" | "server_logs";
+            result?: unknown;
+            note?: string;
         };
         discoveryResponse: {
             name: string;
@@ -1276,6 +1333,219 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    readWorkflowEvents: {
+        parameters: {
+            query?: {
+                /** @description Exact value filter */
+                client_id?: string;
+                /** @description Exact value filter */
+                trace_id?: string;
+                /** @description Page size; values above 200 are capped at 200 */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["eventQueryResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Conflict or lost lease; reconcile before retry */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Version changed; reload */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Size limit exceeded */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Version precondition required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+        };
+    };
+    recordClientEvents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["clientEvents"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["clientEventsResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Conflict or lost lease; reconcile before retry */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Version changed; reload */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Size limit exceeded */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Version precondition required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+            /** @description Server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["errorResponse"];
+                };
+            };
+        };
+    };
     public_discovery: {
         parameters: {
             query?: never;

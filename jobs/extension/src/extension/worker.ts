@@ -1,3 +1,4 @@
+import {recordEvent,diagnosticsLog,flushEvents,errorCode,telemetrySource,traceId,traceHeaders} from './observability';
 import {handoffHandle,heartbeatHandoff,handoffWork,watchHandoffTab,handoffBadge} from './handoff-worker';
 import { collectionMode, shouldObserve, applicationDestination, watchAccepts, type CollectionMode, type DestinationWatch } from '../shared/collection';
 declare const __JOBS_BUILD_HASH__: string;
@@ -69,6 +70,7 @@ async function loadSavedMembership(s: State, origin: string) {
 const localOnly = () =>
   chrome.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
 void localOnly();
+void recordEvent({name:'worker_started'});
 async function request(s: State, path: string, method = "GET", body?: unknown) {
   if (!s.connection)
     throw Error("Paste your Job Tracker API key in Settings first.");
@@ -102,6 +104,7 @@ async function sync() {
     for (const item of [...s.queue]
       .filter((x) => !x.blocked && (!x.next_try || x.next_try <= Date.now()))
       .slice(0, 20)) {
+      const trace=item.trace_id=traceId(item.trace_id),started=Date.now();
       try {
         if (item.kind === "application" && !item.claimToken) {
           item.claimToken = crypto.randomUUID() + crypto.randomUUID();
@@ -111,7 +114,7 @@ async function sync() {
           item.kind === "capture"
             ? { draft: await saveDraftHosted(s.connection, item.payload) }
             : item.kind === "job"
-              ? { job: await collectHosted(s.connection, item.payload as Job) }
+              ? { job: await collectHosted(s.connection, item.payload as Job,await traceHeaders(trace)) }
               : await submitHosted(
                   s.connection,
                   item.payload,
@@ -136,10 +139,12 @@ async function sync() {
           }
         }
         s.queue = s.queue.filter((q) => q.id !== item.id);
+        await recordEvent({name:'sync_succeeded',trace_id:trace,operation:item.kind,queue_depth:s.queue.length,duration_ms:Date.now()-started});
         s.lastSync = new Date().toISOString();
         s.error = undefined;
         changed = true;
       } catch (e) {
+        await recordEvent({name:'sync_failed',trace_id:trace,operation:item.kind,queue_depth:s.queue.length,duration_ms:Date.now()-started,error_code:errorCode(e),http_status:(e as any)?.status});
         item.attempts++;
         item.error = e instanceof Error ? e.message : "Sync failed";
         item.blocked = [400, 409, 413].includes((e as any).status);
@@ -151,6 +156,7 @@ async function sync() {
       }
     }
     if (changed) await save(s);
+    void flushEvents(s.connection);
   });
 }
 chrome.alarms.onAlarm.addListener((a) => {
@@ -233,8 +239,11 @@ async function recordDestination(s: State, watch: DestinationWatch, url: string,
   j.metadata_json = JSON.stringify({...JSON.parse(previous.metadata_json),destination_observation:{url:destination.application_url,at:j.last_seen_at,method:manual?'user_selected_page':'user_apply_navigation'}});
   s.jobs = s.jobs.map(v => v.id === j.id ? j : v);
   s.queue = s.queue.filter(q => q.kind !== 'job' || q.id !== j.id);
-  s.queue.push({id:j.id,kind:'job',payload:j,attempts:0});
-  await save(s); return true;
+  const trace=traceId();
+  s.queue.push({id:j.id,kind:'job',payload:j,attempts:0,trace_id:trace});
+  await save(s);
+  await recordEvent({name:'destination_saved',trace_id:trace,source:telemetrySource(j.source_url),operation:'job',queue_depth:s.queue.length});
+  return true;
 }
 chrome.webNavigation.onCreatedNavigationTarget.addListener(event => void locked(async () => {
   const s=await read();
@@ -310,6 +319,7 @@ async function handle(m: any, sender: chrome.runtime.MessageSender) {
     }
     if (m.type === "context")
       return {
+        mode: collectionMode(s,origin),
         collect: collectionMode(s,origin)!=='paused',
         capture: capture ? { capture_id: capture.capture_id } : null,
       };
@@ -322,6 +332,7 @@ async function handle(m: any, sender: chrome.runtime.MessageSender) {
       s.destinationWatches.push({jobId:known.id,sourceTabId:sender.tab.id,sourceOrigin:origin,startedAt:Date.now()});
       await save(s);return true;
     }
+    if(m.type==='scanFailed'){await recordEvent({name:'scan_failed',trace_id:traceId(m.trace_id),source:telemetrySource(origin),error_code:'unknown'});return true;}
     if (m.type === "observed") {
       if (
         collectionMode(s,origin)==='paused' ||
@@ -329,12 +340,13 @@ async function handle(m: any, sender: chrome.runtime.MessageSender) {
         m.jobs.length > 200
       )
         throw Error("Collection is not enabled");
+      const trace=traceId(m.trace_id);let queued=0,skipped=0;
       for (const value of m.jobs) {
         const j = jobSchema.parse(value);
         if (new URL(j.source_url).origin !== origin)
           throw Error("Source origin mismatch");
         const previous = s.jobs.find((v) => v.identity_key === j.identity_key);
-        if(!shouldObserve(collectionMode(s,origin),previous))continue;
+        if(!shouldObserve(collectionMode(s,origin),previous)){skipped++;continue;}
         if (previous) {
           j.id = previous.id;
           j.first_seen_at = previous.first_seen_at;
@@ -385,10 +397,13 @@ async function handle(m: any, sender: chrome.runtime.MessageSender) {
         s.jobs = s.jobs.filter((v) => v.id !== j.id);
         s.jobs.push(j);
         s.queue = s.queue.filter((q) => q.kind !== "job" || q.id !== j.id);
-        s.queue.push({ id: j.id, kind: "job", payload: j, attempts: 0 });
+        s.queue.push({ id: j.id, kind: "job", payload: j, attempts: 0,trace_id:trace });
+        queued++;
       }
       await save(s);
-      return { count: m.jobs.length };
+      const summary={found:m.jobs.length,queued,skipped,queue_depth:s.queue.length,source:telemetrySource(origin),mode:collectionMode(s,origin)};
+      await recordEvent({name:'scan_finished',trace_id:trace,...summary});
+      return summary;
     }
     if (m.type === "snapshot") {
       if (!capture || capture.capture_id !== m.captureId)
@@ -430,7 +445,7 @@ async function handle(m: any, sender: chrome.runtime.MessageSender) {
       const active = s.captures.filter(c => c.status === 'recording').length;
       const attempts = s.queue.filter(item => item.kind === 'application' && item.claimToken).length + ((await handoffWork())?1:0);
       const activeSites=new Set([...s.sites,...Object.entries(s.siteModes||{}).filter(([,mode])=>mode!=='paused').map(([origin])=>origin)]).size;
-      return {schema_version:1,generated_at:new Date().toISOString(),extension_id:chrome.runtime.id,version:chrome.runtime.getManifest().version,build_hash:__JOBS_BUILD_HASH__,storage_schema:info.storage_schema,compatibility:compatibilitySnapshot(),active_captures:active,active_attempts:attempts,pending_queue:s.queue.length,collection_sites:activeSites,safe_to_reload:active===0 && attempts===0 && s.queue.length===0 && activeSites===0};
+      return {observability:await diagnosticsLog(),schema_version:1,generated_at:new Date().toISOString(),extension_id:chrome.runtime.id,version:chrome.runtime.getManifest().version,build_hash:__JOBS_BUILD_HASH__,storage_schema:info.storage_schema,compatibility:compatibilitySnapshot(),active_captures:active,active_attempts:attempts,pending_queue:s.queue.length,collection_sites:activeSites,safe_to_reload:active===0 && attempts===0 && s.queue.length===0 && activeSites===0};
     }
     case "state": {
       let tab = null;
@@ -439,6 +454,7 @@ async function handle(m: any, sender: chrome.runtime.MessageSender) {
       } catch {}
       return {
         ...s,
+        observability:await diagnosticsLog(),
         connection: s.connection ? { baseUrl: s.connection.baseUrl } : null,
         tab,
         mode:tab?collectionMode(s,tab.origin):'paused',
@@ -488,6 +504,7 @@ async function handle(m: any, sender: chrome.runtime.MessageSender) {
       s.targetTab = t.id;
       await save(s);
       await inject(t.id, t.origin);
+      await recordEvent({name:'site_mode',source:telemetrySource(t.origin),mode:collectionMode(s,t.origin)});
       return true;
     }
     case "pause": {
@@ -496,6 +513,7 @@ async function handle(m: any, sender: chrome.runtime.MessageSender) {
       s.siteModes={...s.siteModes,[t.origin]:'paused'};
       s.destinationWatches=(s.destinationWatches||[]).filter(w=>w.sourceOrigin!==t.origin);
       await save(s);
+      await recordEvent({name:'site_mode',source:telemetrySource(t.origin),mode:'paused'});
       return true;
     }
     case "scan": {
