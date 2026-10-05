@@ -62,7 +62,7 @@ test('telemetry authentication, strict privacy, bounded batches and query fallba
  assert.equal((await call('POST',{...batch,events:Array(26).fill(batch.events[0])})).status,400);
  assert.equal((await call('POST',{...batch,oversized:'x'.repeat(33000)})).status,413);
  const saved=events.filter(e=>e.event==='jobs.client.events');assert.equal(saved.length,2);assert.deepEqual(saved[0].data,batch);
- let response=await call('GET',undefined,{Authorization:'Bearer '+readerKey},'?client_id='+client+'&trace_id='+trace+'&limit=5');assert.equal(response.status,200);assert.equal((await response.json()).backend,'axiom');assert.ok(queryApl.includes(client));assert.ok(queryApl.includes(trace));assert.ok(queryApl.endsWith('limit 5'));
+ let response=await call('GET',undefined,{Authorization:'Bearer '+readerKey},'?client_id='+client+'&trace_id='+trace+'&limit=5');assert.equal(response.status,200);assert.equal((await response.json()).backend,'axiom');assert.ok(queryApl.includes(client));assert.ok(queryApl.includes(trace));assert.ok(queryApl.endsWith('limit 5'));assert.ok(queryApl.includes('["data.client_id"]'));assert.ok(queryApl.includes('tostring(["data.events"])'));assert.ok(!queryApl.includes('tostring(data.events)')); 
  assert.equal((await call('GET',undefined,{},'?client_id=bad')).status,400);
  assert.equal((await call('GET',undefined,{},'?limit=101')).status,400);
  queryFails=true;response=await call('GET');const fallback=await response.json();assert.equal(fallback.backend,'server_logs');assert.ok(!JSON.stringify(fallback).includes('provider secret'));
