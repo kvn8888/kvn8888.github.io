@@ -1,9 +1,10 @@
+import { clientEventsSchema } from './jobTelemetrySchema'
 import { handoffPacketSchema } from './handoffPacketSchema'
 import { z } from 'zod'
 import { legacyWorkflowGuide } from './jobWorkflowGuide'
 
-export const API_VERSION = '1.2.0'
-export const CLIENT_VERSION = '0.6.1'
+export const API_VERSION = '1.3.0'
+export const CLIENT_VERSION = '0.7.0'
 export const BASE_URL = 'https://www.kevinc.dev'
 const text = z.string().max(2000)
 const nullableText = text.nullable().optional()
@@ -38,6 +39,7 @@ const collectionShape = {
  application_ids_json:z.union([z.array(version),z.string()]).optional(),status:text.optional(),status_notes:longText,
 }
 export const requestSchemas = {
+ clientEvents:clientEventsSchema,
  parse: z.object({text:z.string().min(1)}).passthrough(),
  applicationCreate:strict(applicationShape),
  applicationPatch:strict({...Object.fromEntries(Object.entries(applicationShape).map(([k,v])=>[k,v.optional()])),interviewed:z.union([z.boolean(),z.literal(0),z.literal(1)]).optional()}),
@@ -62,6 +64,8 @@ const collection = z.looseObject({id,identity_key:z.string(),source:z.string(),s
 const artifactSchema=z.object({kind:z.enum(['cli','extension','zip']),name:z.string(),url:z.string().url(),size:z.number().int().positive(),sha256:z.string().regex(/^[a-f0-9]{64}$/)})
 const releaseSchema=z.object({version:z.string(),api_version:z.string(),contract_hash:z.string(),source_commit:z.string(),build_hash:z.string(),storage_schema:z.number(),verified:z.literal(true),verified_at:z.string(),artifacts:z.array(artifactSchema)})
 export const responseSchemas = {
+ clientEvents:z.object({accepted:z.number().int().nonnegative()}),
+ eventQuery:z.object({backend:z.enum(['axiom','server_logs']),result:z.unknown().optional(),note:z.string().optional()}),
  discovery:z.object({name:z.string(),api_version:z.string(),workflow_version:z.number(),contract_hash:z.string(),revision:z.string(),guide_hash:z.string(),deployed_commit:z.string().nullable(),supported_clients:z.object({cli:z.object({min:z.string(),max_major:z.number()}),extension:z.object({min:z.string(),max_major:z.number()})}),legacy_clients_supported:z.boolean(),links:z.object({openapi:z.string(),guide:z.string(),changes:z.string(),releases:z.string(),docs:z.string(),workspace:z.string().optional()}),latest_compatible_release:releaseSchema.nullable()}),
  releases:z.object({releases:z.array(releaseSchema)}),
  changes:z.object({revision:z.string(),changes:z.array(z.object({version:z.string(),client_version:z.string(),date:z.string(),breaking:z.boolean(),summary:z.string(),required_actions:z.array(z.string()),changes:z.array(z.string())}))}),
@@ -85,6 +89,8 @@ export const responseSchemas = {
 }
 export type Endpoint = {operationId:string;method:'get'|'post'|'patch';path:string;summary:string;request?:keyof typeof requestSchemas;response:keyof typeof responseSchemas;query?:string[];legacy?:boolean;sessionOnly?:boolean;success?:number[];header?:string;public?:boolean}
 export const endpoints:Endpoint[] = [
+ {operationId:'recordClientEvents',method:'post',path:'/api/job-workflow/events',summary:'Record bounded technical client events; no page content, answers, URLs or credentials',request:'clientEvents',response:'clientEvents'},
+ {operationId:'readWorkflowEvents',method:'get',path:'/api/job-workflow/events',summary:'Read technical workflow events through configured Axiom query access, or identify runtime-log fallback',response:'eventQuery',query:['client_id','trace_id','limit']},
  ...(['discovery','openapi.json','guide','changes','releases'] as const).map(name=>({operationId:'public_'+name.replace('.','_'),method:'get' as const,path:'/api/job-workflow/'+name,summary:'Public workflow '+name,response: name==='guide'?'guide' as const:name==='discovery'?'discovery' as const:name==='releases'?'releases' as const:name==='changes'?'changes' as const:'publicDocument' as const,public:true})),
  {operationId:'parseJobPosting',method:'post',path:'/api/jobs/parse',summary:'Website-only job posting extraction',request:'parse',response:'parsedJob',sessionOnly:true},
  {operationId:'listApplications',method:'get',path:'/api/jobs',summary:'Read application summaries; site uses view=applied',response:'applicationList',query:['q','view','limit','offset']},

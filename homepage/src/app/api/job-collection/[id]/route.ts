@@ -1,3 +1,4 @@
+import { observeJobRequest } from '@/lib/jobObservability'
 import { collectionContext, collectionFailure, collectionResponse, collectionId, collectionVersion } from '@/lib/jobCollectionHttp'
 import { CollectionError, getCollection, patchCollection, readCollectionBody, validateCollection } from '@/lib/jobCollection'
 
@@ -10,7 +11,7 @@ export async function GET(request: Request, context: Context) {
     return collectionResponse(row)
   } catch (error) { return collectionFailure(error) }
 }
-export async function PATCH(request: Request, context: Context) {
+async function patch(request: Request, context: Context) {
   try {
     const { db, actor } = await collectionContext(request)
     const id = collectionId((await context.params).id)
@@ -19,3 +20,5 @@ export async function PATCH(request: Request, context: Context) {
     return collectionResponse(await patchCollection(db, id, patch, version, actor))
   } catch (error) { return collectionFailure(error) }
 }
+
+export const PATCH=(request:Request,context:Context)=>observeJobRequest(request,()=>patch(request,context))

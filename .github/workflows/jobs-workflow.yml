@@ -20,7 +20,7 @@ jobs:
       - run: npm run check:generated --prefix jobs && npm run validate --prefix jobs
       - run: node jobs/scripts/check-compatibility.mjs
       - run: npm run typecheck --prefix homepage
-      - run: node --test homepage/tests/jobs-api.test.cjs homepage/tests/job-collection.test.cjs homepage/tests/job-workflow.test.cjs homepage/tests/job-public.test.cjs homepage/tests/job-handoff.test.cjs
+      - run: node --test homepage/tests/jobs-api.test.cjs homepage/tests/job-collection.test.cjs homepage/tests/job-workflow.test.cjs homepage/tests/job-public.test.cjs homepage/tests/job-handoff.test.cjs homepage/tests/job-observability.test.cjs
       - run: npm test --prefix jobs && npm run check --prefix jobs/extension
       - run: npx playwright install --with-deps chromium
         working-directory: jobs/extension

@@ -160,6 +160,27 @@ try {
     async () => (await state()).queue.length > 0,
     "Offline job was not queued",
   );
+  const beforeReload=await state();
+  const logBefore=await cmd('diagnostics');
+  // Stop only this disposable profile's worker. Chromium's unpacked runtime.reload()
+  // unloads the test extension, so actual installed-extension reload stays a manual check.
+  const devtools=await context.newCDPSession(panel);
+  await devtools.send('ServiceWorker.enable');
+  await devtools.send('ServiceWorker.stopAllWorkers');
+  await devtools.detach();
+  const afterReload=await state();
+  assert.deepEqual(afterReload.queue.map((q:any)=>q.id),beforeReload.queue.map((q:any)=>q.id),'Worker restart must preserve pending business writes');
+  assert.deepEqual(afterReload.siteModes,beforeReload.siteModes,'Worker restart must preserve collection mode');
+  assert.deepEqual(afterReload.captures,beforeReload.captures,'Worker restart must preserve capture drafts');
+  assert.equal((await cmd('diagnostics')).observability.client_id,logBefore.observability.client_id);
+  await jobPage.reload();await jobPage.bringToFront();
+  // A normal-page refresh starts the new content script; no extension management automation.
+  await cmd('scan');
+  const target=(await state()).tab;
+  const scanResult=await panel.evaluate(async tabId=>chrome.tabs.sendMessage(tabId,{type:'scan'}),target.id);
+  assert.equal(scanResult.ok,true);assert.equal(scanResult.summary.mode,'auto');assert.ok(scanResult.summary.queued>0);
+  assert.equal(new Set((await state()).queue.map((q:any)=>q.id)).size,(await state()).queue.length);
+  console.log('PASS worker restart: pending writes, drafts, settings and client ID survive; page refresh resumes collection without duplicate queue IDs');
   await context!.close();
   await launch();
   assert.ok((await state()).queue.length > 0, "Queue lost on browser restart");
@@ -187,6 +208,14 @@ try {
   await until(async()=>!!(await db.execute("SELECT id FROM job_collection WHERE source_job_id='9'")).rows.length,'Manual job not saved');
   const manualId=String((await db.execute("SELECT id FROM job_collection WHERE source_job_id='9'")).rows[0].id);
   await until(async()=>(await state()).queue.length===0,'Manual write still queued');
+  await panel.getByRole('tab',{name:'Here',exact:true}).click();
+  await panel.getByRole('heading',{name:'Current posting',exact:true}).waitFor();
+  await panel.getByText('Saved to tracker',{exact:true}).waitFor();
+  await panel.screenshot({path:'.test-output/current-posting.png',fullPage:true});
+  await panel.getByRole('button',{name:/^System:/}).click();
+  await panel.getByRole('heading',{name:'Recent activity',exact:true}).waitFor();
+  await panel.screenshot({path:'.test-output/activity.png',fullPage:true});
+  await panel.getByRole('button',{name:'Done',exact:true}).click();
   await jobPage.getByRole('link',{name:'Apply',exact:true}).click();
   await until(async()=>String((await db.execute({sql:'SELECT application_url FROM job_collection WHERE id=?',args:[manualId]})).rows[0].application_url).includes('greenhouse.io'),'Employer tab was not linked to original opportunity');
   assert.equal(Number((await db.execute('SELECT count(*) n FROM job_collection')).rows[0].n),beforeManual+1);

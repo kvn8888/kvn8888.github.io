@@ -1,6 +1,7 @@
 import {
   descriptionStatusAfterEdit,
   applicationDestination,
+  selectedJob,
 } from "../shared/collection";
 import {
   emptyJob,
@@ -193,10 +194,13 @@ function here() {
     (j: Job) =>
       !j.archived_at && origin && new URL(j.source_url).origin === origin,
   );
+  const current=state.tab?selectedJob(jobs,state.tab.url):null;
+  const pending=current?state.queue.find((q:any)=>q.id===current.id):null;
   const captures = state.captures.filter((c: Capture) => c.status !== "saved");
   return `<div class="section-heading"><div><p class="eyebrow">Current page</p><h1>${esc(origin ? new URL(origin).hostname : "Open a job site")}</h1></div>${button("refresh-page", "Refresh")}</div>
   ${!state.connection ? `<div class="notice">Connect your tracker to start saving jobs. ${button("system", "Connect tracker", true)}</div>` : ""}
   ${state.tab ? `<fieldset class="mode-picker"><legend>Collection on this site</legend><div class="segmented">${["auto", "manual", "paused"].map((mode) => `<label><input type="radio" name="site-mode" value="${mode}" ${state.mode === mode ? "checked" : ""}><span>${mode === "auto" ? "Auto" : mode === "manual" ? "Manual" : "Paused"}</span></label>`).join("")}</div></fieldset><p class="mode-note">${state.mode === "auto" ? "Visible listings are saved automatically. Open and expand a posting to add details." : state.mode === "manual" ? "Only jobs you choose are added. Saved jobs still gain details as you browse." : "Collection and enrichment are paused on this site."}</p><div class="actions">${button("add-selected", "Save this job", true)}${button("scan", "Refresh details")}</div><p class="tiny muted">Select one posting before saving. Incomplete listings are useful leads.</p>` : `<div class="empty"><p>Switch to a supported job or application tab. If its address is unavailable, allow access below.</p>${button("grant-job-sites", "Allow supported job sites", true)}</div>`}
+  ${current?`<section class="section"><h2>Current posting</h2><p class="${pending?.error?'attention':'muted'}">${pending?.error?'Saved on this device · Sync needs attention':pending?'Saved on this device · Waiting for server':'Saved to tracker'}</p>${jobRow(current)}</section>`:''}
   <section class="section"><div class="section-heading"><h2>Saved on this site</h2><span class="tiny muted">${jobs.length}</span></div>${jobs.length ? jobs.slice(-8).reverse().map(jobRow).join("") : '<p class="muted">No saved jobs from this site on this device yet.</p>'}${jobs.length > 8 ? button("all-jobs", "See all jobs") : ""}</section>
   <section class="section"><div class="section-heading"><h2>Application capture</h2>${button("captures", "Open drafts")}</div><p class="muted">Keep answers across steps, then review them before recording a confirmed application.</p><label class="field">Attach collected job<select id="attach-job"><option value="">Use the current application page</option>${state.jobs
     .filter((j: Job) => !j.archived_at)
@@ -250,7 +254,7 @@ function settings() {
         : compat?.status === "offline"
           ? "Unable to check"
           : "Not recently checked";
-  return `<div class="section-heading"><h1>System</h1>${button("close-system", "Done")}</div><section><h2>Connection</h2><p>${state.connection ? esc(state.connection.baseUrl) : "Connect to keep jobs and applications in your shared tracker."}</p><p class="status-line">${esc(label)}${compat?.checked_at ? ` · ${esc(new Date(compat.checked_at).toLocaleString())}` : ""}</p>${state.connection ? button("check-compatibility", "Check now") : ""}<details ${!state.connection ? "open" : ""}><summary>${state.connection ? "Replace connection key" : "Connect tracker"}</summary><form id="connection-form"><label class="field">API URL<input id="api-url" type="url" value="${esc(state.connection?.baseUrl || "https://www.kevinc.dev")}" required></label><label class="field">Extension API key<input id="api-key" type="password" autocomplete="off" placeholder="Paste your dedicated extension key" required></label>${button("connect-key", "Connect", true)}</form><p class="tiny muted">Use your dedicated human extension key. Stored keys are never displayed.</p></details></section><section class="section"><div class="section-heading"><h2>Sync queue</h2><span class="tiny muted">${state.queue.length} pending</span></div>${state.queue.length ? `<p>Local work is preserved while these writes wait.</p>${state.queue.map((q: any) => `<div class="queue-row"><strong>${esc(q.kind === "application" ? "Confirmed application" : q.kind === "capture" ? "Answer capture" : "Job details")}</strong><p class="tiny ${q.error ? "attention" : "muted"}">${esc(q.error || "Waiting to sync")}</p></div>`).join("")}${button("retry", "Retry sync")}` : '<p class="muted">No pending writes.</p>'}<p class="tiny muted">Last completed sync: ${state.lastSync ? esc(new Date(state.lastSync).toLocaleString()) : "No writes yet"}</p></section><section class="section"><h2>Version & updates</h2><p>Jobs Utility ${esc(chrome.runtime.getManifest().version)}</p><p class="muted">Pause collection on every site, finish active captures and attempts, and wait for pending writes. Stage the update, reload this same extension entry, then verify a fresh diagnostics report. Review drafts remain saved.</p><div class="actions">${button("diagnostics", "Download diagnostics")}<a class="button" href="diagnostics.html" target="_blank">Diagnostics & updates ↗</a></div><p class="tiny muted">Diagnostics contain version, compatibility and activity counts. No keys or captured answers.</p><a href="https://www.kevinc.dev/jobs/docs" target="_blank" rel="noopener noreferrer">Setup, releases & workflow guide ↗</a></section>`;
+  return `<div class="section-heading"><h1>System</h1>${button("close-system", "Done")}</div><section><h2>Connection</h2><p>${state.connection ? esc(state.connection.baseUrl) : "Connect to keep jobs and applications in your shared tracker."}</p><p class="status-line">${esc(label)}${compat?.checked_at ? ` · ${esc(new Date(compat.checked_at).toLocaleString())}` : ""}</p>${state.connection ? button("check-compatibility", "Check now") : ""}<details ${!state.connection ? "open" : ""}><summary>${state.connection ? "Replace connection key" : "Connect tracker"}</summary><form id="connection-form"><label class="field">API URL<input id="api-url" type="url" value="${esc(state.connection?.baseUrl || "https://www.kevinc.dev")}" required></label><label class="field">Extension API key<input id="api-key" type="password" autocomplete="off" placeholder="Paste your dedicated extension key" required></label>${button("connect-key", "Connect", true)}</form><p class="tiny muted">Use your dedicated human extension key. Stored keys are never displayed.</p></details></section><section class="section"><div class="section-heading"><h2>Sync queue</h2><span class="tiny muted">${state.queue.length} pending</span></div>${state.queue.length ? `<p>Local work is preserved while these writes wait.</p>${state.queue.map((q: any) => `<div class="queue-row"><strong>${esc(q.kind === "application" ? "Confirmed application" : q.kind === "capture" ? "Answer capture" : "Job details")}</strong><p class="tiny ${q.error ? "attention" : "muted"}">${esc(q.error || "Waiting to sync")}</p></div>`).join("")}${button("retry", "Retry sync")}` : '<p class="muted">No pending writes.</p>'}<p class="tiny muted">Last completed sync: ${state.lastSync ? esc(new Date(state.lastSync).toLocaleString()) : "No writes yet"}</p></section><section class="section"><h2>Recent activity</h2><p class="tiny muted">Technical events only: no page contents, answers, URLs or credentials.</p>${state.observability?.client_id?`<p class="tiny mono">Client ${esc(state.observability.client_id)}</p>`:''}${(state.observability?.recent||[]).slice(-8).reverse().map((e:any)=>`<div class="queue-row"><strong class="${e.error_code?'attention':''}">${esc(e.name.replaceAll('_',' '))}</strong><p class="tiny muted">${esc(new Date(e.at).toLocaleTimeString())}${e.source?' · '+esc(e.source):''}${e.found!==undefined?` · ${e.found} found, ${e.queued} queued, ${e.skipped} skipped`:''}${e.error_code?' · '+esc(e.error_code):''}</p><p class="tiny mono">${esc(e.trace_id)}</p></div>`).join('')||'<p class="muted">No recent events.</p>'}<p class="tiny muted">${state.observability?.last_reported_at?'Last log upload: '+esc(new Date(state.observability.last_reported_at).toLocaleString()):'Logs kept on this device; upload pending.'}${state.observability?.transport_error?' · Log upload: '+esc(state.observability.transport_error):''}</p></section><section class="section"><h2>Version & updates</h2><p>Jobs Utility ${esc(chrome.runtime.getManifest().version)}</p><p class="muted">Pause collection on every site, finish active captures and attempts, and wait for pending writes. Stage the update, reload this same extension entry, then verify a fresh diagnostics report. Review drafts remain saved.</p><div class="actions">${button("diagnostics", "Download diagnostics")}<a class="button" href="diagnostics.html" target="_blank">Diagnostics & updates ↗</a></div><p class="tiny muted">Diagnostics contain version, compatibility, activity counts and recent technical events. No keys or captured answers.</p><a href="https://www.kevinc.dev/jobs/docs" target="_blank" rel="noopener noreferrer">Setup, releases & workflow guide ↗</a></section>`;
 }
 function applicationView() {
   if (appliedDetail) {
@@ -451,6 +455,7 @@ async function snapshot() {
   await command("scan");
   const r = await chrome.tabs.sendMessage(state.tab.id, { type: "scan" });
   if (!r?.ok) throw Error(r?.error || "Section capture did not complete.");
+  return r.summary;
 }
 function download(text: string, name: string, mime = "text/plain") {
   const url = URL.createObjectURL(new Blob([text], { type: mime }));
@@ -593,12 +598,12 @@ app.addEventListener("click", (e) => {
       await command("addSelected");
       await snapshot();
       remoteJobs = null;
-      toast("Job saved. Expanded details will enrich the same record.");
+      toast("Job saved on this device and queued for sync. Expanded details enrich the same record.");
     }
     if (action === "scan") {
       await permit();
-      await snapshot();
-      toast("Visible details refreshed.");
+      const result=await snapshot();
+      toast(result?.mode==='paused'?'Collection is paused. Choose Auto or Manual to collect details.':!result?.found?'No job details were recognized on this page.':result.queued?`${result.queued} job observation${result.queued===1?'':'s'} queued for sync. See Current posting for save status.`:'No changes queued. In Manual mode, choose Save this job first; archived jobs stay excluded.');
     }
     if (action === "link-destination") {
       const id = (

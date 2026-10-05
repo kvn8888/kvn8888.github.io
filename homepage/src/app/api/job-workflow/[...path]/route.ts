@@ -1,3 +1,4 @@
+import { handleJobEvents,observeJobRequest } from '@/lib/jobObservability'
 import { queueHandoff,listHandoffs,getHandoff,claimHandoff,postingAvailability } from '@/lib/jobHandoffs'
 import { publicWorkflowResponse, isPublicWorkflowRequest } from '@/lib/jobWorkflowPublic'
 import {jobWorkflowContract} from '@/lib/jobWorkflowContract'
@@ -34,6 +35,8 @@ async function handle(
     }
     const actor = await getJobsIdentity(req);
     if (!actor) throw new CollectionError("Unauthorized", 401);
+    const requestedParts = (await context.params).path;
+    if(requestedParts.join('/')==='events' && ['GET','POST'].includes(req.method))return handleJobEvents(req);
     const db = await getJobsDb();
     await ensureJobsSchema(db);
     await ensureCollectionSchema(db);
@@ -105,6 +108,6 @@ async function handle(
   }
 }
 export const GET = handle;
-export const POST = handle;
+export const POST = (req:Request,context:{params:Promise<{path:string[]}>}) => observeJobRequest(req,()=>handle(req,context));
 
 export const HEAD = handle;

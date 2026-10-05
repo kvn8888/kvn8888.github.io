@@ -53,6 +53,7 @@ export function decodeJob(value: Record<string, unknown>): Job {
 export async function collectHosted(
   connection: Connection,
   job: Job,
+  trace: Record<string,string> = {},
 ): Promise<Job> {
   const { updated_at, ...create } = job;
   void updated_at;
@@ -61,6 +62,7 @@ export async function collectHosted(
     "/api/job-collection",
     "POST",
     create,
+    trace,
   );
   if (result.created) return decodeJob(result.job);
   // POST is create-or-find. Enrich the returned canonical ID using its current version.
@@ -129,14 +131,14 @@ export async function collectHosted(
             `/api/job-collection/${current.id}`,
             "PATCH",
             patch,
-            { "If-Match": `"${current.version}"` },
+            { ...trace, "If-Match": `"${current.version}"` },
           )
         ).job,
       );
     } catch (e) {
       if ((e as any).status !== 412) throw e;
       current = (
-        await hostedRequest(connection, `/api/job-collection/${current.id}`)
+        await hostedRequest(connection, `/api/job-collection/${current.id}`, "GET", undefined, trace)
       ).job;
     }
   }
