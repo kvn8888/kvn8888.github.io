@@ -134,10 +134,10 @@ export async function handleJobEvents(request: Request) {
           'service == "kevinc-homepage"',
           '(event == "jobs.client.events" or event == "jobs.request")',
         ];
-        if (client) filters.push(`data.client_id == ${JSON.stringify(client)}`);
+        if (client) filters.push(`["data.client_id"] == ${JSON.stringify(client)}`);
         if (trace)
           filters.push(
-            `(requestId == ${JSON.stringify(trace)} or tostring(data.events) contains ${JSON.stringify(trace)})`,
+            `(requestId == ${JSON.stringify(trace)} or tostring(["data.events"]) contains ${JSON.stringify(trace)})`,
           );
         return `[${JSON.stringify(dataset)}] | where ${filters.join(" and ")} | sort by _time desc | limit ${limit}`;
       },
