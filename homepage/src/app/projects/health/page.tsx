@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import type {
+  CredentialState,
   DeploymentStatus,
   HealthState,
   MonitoredProjectStatus,
+  OfficialProviderStatus,
   ProjectHealthResponse,
   ProviderStatus,
   RuntimeProbe,
@@ -16,13 +18,13 @@ const statePresentation: Record<
 > = {
   healthy: {
     label: 'Healthy',
-    badge: 'bg-emerald-50 border-emerald-200 text-emerald-700',
+    badge: 'bg-emerald-500/10 border-emerald-500/20 text-emerald-700 dark:text-emerald-300',
     dot: 'bg-emerald-500',
     icon: 'check_circle',
   },
   attention: {
     label: 'Attention',
-    badge: 'bg-amber-50 border-amber-200 text-amber-700',
+    badge: 'bg-amber-500/10 border-amber-500/20 text-amber-700 dark:text-amber-300',
     dot: 'bg-amber-400',
     icon: 'warning',
   },
@@ -34,7 +36,7 @@ const statePresentation: Record<
   },
   down: {
     label: 'Down',
-    badge: 'bg-red-50 border-red-200 text-red-700',
+    badge: 'bg-red-500/10 border-red-500/20 text-red-700 dark:text-red-300',
     dot: 'bg-red-500',
     icon: 'error',
   },
@@ -43,6 +45,33 @@ const statePresentation: Record<
     badge: 'bg-foreground/5 border-glass-border text-foreground/50',
     dot: 'bg-foreground/25',
     icon: 'help',
+  },
+}
+
+const credentialPresentation: Record<CredentialState, { label: string; classes: string }> = {
+  valid: {
+    label: 'Verified',
+    classes: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+  },
+  configured: {
+    label: 'Configured',
+    classes: 'border-sky-500/20 bg-sky-500/10 text-sky-700 dark:text-sky-300',
+  },
+  missing: {
+    label: 'Missing',
+    classes: 'border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300',
+  },
+  invalid: {
+    label: 'Invalid',
+    classes: 'border-red-500/20 bg-red-500/10 text-red-700 dark:text-red-300',
+  },
+  not_required: {
+    label: 'Not required',
+    classes: 'border-glass-border bg-foreground/5 text-foreground/55',
+  },
+  unknown: {
+    label: 'Not exercised',
+    classes: 'border-glass-border bg-foreground/5 text-foreground/45',
   },
 }
 
@@ -100,6 +129,104 @@ function StatusPill({ state, label }: { state: HealthState; label?: string }) {
       </span>
       {label ?? presentation.label}
     </span>
+  )
+}
+
+function CredentialPill({ provider }: { provider: ProviderStatus }) {
+  const presentation = credentialPresentation[provider.credential.state]
+
+  return (
+    <span
+      title={provider.credential.detail}
+      className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-medium ${presentation.classes}`}
+    >
+      {provider.credential.label || presentation.label}
+    </span>
+  )
+}
+
+function OfficialProviderCard({
+  provider,
+  projectNames,
+}: {
+  provider: OfficialProviderStatus
+  projectNames: Map<string, string>
+}) {
+  return (
+    <a
+      href={provider.statusUrl}
+      target="_blank"
+      rel="noreferrer"
+      className="group rounded-2xl border border-glass-border bg-glass p-4 backdrop-blur-sm transition-colors hover:bg-foreground/[0.04] sm:p-5"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-glass-border bg-foreground/5">
+            <span className="material-symbols-outlined text-lg text-foreground/50" aria-hidden="true">
+              {provider.icon}
+            </span>
+          </span>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium text-foreground/75">{provider.provider}</p>
+            <p className="truncate text-[11px] text-foreground/35">{provider.component}</p>
+          </div>
+        </div>
+        <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${statePresentation[provider.state].dot}`} />
+      </div>
+
+      <p className="mt-4 line-clamp-2 min-h-10 text-xs leading-5 text-foreground/45">
+        {provider.summary}
+      </p>
+
+      <div className="mt-4 flex items-end justify-between gap-3 border-t border-foreground/5 pt-3">
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.12em] text-foreground/30">Impact</p>
+          <div className="mt-1 flex flex-wrap gap-1">
+            {provider.affectedProjectIds.map((projectId) => (
+              <span key={projectId} className="text-xs text-foreground/55">
+                {projectNames.get(projectId) ?? projectId}
+              </span>
+            ))}
+          </div>
+        </div>
+        <div className="text-right">
+          <p className="font-mono text-[11px] text-foreground/40">
+            {provider.latencyMs === null ? 'No response' : `${provider.latencyMs} ms`}
+          </p>
+          <p className="mt-1 inline-flex items-center gap-1 text-[10px] text-foreground/30 transition-colors group-hover:text-foreground/55">
+            Official status
+            <span className="material-symbols-outlined text-xs" aria-hidden="true">arrow_outward</span>
+          </p>
+        </div>
+      </div>
+    </a>
+  )
+}
+
+function ProviderOverview({ data }: { data: ProjectHealthResponse }) {
+  const projectNames = new Map(data.projects.map((project) => [project.id, project.name]))
+
+  return (
+    <section>
+      <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-foreground/35">
+            Provider status
+          </p>
+          <h2 className="mt-1 text-xl font-medium tracking-tight text-foreground">
+            Widespread incidents, kept separate
+          </h2>
+        </div>
+        <p className="max-w-md text-xs leading-5 text-foreground/40 sm:text-right">
+          Official provider signals show platform-wide health. Project-specific checks appear below.
+        </p>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {data.providers.map((provider) => (
+          <OfficialProviderCard key={provider.id} provider={provider} projectNames={projectNames} />
+        ))}
+      </div>
+    </section>
   )
 }
 
@@ -186,6 +313,23 @@ function ProviderCard({ provider }: { provider: ProviderStatus }) {
 
       <p className="mt-4 min-h-10 text-sm leading-5 text-foreground/50">{provider.summary}</p>
 
+      <div className="mt-4 grid grid-cols-2 gap-2 rounded-xl border border-glass-border bg-foreground/[0.025] p-3 sm:grid-cols-3">
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.12em] text-foreground/30">Official</p>
+          <div className="mt-2"><StatusPill state={provider.official.state} /></div>
+        </div>
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.12em] text-foreground/30">Our path</p>
+          <div className="mt-2"><StatusPill state={provider.state} /></div>
+        </div>
+        <div className="col-span-2 sm:col-span-1">
+          <p className="text-[10px] uppercase tracking-[0.12em] text-foreground/30">Credential</p>
+          <div className="mt-2"><CredentialPill provider={provider} /></div>
+        </div>
+      </div>
+
+      <p className="mt-3 text-xs leading-5 text-foreground/40">{provider.explanation}</p>
+
       <div className="mt-5 rounded-xl border border-glass-border bg-foreground/[0.025] p-4">
         <div className="flex items-center justify-between gap-3">
           <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-foreground/35">
@@ -246,7 +390,7 @@ function ProviderCard({ provider }: { provider: ProviderStatus }) {
       )}
 
       {provider.error && (
-        <div className="mt-4 flex gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-700">
+        <div className="mt-4 flex gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-700 dark:text-amber-300">
           <span className="material-symbols-outlined mt-0.5 text-sm" aria-hidden="true">warning</span>
           <span>{provider.error}</span>
         </div>
@@ -280,6 +424,120 @@ function ProviderCard({ provider }: { provider: ProviderStatus }) {
   )
 }
 
+function IntegrationCard({ provider }: { provider: ProviderStatus }) {
+  const probe = provider.probes[0]
+
+  return (
+    <section className="rounded-2xl border border-glass-border bg-glass p-5 backdrop-blur-sm sm:p-6">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-glass-border bg-foreground/5">
+            <span className="material-symbols-outlined text-lg text-foreground/55" aria-hidden="true">
+              {provider.icon}
+            </span>
+          </span>
+          <div className="min-w-0">
+            <p className="text-xs text-foreground/35">{provider.role}</p>
+            <h3 className="truncate text-base font-medium text-foreground">{provider.provider}</h3>
+          </div>
+        </div>
+        <StatusPill state={provider.state} />
+      </div>
+
+      <p className="mt-4 min-h-10 text-sm leading-5 text-foreground/50">{provider.summary}</p>
+
+      <div className="mt-5 grid grid-cols-2 gap-x-4 gap-y-5 rounded-xl border border-glass-border bg-foreground/[0.025] p-4">
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.12em] text-foreground/30">Provider</p>
+          <div className="mt-2"><StatusPill state={provider.official.state} /></div>
+        </div>
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.12em] text-foreground/30">Credential</p>
+          <div className="mt-2"><CredentialPill provider={provider} /></div>
+        </div>
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.12em] text-foreground/30">Last success</p>
+          <p className="mt-2 text-xs font-medium text-foreground/60">
+            {probe?.lastSuccessfulAt ? formatRelativeTime(probe.lastSuccessfulAt) : 'Not observed'}
+          </p>
+        </div>
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.12em] text-foreground/30">Latency</p>
+          <p className="mt-2 font-mono text-xs font-medium text-foreground/60">
+            {probe?.latencyMs === null || probe?.latencyMs === undefined ? '—' : `${probe.latencyMs} ms`}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <p className="text-xs leading-5 text-foreground/40">{provider.explanation}</p>
+        <p className="mt-2 text-[11px] leading-5 text-foreground/30">{provider.credential.detail}</p>
+      </div>
+
+      {provider.quota && (
+        <div className={`mt-4 rounded-xl border px-3 py-2.5 text-xs ${
+          provider.quota.warning
+            ? 'border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300'
+            : 'border-glass-border bg-foreground/[0.025] text-foreground/45'
+        }`}>
+          <div className="flex items-center justify-between gap-3">
+            <span>{provider.quota.label}</span>
+            <span className="font-mono">
+              {provider.quota.remaining?.toLocaleString() ?? '—'} / {provider.quota.limit?.toLocaleString() ?? '—'} left
+            </span>
+          </div>
+          {provider.quota.warning && <p className="mt-1 opacity-75">{provider.quota.warning}</p>}
+        </div>
+      )}
+
+      {provider.metadata.length > 0 && (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {provider.metadata.map((item) => (
+            <span
+              key={item.label}
+              className="rounded-full border border-glass-border bg-foreground/[0.035] px-3 py-1.5 text-[11px] text-foreground/45"
+            >
+              {item.label}: <span className="font-medium text-foreground/65">{item.value}</span>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {provider.error && (
+        <div className="mt-4 flex gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-700 dark:text-amber-300">
+          <span className="material-symbols-outlined mt-0.5 text-sm" aria-hidden="true">warning</span>
+          <span>{provider.error}</span>
+        </div>
+      )}
+
+      <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-foreground/5 pt-4">
+        <span className="text-[11px] text-foreground/35">
+          Affects {provider.affectedProjectIds.length} project{provider.affectedProjectIds.length === 1 ? '' : 's'}
+        </span>
+        <div className="flex items-center gap-3">
+          <a
+            href={provider.official.statusUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="text-xs text-foreground/35 transition-colors hover:text-foreground/65"
+          >
+            Status
+          </a>
+          <a
+            href={provider.dashboardUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 text-xs text-foreground/45 transition-colors hover:text-foreground/70"
+          >
+            Dashboard
+            <span className="material-symbols-outlined text-sm" aria-hidden="true">arrow_outward</span>
+          </a>
+        </div>
+      </div>
+    </section>
+  )
+}
+
 function ReleaseAlignmentCard({ project }: { project: MonitoredProjectStatus }) {
   const release = project.release
   const presentation = statePresentation[release.state]
@@ -288,9 +546,9 @@ function ReleaseAlignmentCard({ project }: { project: MonitoredProjectStatus }) 
     <section
       className={`rounded-2xl border p-5 sm:p-6 ${
         release.state === 'healthy'
-          ? 'border-emerald-200 bg-emerald-50'
+          ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-950 dark:text-emerald-100'
           : release.state === 'attention'
-            ? 'border-amber-200 bg-amber-50'
+            ? 'border-amber-500/20 bg-amber-500/10 text-amber-950 dark:text-amber-100'
             : 'border-glass-border bg-glass backdrop-blur-sm'
       }`}
     >
@@ -367,6 +625,15 @@ function ProjectSection({ project }: { project: MonitoredProjectStatus }) {
         </div>
       </section>
 
+      <div className="pt-2">
+        <p className="text-xs font-medium uppercase tracking-[0.14em] text-foreground/35">
+          Deployment topology
+        </p>
+        <p className="mt-1 text-sm text-foreground/45">
+          What is running, whether users can reach it, and whether frontend and backend revisions align.
+        </p>
+      </div>
+
       <div className="grid items-stretch gap-3 lg:grid-cols-[minmax(0,1fr)_44px_minmax(0,1fr)]">
         <ProviderCard provider={project.frontend} />
         <div className="hidden items-center justify-center lg:flex" aria-hidden="true">
@@ -380,13 +647,33 @@ function ProjectSection({ project }: { project: MonitoredProjectStatus }) {
       </div>
 
       <ReleaseAlignmentCard project={project} />
+
+      <div className="pt-4">
+        <p className="text-xs font-medium uppercase tracking-[0.14em] text-foreground/35">
+          External integrations
+        </p>
+        <p className="mt-1 text-sm text-foreground/45">
+          Read-only checks distinguish a platform incident from a CodeGym credential or configuration problem.
+        </p>
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-2">
+        {project.integrations.map((integration) => (
+          <IntegrationCard key={integration.id} provider={integration} />
+        ))}
+      </div>
     </article>
   )
 }
 
 function LoadingState() {
   return (
-    <div className="space-y-5" aria-label="Loading project health">
+    <div className="space-y-8" aria-label="Loading project health">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {Array.from({ length: 6 }, (_, index) => (
+          <div key={index} className="h-44 animate-pulse rounded-2xl border border-glass-border bg-glass" />
+        ))}
+      </div>
       <div className="h-44 animate-pulse rounded-2xl border border-glass-border bg-glass" />
       <div className="grid gap-3 lg:grid-cols-2">
         <div className="h-[520px] animate-pulse rounded-2xl border border-glass-border bg-glass" />
@@ -455,7 +742,7 @@ export default function ProjectHealthPage() {
               mounted ? 'blur-reveal-2' : 'opacity-0'
             }`}
           >
-            Deployment truth, live runtime checks, and release alignment in one place.
+            Provider incidents, credentials, integrations, runtime checks, and deployment truth in one place.
           </p>
         </div>
 
@@ -487,7 +774,7 @@ export default function ProjectHealthPage() {
 
       <div className={mounted ? 'blur-reveal-3' : 'opacity-0'}>
         {error && !data ? (
-          <section className="rounded-2xl border border-red-200 bg-red-50 p-6 text-red-700">
+          <section className="rounded-2xl border border-red-500/20 bg-red-500/10 p-6 text-red-700 dark:text-red-300">
             <div className="flex gap-3">
               <span className="material-symbols-outlined" aria-hidden="true">error</span>
               <div>
@@ -506,13 +793,27 @@ export default function ProjectHealthPage() {
         ) : data ? (
           <div className="space-y-10">
             {error && (
-              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+              <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
                 Refresh failed; showing the last successful snapshot. {error}
               </div>
             )}
+            <ProviderOverview data={data} />
             {data.projects.map((project) => (
               <ProjectSection key={project.id} project={project} />
             ))}
+            <section className="rounded-2xl border border-glass-border bg-foreground/[0.025] p-5 sm:p-6">
+              <div className="flex gap-3">
+                <span className="material-symbols-outlined mt-0.5 text-lg text-foreground/40" aria-hidden="true">
+                  monitoring
+                </span>
+                <div>
+                  <p className="text-sm font-medium text-foreground/65">Monitoring boundary</p>
+                  <p className="mt-1 text-xs leading-5 text-foreground/40">
+                    {data.monitoring.source} {data.monitoring.boundary} {data.monitoring.externalAlerting}
+                  </p>
+                </div>
+              </div>
+            </section>
           </div>
         ) : (
           <LoadingState />
