@@ -2,7 +2,7 @@
 
 Synthetic, local-only design reference authored by Claude Opus 5.5 with xhigh effort. The designer received requirements without the existing extension source or UI. The same persistent session completed collection, capture, handoff, applied and system scenarios. No production credentials or job data are included. Open index.html through a local static server; all effects are simulated in memory.
 
-The original brief is historical design rationale, not the backend contract. Later instructions required explicit confirmation, automatic nonconflicting enrichment, whole-page restore and separation of unverified compatibility from unsupported clients. The prototype still invents example lease timing and recovery scenarios: production follows the canonical guide and server rules. Its "slice 1" document title is retained from the authored file; the later screens are present in app.js.
+The requirements supplied to the designer are in `design-requirements.md`; this prose must not use the reserved Python dependency filename `requirements.txt`. The original brief is historical design rationale, not the backend contract. Later instructions required explicit confirmation, automatic nonconflicting enrichment, whole-page restore and separation of unverified compatibility from unsupported clients. The prototype still invents example lease timing and recovery scenarios: production follows the canonical guide and server rules. Its "slice 1" document title is retained from the authored file; the later screens are present in app.js.
 
 ## Implementation boundaries
 
