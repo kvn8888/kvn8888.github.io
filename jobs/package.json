@@ -1,6 +1,6 @@
 {
   "name": "jobs-workflow-tools",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,7 +8,8 @@
     "check:generated": "node --import tsx scripts/generate.ts --check",
     "test": "node --test tests/*.test.mjs",
     "build": "npm run generate && npm --prefix extension run build && node scripts/package.mjs",
-    "validate": "node --import tsx scripts/validate.ts"
+    "validate": "node --import tsx scripts/validate.ts",
+    "verify:release": "node --import tsx scripts/verify-release.mjs"
   },
   "devDependencies": {
     "@apidevtools/swagger-parser": "^12.1.0",

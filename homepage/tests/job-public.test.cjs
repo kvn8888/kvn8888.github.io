@@ -64,3 +64,22 @@ test('public resources are anonymous, conditional and database-free; data stays 
   load('src/auth.ts');assert.equal(await authConfig.callbacks.authorized({auth:null,request:{method:'GET',nextUrl:new URL('http://localhost/api/job-workflow/discovery')}}),true)
  }finally{global.fetch=original;fs.rmSync(dir,{recursive:true,force:true})}
 })
+
+test('only complete verified release manifests are advertised and satisfy public response schemas',async()=>{
+ const original=global.fetch;
+ const published=load('src/lib/jobWorkflowPublished.ts').published;
+ const defs=load('src/lib/jobApiDefinition.ts');
+ const publicApi=load('src/lib/jobWorkflowPublic.ts');
+ const release={version:published.client_version,api_version:published.api_version,contract_hash:published.contract_hash,source_commit:'a'.repeat(40),build_hash:'b'.repeat(64),storage_schema:1,verified:true,verified_at:'2026-10-04T12:00:00.000Z',artifacts:['cli','extension'].map(kind=>({kind,name:kind+'.json',url:`https://github.com/kvn8888/kvn8888.github.io/releases/download/jobs-v${published.client_version}/${kind}.json`,size:100,sha256:'c'.repeat(64)}))};
+ try {
+  for(const candidate of [{...release,verified_at:undefined},{...release,verified_at:'invalid-date'},{...release,build_hash:undefined},{...release,artifacts:[]},{...release,verified:false}]){
+   global.fetch=async()=>new Response(JSON.stringify(candidate));
+   assert.deepEqual(await publicApi.verifiedReleases(),[]);
+   const response=await publicApi.publicWorkflowResponse(new Request('http://localhost/api/job-workflow/discovery'),'discovery');
+   const d=await response.json();assert.equal(d.latest_compatible_release,null);defs.responseSchemas.discovery.parse(d);
+  }
+  global.fetch=async()=>new Response(JSON.stringify(release));
+  const response=await publicApi.publicWorkflowResponse(new Request('http://localhost/api/job-workflow/discovery'),'discovery');
+  const d=await response.json();assert.equal(d.latest_compatible_release.verified_at,release.verified_at);defs.responseSchemas.discovery.parse(d);
+ }finally{global.fetch=original;}
+});
