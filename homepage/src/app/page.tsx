@@ -189,7 +189,7 @@ export default function Home() {
 
         {/* Status Badge */}
         <div className="inline-flex items-center gap-2 px-4 py-2 bg-foreground/5 border border-foreground/10 rounded-full blur-reveal-4">
-          <span className="text-sm font-medium text-foreground/70">Open to New-Grad / Full-Time Software Engineering Opportunities</span>
+          <span className="text-sm font-medium text-foreground/70">Open to New Grad SWE positions</span>
         </div>
 
         {/* Projects Section */}
