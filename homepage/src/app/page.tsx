@@ -12,6 +12,26 @@ import { ProjectCard, ProjectModal, ThemeToggle, type Project, type ProjectCateg
 const projects: Project[] = [
   // Personal Projects
   {
+    id: 'openfoodjournal',
+    title: 'OpenFoodJournal',
+    shortDesc: 'Maintained iOS food journal with AI nutrition scanning',
+    tags: ['SwiftUI', 'SwiftData', 'Gemini', 'HealthKit', 'CloudKit'],
+    fullDesc: 'An open-source iOS food journal I build and maintain, available on the App Store. Built with SwiftUI and SwiftData, with local-first storage and iCloud sync. Gemini helps scan nutrition labels, estimate nutrition from food photos, and search for foods, with editable results before logging. Includes a reusable Food Bank, composite foods and nutrition calculators, weight-based container tracking, opt-in HealthKit sync, CSV export, and JSON backup and restore. Users bring their own Gemini API key, stored in the iOS Keychain.',
+    githubUrl: 'https://github.com/kvn8888/OpenFoodJournal',
+    demoUrl: 'https://apps.apple.com/us/app/openfoodjournal/id6761086648',
+    category: 'personal',
+  },
+  {
+    id: 'polymarket-ev-bot',
+    title: 'Polymarket EV Platform',
+    shortDesc: 'Expected-value analysis, paper trading, and execution tooling',
+    tags: ['TypeScript', 'React', 'Docker', 'Turso'],
+    fullDesc: 'A platform for comparing sportsbook odds with Polymarket prices to identify potential positive expected-value opportunities. Removes bookmaker margin to estimate probabilities and uses configurable Kelly-based position sizing. Combines paper trading and live execution integrations with a React dashboard for opportunities, positions, per-user credentials, and Odds API usage. Includes account-level trading controls, persistent order tracking, and operational telemetry for investigating provider and execution failures.',
+    demoUrl: 'https://polymarket-ev-bot-docker.onrender.com/polymarket/',
+    category: 'personal',
+    screenshot: '/screenshots/polymarket.png',
+  },
+  {
     id: 'kevinc-dashboard',
     title: 'Personal Dashboard',
     shortDesc: 'Authenticated ops hub built into this site',
@@ -22,17 +42,16 @@ const projects: Project[] = [
     category: 'personal',
     screenshot: '/screenshots/homepage.png',
   },
-  {
-    id: 'polymarket-ev-bot',
-    title: 'Polymarket +EV Trading Bot',
-    shortDesc: 'Sports betting arbitrage bot for Polymarket prediction markets',
-    tags: ['TypeScript', 'Docker', 'React', 'Turso'],
-    fullDesc: 'A sports betting arbitrage bot that finds positive expected value (EV) opportunities between sportsbook odds and Polymarket prediction markets. Fetches odds from The Odds API (NFL, NBA, NHL), de-vigs to find true probability, and identifies mispriced Polymarket contracts. Sizes bets using Kelly Criterion (1/4 Kelly, 5% max position) and supports both paper trading and live execution via the Polymarket CLOB API. Includes a full web dashboard with portfolio overview, live opportunities, position tracking, per-user secrets management, and a pooled Odds API usage monitor.',
-    demoUrl: 'https://polymarket-ev-bot-docker.onrender.com/polymarket/',
-    category: 'personal',
-    screenshot: '/screenshots/polymarket.png',
-  },
   // Academic Projects
+  {
+    id: 'codegym',
+    title: 'CodeGym',
+    shortDesc: 'Volunteer PM, product, and architecture · RIT Software Engineering',
+    tags: ['Go', 'React', 'TypeScript', 'PostgreSQL'],
+    fullDesc: 'A coding and interview practice platform developed within an RIT Software Engineering department program. I contribute as a volunteer across project management, product direction, and architecture. The current v2 rewrite pairs a React/Vite frontend with a Go backend focused on authentication, personal workspace isolation, and memory profiles. AI-generated practice problems and secure code execution are planned; the current milestone establishes the platform foundation.',
+    githubUrl: 'https://github.com/kvn8888/CodeGym',
+    category: 'academic',
+  },
   {
     id: 'ta-portal',
     title: 'TA Portal',
@@ -41,27 +60,6 @@ const projects: Project[] = [
     fullDesc: 'Led DevOps and infrastructure for a course-built TA portal. Designed a GitHub Actions CI/CD pipeline with Nx monorepo tooling for parallel lint/test and branch-convention-triggered deployments. Containerized a 4-service stack (MariaDB, Workflow API, Express.js, Next.js) with Docker Compose health checks and persistent volumes. Configured nginx as a reverse proxy with SSL termination, set up SSH key-based passwordless deployment from GitHub Actions to the production VM, and hardened the server with UFW firewall rules. Fixed Prisma ORM client generation in Docker and resolved Next.js basePath routing behind the proxy.',
     category: 'academic',
   },
-  // In Progress
-  {
-    id: 'codegym',
-    title: 'CodeGym',
-    shortDesc: 'Interactive coding practice platform with real execution',
-    tags: ['Go', 'React', 'Docker', 'PostgreSQL'],
-    fullDesc: 'A full-stack coding practice platform with a Go backend, React frontend, and Dockerized code execution. Features filesystem-backed problem packs (language, category, problem), a sqlc/goose data layer, and a Storybook component library. Problems define skeleton files, canonical solutions, and test suites in a structured YAML manifest.',
-    githubUrl: 'https://github.com/kvn8888/CodeGym',
-    category: 'in-progress',
-    screenshot: '/screenshots/codegym.png',
-  },
-  {
-    id: 'openfoodjournal',
-    title: 'OpenFoodJournal',
-    shortDesc: 'Privacy-first iOS food journal with AI-powered nutrition scanning',
-    tags: ['SwiftUI', 'SwiftData', 'Gemini', 'HealthKit', 'CloudKit'],
-    fullDesc: 'A local-first iOS food journal built with SwiftUI and SwiftData for iOS 26+. Point your camera at a nutrition label or a plate of food and get instant macro/micronutrient tracking — Gemini Flash Lite handles label scans in under 2 seconds, and Gemini Pro estimates plated meals. Features a weekly calendar strip with progress rings, meal sections with swipe-to-edit, a personal Food Bank for saved foods with serving mappings, weight-based container tracking, and HealthKit sync for active energy and 10+ micronutrients. Local-first with automatic iCloud/CloudKit sync across devices. BYOK — users bring their own Gemini key stored in the iOS Keychain; no proxy server needed.',
-    githubUrl: 'https://github.com/kvn8888/OpenFoodJournal',
-    demoUrl: 'https://apps.apple.com/us/app/openfoodjournal/id6761086648',
-    category: 'personal',
-  },
 
   // Hackathon Projects
   {
@@ -69,8 +67,7 @@ const projects: Project[] = [
     title: 'DepScope',
     shortDesc: '1st Place · Continual Learning Hackathon — Dependency due diligence agent',
     tags: ['Node.js', 'Express', 'React', 'Gemini', 'You.com'],
-    fullDesc: 'Autonomous multi-agent system for open-source dependency due diligence. Paste a package name or GitHub URL and three sequential agents run: a Repo Health Analyzer pulling GitHub stats (stars, commit cadence, bus factor, license), an External Researcher using You.com Search to surface CVEs and community sentiment, and a Gemini 2.0 Flash Risk Scorer that synthesizes everything into a letter grade (A–F) with severity-ranked findings and opinionated alternatives. Streams agent progress live via SSE. Scores five dimensions — security (30%), maintenance (25%), stability (20%), community (15%), documentation (10%) — with automatic downgrades for unpatched critical CVEs, archived repos, and single-maintainer staleness. Won 1st place at HackWithBay 2.0.',
-    githubUrl: 'https://github.com/kvn8888/DepScope',
+    fullDesc: 'Autonomous multi-agent system for open-source dependency due diligence. Paste a package name or GitHub URL and three sequential agents run: a Repo Health Analyzer pulling GitHub stats (stars, commit cadence, bus factor, license), an External Researcher using You.com Search to surface CVEs and community sentiment, and a Gemini 2.0 Flash Risk Scorer that synthesizes everything into a letter grade (A–F) with severity-ranked findings and opinionated alternatives. Streams agent progress live via SSE. Scores five dimensions — security (30%), maintenance (25%), stability (20%), community (15%), documentation (10%) — with automatic downgrades for unpatched critical CVEs, archived repos, and single-maintainer staleness. Won 1st place at the Continual Learning Hackathon.',
     category: 'hackathon',
   },
   {
@@ -78,7 +75,7 @@ const projects: Project[] = [
     title: 'FactCheckMe',
     shortDesc: '2nd Place · c0mpiled-1: Before the Ballot — Real-time audio fact-checking',
     tags: ['React', 'TypeScript', 'Supabase', 'ElevenLabs', 'Gemini', 'Hyperspell'],
-    fullDesc: 'Real-time fact-checking tool built for voters watching debates and speeches. ElevenLabs transcribes live audio, Gemini 2.0 with Google Search grounding extracts and verifies claims instantly, and Hyperspell provides semantic caching so repeated talking points return in under 100ms instead of 2–3 seconds. The semantic cache recognizes differently-worded versions of the same claim — "unemployment is 4.2%" and "the unemployment rate is at 4.2%" both hit the cache. Claims surface with verdicts, supporting sources, and a statistics dashboard. Built on Supabase Edge Functions with a React + Tailwind frontend. Won 2nd place at HackWithBay 2.0.',
+    fullDesc: 'Real-time fact-checking tool built for voters watching debates and speeches. ElevenLabs transcribes live audio, Gemini 2.0 with Google Search grounding extracts and verifies claims instantly, and Hyperspell provides semantic caching so repeated talking points return in under 100ms instead of 2–3 seconds. The semantic cache recognizes differently-worded versions of the same claim — "unemployment is 4.2%" and "the unemployment rate is at 4.2%" both hit the cache. Claims surface with verdicts, supporting sources, and a statistics dashboard. Built on Supabase Edge Functions with a React + Tailwind frontend. Won 2nd place at c0mpiled-1: Before the Ballot.',
     githubUrl: 'https://github.com/kvn8888/FactCheckMe',
     category: 'hackathon',
   },
@@ -87,7 +84,7 @@ const projects: Project[] = [
     title: 'GuardianEye',
     shortDesc: '2nd Place · Autonomous Agents Hackathon — AI-powered scam detection',
     tags: ['FastAPI', 'React', 'Neo4j', 'Gemini', 'Tavily', 'Yutori'],
-    fullDesc: 'Multi-agent scam detection pipeline that analyzes screenshots, voice recordings, and text messages and returns a RED / YELLOW / GREEN verdict. Six parallel agents run on each submission: Reka Vision reads text from images, GLiNER extracts entities (phone numbers, URLs, dollar amounts), Tavily searches scam databases in roughly 2 seconds, a Yutori Research agent conducts a deep investigation (~60s), Gemini 3 Flash synthesizes the final verdict, and Neo4j maps the scam network connecting entities to past reports. Identical content returns from SQLite/Turso cache instantly. Voice deepfake detection via Modulate. All services degrade gracefully to rule-based fallbacks when API keys are absent. Won 2nd place at HackWithBay 2.0.',
+    fullDesc: 'Multi-agent scam detection pipeline that analyzes screenshots, voice recordings, and text messages and returns a RED / YELLOW / GREEN verdict. Six parallel agents run on each submission: Reka Vision reads text from images, GLiNER extracts entities (phone numbers, URLs, dollar amounts), Tavily searches scam databases in roughly 2 seconds, a Yutori Research agent conducts a deep investigation (~60s), Gemini 3 Flash synthesizes the final verdict, and Neo4j maps the scam network connecting entities to past reports. Identical content returns from SQLite/Turso cache instantly. Voice deepfake detection via Modulate. All services degrade gracefully to rule-based fallbacks when API keys are absent. Won 2nd place at the Autonomous Agents Hackathon.',
     githubUrl: 'https://github.com/kvn8888/GuardianEye',
     demoUrl: 'https://guardianeyeui.onrender.com/',
     category: 'hackathon',
@@ -147,7 +144,7 @@ export default function Home() {
       {/* Content with staggered blur reveal animation */}
       <div className="text-center max-w-4xl mx-auto relative z-10 pt-8">
         {/* Small tagline — visible immediately, no opacity:0 animation */}
-        <p className="text-sm text-foreground/50 mb-4 tracking-wide">Software Engineering Student, Spring 2027</p>
+        <p className="text-sm text-foreground/50 mb-4 tracking-wide">RIT Software Engineering · May 2027</p>
 
         {/* Main headline — LCP element, must be immediately visible */}
         <h1 className="text-5xl sm:text-6xl md:text-7xl font-medium tracking-tight mb-8 text-foreground">
@@ -156,7 +153,7 @@ export default function Home() {
 
         {/* Bio text */}
         <p className="text-lg text-foreground/60 max-w-xl mx-auto mb-6 leading-relaxed blur-reveal-2">
-          I&apos;m a software engineering student at the Rochester Institute of Technology. Passionate about useful projects that feels great to use.
+          I&apos;m a software engineering student at the Rochester Institute of Technology, graduating in May 2027. Passionate about useful projects that feels great to use.
         </p>
 
         {/* Social Links */}
@@ -192,7 +189,7 @@ export default function Home() {
 
         {/* Status Badge */}
         <div className="inline-flex items-center gap-2 px-4 py-2 bg-foreground/5 border border-foreground/10 rounded-full blur-reveal-4">
-          <span className="text-sm font-medium text-foreground/70">Open to Summer 2026 Opportunities</span>
+          <span className="text-sm font-medium text-foreground/70">Open to New-Grad / Full-Time Software Engineering Opportunities</span>
         </div>
 
         {/* Projects Section */}
