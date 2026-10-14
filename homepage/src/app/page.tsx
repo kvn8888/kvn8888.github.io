@@ -153,7 +153,7 @@ export default function Home() {
 
         {/* Bio text */}
         <p className="text-lg text-foreground/60 max-w-xl mx-auto mb-6 leading-relaxed blur-reveal-2">
-          I&apos;m a software engineering student at the Rochester Institute of Technology, graduating in May 2027. Passionate about useful projects that feels great to use.
+          I&apos;m a software engineering student at the Rochester Institute of Technology, graduating in May 2027. Passionate about useful projects that feel great to use.
         </p>
 
         {/* Social Links */}
