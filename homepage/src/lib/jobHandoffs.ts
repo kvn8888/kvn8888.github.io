@@ -165,11 +165,8 @@ export async function claimHandoff(
   body: Data,
   actor: string,
 ) {
-  if (actor === "tracker-agent" || actor === "tracker-reader")
-    throw new CollectionError(
-      "Use the extension credential or signed-in user for manual handoffs",
-      403,
-    );
+  if (actor === "tracker-reader")
+    throw new CollectionError("The read-only credential cannot claim handoffs", 403);
   const shape = requestSchemas.handoffClaim.safeParse(body);
   if (!shape.success) throw new CollectionError(shape.error.issues[0].message);
   const b = await row(db, "job_blockers", uuid(id));
