@@ -7,6 +7,8 @@ export function isJobsAgentRequest(pathname: string, method: string): boolean {
     (pathname === '/api/jobs/stats' && method === 'GET') ||
     (pathname === '/api/jobs/parse' && method === 'POST') ||
     (pathname === '/api/job-collection' && ['GET', 'POST'].includes(method)) ||
+    (pathname === '/api/ats-accounts' && ['GET', 'POST'].includes(method)) ||
+    (/^\/api\/ats-accounts\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(pathname) && ['GET', 'PATCH', 'DELETE'].includes(method)) ||
     (pathname === '/api/job-collection/export' && method === 'GET') ||
     (/^\/api\/job-collection\/[0-9a-f-]{36}$/i.test(pathname) && ['GET', 'PATCH'].includes(method)) ||
     (/^\/api\/jobs\/[1-9]\d*$/.test(pathname) && ['GET', 'PATCH'].includes(method))
