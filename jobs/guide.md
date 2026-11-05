@@ -135,6 +135,22 @@ The independent design in jobs/design/docket is a synthetic prototype, not an AP
 Published release metadata must satisfy the shared response schema, including a verification timestamp. Discovery ignores incomplete manifests. Release operators run `npm run verify:release --prefix jobs -- DEPLOYED_COMMIT` with a configured tracker credential after the compatible backend is deployed and before uploading the final manifest. The tool validates actual public responses, artifact checksums and authenticated read access, then records verified_at. Published artifact bytes remain immutable; corrected releases use a new version.
 
 
+## ATS accounts
+
+The ATS accounts API records whether an applicant account already exists for an employer tenant and login email. Use a lowercase tenant slug; for Workday this is the subdomain before `.wdN.myworkdayjobs.com` or the local part of `<tenant>@myworkday.com`.
+
+Never send or store passwords, secrets, tokens, OTPs or cookies. Credentials stay in Kevin's existing private local file. The optional `credential_ref` contains only an entry name such as `generic_ats` or `salesforce`, matching `[a-z0-9_.-]{1,64}`. Request bodies with credential-related keys at any depth are rejected.
+
+- `GET /api/ats-accounts` returns `{items:[...]}` and accepts `provider`, `tenant` and `status` filters. Example: `GET /api/ats-accounts?provider=workday&tenant=litera`.
+- `POST /api/ats-accounts` accepts `provider`, `tenant`, `login_email`, `status` and optional account fields. It creates a row (201) or updates the existing provider/tenant/email match (200), appending evidence deduplicated by `kind` and `ref` and incrementing the version.
+- `GET /api/ats-accounts/{id}` returns one account.
+- `PATCH /api/ats-accounts/{id}` updates supplied fields and requires the current numeric `version` in the body. A stale version returns 409; success increments the version.
+- `DELETE /api/ats-accounts/{id}?version=N` deletes the account with that version (204). A stale version returns 409.
+
+Statuses describe the account: `exists` means confirmed; `likely_exists` means evidence suggests an account but it is not confirmed; `needs_creation` means an account needs to be created; `creation_failed` means a creation attempt failed; `unknown` means account existence is undetermined. Optional `evidence` contains up to 50 items with `kind` (`email`, `login` or `manual`), an ISO timestamp `at`, and optional `ref` and `note` strings. Login emails are stored lowercase.
+
+Kevin's session, the agent key and the extension key can read and write. The reader key can GET; writes return 401 under the existing authentication rules.
+
 ## Collection activity and troubleshooting
 
 The Here view highlights the selected posting using its stable job-board identity. "Saved on this device" means the write is still queued; "Saved to tracker" means the server acknowledged it. Refresh details reports how many observations were recognized, queued or skipped. In Manual mode unknown listings remain skipped until Save this job is chosen. An incomplete lead is valid; a missing employer link is separate from a missing opportunity. Jobright's explicitly labelled Original Job Post is captured for the selected posting, including custom employer domains.
