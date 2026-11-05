@@ -1,12 +1,11 @@
 import { jobStats } from '@/lib/jobStats'
-import { auth } from '@/auth'
+import { getJobsIdentity } from '@/lib/jobsRequestAuth'
 import { ensureJobsSchema, getJobsDb } from '@/lib/jobsDb'
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 
-export async function GET() {
-  const session = await auth()
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const userEmail = session.user?.email?.toLowerCase() || 'unknown'
+export async function GET(req: NextRequest) {
+  const userEmail = await getJobsIdentity(req)
+  if (!userEmail) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   try {
     const db = await getJobsDb()
