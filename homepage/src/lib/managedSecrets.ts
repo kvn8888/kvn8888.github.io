@@ -68,6 +68,14 @@ export const MANAGED_SECRET_GROUPS: ManagedSecretGroup[] = [
     ],
   },
   {
+    label: 'Pronunciation AI',
+    icon: 'record_voice_over',
+    keys: [
+      { key: 'OPENAI_API_KEY', description: 'GPT-6.2 Sol medium pronunciation coaching' },
+      { key: 'AI_GATEWAY_API_KEY', description: 'Vercel AI Gateway Eleven v4 reference voice' },
+    ],
+  },
+  {
     label: 'Mistral',
     icon: 'wind_power',
     keys: [

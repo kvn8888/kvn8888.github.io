@@ -354,6 +354,36 @@ export async function POST(req: NextRequest) {
   }
 }
 
+// Enrich an already-saved pronunciation attempt after the acoustic and AI work finishes.
+// Only the owning user can update it; other modalities retain their existing contract.
+export async function PATCH(req: NextRequest) {
+  const email = (await auth())?.user?.email?.toLowerCase()
+  if (!email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  try {
+    const { id, metadataPatch } = await req.json()
+    const allowed = new Set(['coach', 'coachError', 'delivery', 'deliveryError', 'recording'])
+    if (typeof id !== 'string' || !id || !isRecord(metadataPatch) || Object.keys(metadataPatch).some(key => !allowed.has(key))) {
+      return NextResponse.json({ error: 'Invalid pronunciation history update' }, { status: 400 })
+    }
+    const client = await ensureTable()
+    if (!client) return NextResponse.json({ error: 'Speech history is not configured' }, { status: 500 })
+    const existing = await client.execute({
+      sql: "SELECT metadata_json FROM speech_history WHERE id = ? AND user_email = ? AND modality = 'pronunciation'",
+      args: [id, email],
+    })
+    if (!existing.rows[0]) return NextResponse.json({ error: 'History item not found' }, { status: 404 })
+    const metadata = { ...(parseMetadata(existing.rows[0].metadata_json) ?? {}), ...metadataPatch }
+    const updated = await client.execute({
+      sql: "UPDATE speech_history SET metadata_json = ? WHERE id = ? AND user_email = ? AND modality = 'pronunciation'",
+      args: [serializeMetadata(metadata), id, email],
+    })
+    if (!updated.rowsAffected) return NextResponse.json({ error: 'History item not found' }, { status: 404 })
+    return NextResponse.json({ ok: true })
+  } catch (error) {
+    return NextResponse.json({ error: 'Failed to update pronunciation history' }, { status: error instanceof MetadataTooLargeError ? 413 : 500 })
+  }
+}
+
 export async function DELETE(req: NextRequest) {
   const session = await auth()
   const email = session?.user?.email?.toLowerCase()

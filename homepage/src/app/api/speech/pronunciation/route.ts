@@ -85,7 +85,7 @@ function azureTicksToSeconds(value?: number) {
   return typeof value === 'number' ? roundSeconds(value / 10_000_000) : undefined
 }
 
-function parseWavDurationSeconds(buffer: Buffer) {
+function parseWavFormat(buffer: Buffer) {
   if (
     buffer.length < 20 ||
     buffer.toString('ascii', 0, 4) !== 'RIFF' ||
@@ -96,13 +96,18 @@ function parseWavDurationSeconds(buffer: Buffer) {
 
   let byteRate: number | undefined
   let dataSize: number | undefined
+  let format: { codec: number; channels: number; sampleRate: number; bitsPerSample: number } | undefined
   let offset = 12
   while (offset + 8 <= buffer.length) {
     const chunkId = buffer.toString('ascii', offset, offset + 4)
     const chunkSize = buffer.readUInt32LE(offset + 4)
     const chunkStart = offset + 8
-    if (chunkId === 'fmt ' && chunkSize >= 16 && chunkStart + 12 <= buffer.length) {
+    if (chunkId === 'fmt ' && chunkSize >= 16 && chunkStart + 16 <= buffer.length) {
       byteRate = buffer.readUInt32LE(chunkStart + 8)
+      format = {
+        codec: buffer.readUInt16LE(chunkStart), channels: buffer.readUInt16LE(chunkStart + 2),
+        sampleRate: buffer.readUInt32LE(chunkStart + 4), bitsPerSample: buffer.readUInt16LE(chunkStart + 14),
+      }
     } else if (chunkId === 'data') {
       dataSize = Math.min(chunkSize, Math.max(0, buffer.length - chunkStart))
     }
@@ -110,8 +115,8 @@ function parseWavDurationSeconds(buffer: Buffer) {
     offset = chunkStart + chunkSize + (chunkSize % 2)
   }
 
-  return byteRate && typeof dataSize === 'number'
-    ? roundSeconds(dataSize / byteRate)
+  return format && byteRate && typeof dataSize === 'number'
+    ? { ...format, durationSeconds: roundSeconds(dataSize / byteRate) }
     : undefined
 }
 
@@ -344,8 +349,10 @@ export async function POST(req: NextRequest) {
     }
 
     const audioBuffer = Buffer.from(await audioFile.arrayBuffer())
-    const contentType = audioFile.type?.trim() || 'audio/wav'
-    const audioDurationSeconds = parseWavDurationSeconds(audioBuffer)
+    const wavFormat = parseWavFormat(audioBuffer)
+    const normalizedAudio = wavFormat?.codec === 1 && wavFormat.channels === 1 && wavFormat.sampleRate === 16000 && wavFormat.bitsPerSample === 16
+    const contentType = normalizedAudio ? 'audio/wav; codecs=audio/pcm; samplerate=16000' : audioFile.type?.trim() || 'audio/wav'
+    const audioDurationSeconds = wavFormat?.durationSeconds
     const audioSha256 = sha256(audioBuffer)
     const referenceTextSha256 = sha256(referenceText)
     const requestMetadata = {
@@ -359,6 +366,8 @@ export async function POST(req: NextRequest) {
       audioFileName: audioFile.name,
       audioSizeBytes: audioBuffer.length,
       audioDurationSeconds,
+      normalizedAudio,
+      ...(wavFormat ? { wavFormat } : {}),
       audioSha256,
       referenceTextLength: referenceText.length,
       referenceWordCount: countWords(referenceText),
@@ -551,6 +560,7 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({
             ...fallbackData,
             _requestId: requestId,
+            _audio: { sha256: audioSha256, sampleRate: wavFormat?.sampleRate, normalized: normalizedAudio },
             _diagnostics: {
               fallbackUsed: true,
               reason: 'Initial response had Success but no pronunciation assessment block',
@@ -582,7 +592,7 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    return NextResponse.json({ ...data, _requestId: requestId })
+    return NextResponse.json({ ...data, _requestId: requestId, _audio: { sha256: audioSha256, sampleRate: wavFormat?.sampleRate, normalized: normalizedAudio } })
   } catch (error) {
     await reportServerEvent({
       event: 'speech.pronunciation.route.failed',

@@ -1,9 +1,11 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef, useId, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { FFmpeg } from '@ffmpeg/ffmpeg'
 import { fetchFile, toBlobURL } from '@ffmpeg/util'
 import { buildTtsBatches, textSize, createIntlSegmenter } from '@/lib/tts/sentenceSplitter'
+import { DEFAULT_PRONUNCIATION_REFERENCE_VOICE, PRONUNCIATION_REFERENCE_VOICES, PRONUNCIATION_REFERENCE_MODEL, PRONUNCIATION_REFERENCE_PROVIDER, isPronunciationReferenceVoice, pronunciationReferenceVoiceLabel } from '@/lib/pronunciationVoices'
+import type { PronunciationCoach, PronunciationCoachInput } from '@/lib/pronunciationCoach'
 
 // The segmenter instance is created once at module load time (browser-safe).
 // To swap to wink-nlp: import { createWinkSegmenter } from '@/lib/tts/winkSegmenter'
@@ -226,6 +228,7 @@ export default function SpeechLabPage({ hidePronunciation }: { hidePronunciation
               value={historySearch}
               onChange={(e) => setHistorySearch(e.target.value)}
               placeholder="Search history…"
+              aria-label="Search history"
               className="w-40 sm:w-56 rounded-xl bg-foreground/[0.03] border border-foreground/10 px-3 py-1.5 text-xs text-foreground placeholder:text-foreground/30 focus:outline-none focus:ring-2 focus:ring-foreground/15"
             />
             <select
@@ -252,9 +255,21 @@ export default function SpeechLabPage({ hidePronunciation }: { hidePronunciation
           </div>
         </div>
 
-        {historyError && <p className="text-xs text-foreground/40">{historyError}</p>}
+        {historyError && (
+          <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+            <span>{historyError}</span>
+            <button
+              type="button"
+              onClick={() => loadHistory()}
+              disabled={historyLoading}
+              className="rounded-full border border-red-200 px-3 py-1 font-medium hover:bg-red-100 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/40 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Reload history
+            </button>
+          </div>
+        )}
         {historyNotice && (
-          <div className="flex items-center justify-between gap-3 rounded-xl border border-foreground/10 bg-foreground/[0.02] px-3 py-2 text-xs text-foreground/50">
+          <div role="status" className="flex items-center justify-between gap-3 rounded-xl border border-foreground/10 bg-foreground/[0.02] px-3 py-2 text-xs text-foreground/50">
             <span>{historyNotice.message}</span>
             {historyNotice.undoItem && (
               <button
@@ -268,8 +283,19 @@ export default function SpeechLabPage({ hidePronunciation }: { hidePronunciation
           </div>
         )}
 
-        <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+        <div className={`space-y-2 overflow-y-auto pr-1 ${history.some((item) => item.modality === 'pronunciation') ? 'max-h-[32rem]' : 'max-h-96'}`}>
           {history.map((item) => {
+            if (item.modality === 'pronunciation') {
+              return (
+                <PronunciationHistoryRow
+                  key={item.id}
+                  item={item}
+                  onOpen={() => setSelectedHistoryItem(item)}
+                  onRestore={() => requestHistoryAction(item, 'restore')}
+                  onDelete={() => deleteHistory(item)}
+                />
+              )
+            }
             const summary = getHistoryItemSummary(item)
             return (
               <div key={item.id} className="rounded-xl border border-foreground/10 bg-foreground/[0.02] p-3">
@@ -318,9 +344,16 @@ export default function SpeechLabPage({ hidePronunciation }: { hidePronunciation
               </div>
             )
           })}
-          {history.length === 0 && !historyLoading && (
-            <p className="text-sm text-foreground/40 py-2">
-              {historySearch.trim() ? 'No matching history items.' : 'No history yet.'}
+          {history.length === 0 && historyLoading && (
+            <p role="status" className="text-sm text-foreground/60 py-2">Loading history…</p>
+          )}
+          {history.length === 0 && !historyLoading && !historyError && (
+            <p className="text-sm text-foreground/60 py-2">
+              {historySearch.trim()
+                ? 'No matching history items.'
+                : historyFilter === 'pronunciation'
+                  ? 'No pronunciation attempts yet. Assess a phrase and it will appear here with its score.'
+                  : 'No history yet.'}
             </p>
           )}
           {historyHasMore && (
@@ -428,6 +461,11 @@ async function saveSpeechHistory(payload: { modality: Tab; title: string; conten
   return (data.item ?? null) as HistoryItem | null
 }
 
+async function patchPronunciationHistory(id: string, metadataPatch: Record<string, unknown>): Promise<void> {
+  const res = await fetch('/api/speech/history', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, metadataPatch }) })
+  if (!res.ok) throw new Error('Failed to update pronunciation history')
+}
+
 async function uploadSpeechRecording(audioBlob: Blob, filename: string): Promise<SavedRecording | null> {
   try {
     const formData = new FormData()
@@ -500,19 +538,7 @@ function getHistoryItemSummary(item: HistoryItem): string | null {
     ].filter(Boolean).join(' · ') || null
   }
 
-  const scores = getNestedRecord(metadata, 'scores')
-  const pronScore = getMetadataNumber(scores ?? metadata, scores ? 'pronunciation' : 'pronScore')
-  const issueCounts = getNestedRecord(metadata, 'issueCounts')
-  const issueTotal = issueCounts
-    ? ['omissionCount', 'mispronunciationCount', 'unexpectedBreakCount', 'missingBreakCount', 'monotoneCount']
-        .reduce((total, key) => total + (getMetadataNumber(issueCounts, key) ?? 0), 0)
-    : 0
-
-  return [
-    pronScore != null ? `Overall ${Math.round(pronScore)}` : null,
-    issueTotal > 0 ? `${issueTotal} issues` : 'no labeled issues',
-    getMetadataString(metadata, 'requestId') ? `ID ${getMetadataString(metadata, 'requestId')}` : null,
-  ].filter(Boolean).join(' · ') || null
+  return null
 }
 
 function copyHistoryText(item: HistoryItem) {
@@ -547,7 +573,24 @@ function isPronWordLike(value: unknown): value is PronWord {
 function getHistoryPronunciationWords(metadata: Record<string, unknown>): PronWord[] {
   const words = metadata.words
   if (!Array.isArray(words)) return []
-  return words.filter(isPronWordLike)
+  // Older rows can be partial; fill the nested arrays that the word and prosody views read.
+  return words.filter(isPronWordLike).map((word) => ({
+    ...word,
+    syllables: word.syllables.filter((syllable) => isRecord(syllable)),
+    phonemes: word.phonemes
+      .filter((phoneme) => isRecord(phoneme))
+      .map((phoneme) => ({
+        ...phoneme,
+        nBestPhonemes: Array.isArray(phoneme.nBestPhonemes) ? phoneme.nBestPhonemes.filter((candidate) => isRecord(candidate)) : [],
+      })),
+    prosody: isRecord(word.prosody)
+      ? {
+          ...word.prosody,
+          breakErrorTypes: Array.isArray(word.prosody.breakErrorTypes) ? word.prosody.breakErrorTypes : [],
+          intonationErrorTypes: Array.isArray(word.prosody.intonationErrorTypes) ? word.prosody.intonationErrorTypes : [],
+        }
+      : undefined,
+  }))
 }
 
 function getHistoryDeliveryAnalysis(metadata: Record<string, unknown>): DeliveryAnalysis | undefined {
@@ -557,6 +600,7 @@ function getHistoryDeliveryAnalysis(metadata: Record<string, unknown>): Delivery
   const pitch = delivery.pitch
   const intensity = delivery.intensity
   if (!isRecord(summary) || !isRecord(pitch) || !isRecord(intensity)) return undefined
+  if (![delivery.insights, delivery.phrases, delivery.pauses, pitch.series, intensity.series].every(Array.isArray)) return undefined
   return delivery as unknown as DeliveryAnalysis
 }
 
@@ -588,29 +632,94 @@ function HistoryDetailModal({
   const metadata = getHistoryMetadata(item)
   const recording = getHistoryRecording(metadata)
   const canRerun = canRerunHistoryItem(item)
+  const isPronunciation = item.modality === 'pronunciation'
+  const rootRef = useRef<HTMLDivElement>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const wordTriggerRef = useRef<HTMLElement | null>(null)
+  const headingId = useId()
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
+      // While a word is open, Escape belongs to the word dialog only.
+      if (event.key === 'Escape' && !selectedWord) onClose()
     }
     window.addEventListener('keydown', closeOnEscape)
     return () => window.removeEventListener('keydown', closeOnEscape)
-  }, [onClose])
+  }, [onClose, selectedWord])
+
+  useEffect(() => {
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    dialogRef.current?.focus({ preventScroll: true })
+    return () => {
+      if (opener?.isConnected) opener.focus({ preventScroll: true })
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!selectedWord) return
+    const historyDialog = dialogRef.current
+    const dialogs = rootRef.current?.querySelectorAll<HTMLElement>('[role="dialog"]')
+    dialogs?.[dialogs.length - 1]?.querySelector('button')?.focus()
+    return () => {
+      const trigger = wordTriggerRef.current
+      if (trigger?.isConnected && historyDialog?.contains(trigger)) trigger.focus({ preventScroll: true })
+      else historyDialog?.focus({ preventScroll: true })
+    }
+  }, [selectedWord])
+
+  const openWord = (word: PronWord) => {
+    wordTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    setSelectedWord(word)
+  }
+
+  const trapFocus = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Tab') return
+    const dialogs = event.currentTarget.querySelectorAll<HTMLElement>('[role="dialog"]')
+    const scope = dialogs[dialogs.length - 1]
+    if (!scope) return
+    const focusable = Array.from(
+      scope.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], summary, audio[controls]')
+    ).filter((element) => element.tagName === 'SUMMARY' || !element.closest('details:not([open])'))
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    if (!first || !last) return
+    const active = document.activeElement
+    if (event.shiftKey && (active === first || active === scope)) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && active === last) {
+      event.preventDefault()
+      first.focus()
+    }
+  }
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center px-4">
+    <div ref={rootRef} onKeyDown={trapFocus} className="fixed inset-0 z-[100] flex items-center justify-center px-3 sm:px-4">
       <button type="button" aria-label="Close history details" className="absolute inset-0 bg-background/60 backdrop-blur-xl cursor-default" onClick={onClose} />
-      <div role="dialog" aria-modal="true" aria-label={`${item.title} history details`} className="relative w-full max-w-3xl max-h-[88vh] overflow-y-auto rounded-2xl bg-glass backdrop-blur-xl border border-glass-border shadow-xl p-5">
+      <div
+        ref={dialogRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-label={isPronunciation ? undefined : `${item.title} history details`}
+        aria-labelledby={isPronunciation ? headingId : undefined}
+        inert={selectedWord !== null}
+        className="relative w-full max-w-3xl max-h-[88vh] overflow-y-auto overscroll-contain rounded-2xl bg-glass backdrop-blur-xl border border-glass-border shadow-xl p-4 sm:p-5 focus:outline-none"
+      >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-xs text-foreground/40 uppercase tracking-wider">History Details</p>
-            <h3 className="text-xl font-medium text-foreground mt-0.5 break-words">{item.title}</h3>
-            <p className="text-xs text-foreground/40 mt-1">
-              {modalityLabels[item.modality]} · {new Date(item.createdAt).toLocaleString()}
+            <p className="text-xs text-foreground/40 uppercase tracking-wider">{isPronunciation ? 'Pronunciation attempt' : 'History Details'}</p>
+            <h3 id={headingId} className="text-xl font-medium text-foreground mt-0.5 break-words">
+              {isPronunciation ? formatHistoryDate(item.createdAt, 'long') : item.title}
+            </h3>
+            <p className={`text-xs mt-1 ${isPronunciation ? 'text-foreground/60' : 'text-foreground/40'}`}>
+              {isPronunciation
+                ? [getHistoryLanguageLabel(metadata), getHistorySourceLabel(metadata)].filter(Boolean).join(' · ')
+                : `${modalityLabels[item.modality]} · ${new Date(item.createdAt).toLocaleString()}`}
             </p>
           </div>
-          <button type="button" onClick={onClose} className="rounded-full bg-foreground/5 hover:bg-foreground/10 p-2 text-foreground/50 transition-colors cursor-pointer" aria-label="Close">
-            <span className="material-symbols-outlined text-lg block">close</span>
+          <button type="button" onClick={onClose} className="shrink-0 rounded-full bg-foreground/5 hover:bg-foreground/10 p-2 text-foreground/60 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/40" aria-label="Close">
+            <span className="material-symbols-outlined text-lg block" aria-hidden="true">close</span>
           </button>
         </div>
 
@@ -651,20 +760,28 @@ function HistoryDetailModal({
           </button>
         </div>
 
+        {isPronunciation && (!canRerun || isSynthesizedReference(metadata)) && (
+          <p className="mt-2 text-xs text-foreground/60">
+            {canRerun
+              ? 'Rerun synthesizes this reference voice again, then scores the new audio.'
+              : 'Rerun is unavailable because no recording was saved with this attempt.'}
+          </p>
+        )}
+
         <div className="mt-5 space-y-4">
           {item.content && (
             <div className="rounded-xl border border-foreground/10 bg-foreground/[0.02] p-3">
-              <p className="text-xs text-foreground/40 uppercase tracking-wider font-medium mb-1">
-                {item.modality === 'pronunciation' ? 'Reference Text' : 'Saved Content'}
+              <p className="text-xs text-foreground/60 uppercase tracking-wider font-medium mb-1">
+                {isPronunciation ? 'Practice phrase' : 'Saved Content'}
               </p>
-              <p className="text-sm leading-relaxed text-foreground/70 whitespace-pre-wrap break-words">{item.content}</p>
+              <p className={`leading-relaxed whitespace-pre-wrap break-words ${isPronunciation ? 'text-base text-foreground max-h-48 overflow-y-auto' : 'text-sm text-foreground/70'}`}>{item.content}</p>
             </div>
           )}
 
           {item.modality === 'tts' && <HistoryTtsDetails metadata={metadata} />}
           {item.modality === 'stt' && <HistorySttDetails metadata={metadata} recording={recording} />}
           {item.modality === 'pronunciation' && (
-            <HistoryPronunciationDetails metadata={metadata} onSelectWord={setSelectedWord} />
+            <HistoryPronunciationDetails metadata={metadata} referenceText={item.content} onSelectWord={openWord} />
           )}
         </div>
       </div>
@@ -726,84 +843,583 @@ function HistorySttDetails({ metadata, recording }: { metadata: Record<string, u
   )
 }
 
+/* ─── Pronunciation history ─── */
+interface HistoryCoach {
+  model: string | null
+  summary: string | null
+  reasoningEffort?: string | null
+  promptVersion?: string | null
+  strengths: Array<{ title: string; evidence: string }>
+  priorities: Array<{ category: string; title: string; evidence: string; practice: string; confidence?: string }>
+}
+
+const historyLanguageLabels: Record<string, string> = {
+  'en-US': 'English (US)',
+  'en-GB': 'English (UK)',
+  'es-ES': 'Spanish',
+  'fr-FR': 'French',
+  'de-DE': 'German',
+  'zh-CN': 'Chinese (Mandarin)',
+  'ja-JP': 'Japanese',
+  'ko-KR': 'Korean',
+}
+
+function formatHistoryDate(timestamp: number, style: 'short' | 'long' = 'short'): string {
+  const date = new Date(timestamp)
+  if (Number.isNaN(date.getTime())) return 'Date unavailable'
+  const showYear = style === 'long' || date.getFullYear() !== new Date().getFullYear()
+  return date.toLocaleString(undefined, {
+    weekday: style,
+    month: style,
+    day: 'numeric',
+    ...(showYear ? { year: 'numeric' as const } : {}),
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
+function getHistoryLanguageLabel(metadata: Record<string, unknown>): string | null {
+  const language = getMetadataString(metadata, 'language')
+  return language ? historyLanguageLabels[language] ?? language : null
+}
+
+function isSynthesizedReference(metadata: Record<string, unknown>): boolean {
+  return getMetadataString(metadata, 'source') === 'reference-voice'
+}
+
+function getHistorySourceLabel(metadata: Record<string, unknown>): string {
+  if (isSynthesizedReference(metadata)) return 'Synthesized reference'
+  if (getMetadataString(metadata, 'source') === 'recording') return 'Your recording'
+  return getHistoryRecording(metadata) ? 'Saved recording' : 'Source not recorded'
+}
+
+/** Voice, provider and model for a synthesized reference. Missing parts are omitted. */
+function getHistoryReferenceVoiceLabel(metadata: Record<string, unknown>): string | null {
+  const voice = getMetadataString(metadata, 'voice')
+  // Rows saved before referenceProvider existed encode the provider in the voice id.
+  const provider = getMetadataString(metadata, 'referenceProvider')
+    || (voice ? (voice.startsWith('chirp3:') ? 'chirp3' : 'gemini') : null)
+  const providerLabel = provider === 'chirp3' ? 'Chirp 3 HD' : provider === 'gemini' ? 'Gemini' : provider === PRONUNCIATION_REFERENCE_PROVIDER ? 'Vercel AI Gateway' : provider
+  return [voice ? getTtsVoiceLabel(voice) : null, providerLabel, getMetadataString(metadata, 'referenceModel')]
+    .filter(Boolean)
+    .join(' · ') || null
+}
+
+/** Only web URLs can be played by the browser; stored s3:// locations cannot. */
+function getHistoryPlayableUrl(metadata: Record<string, unknown>): string | null {
+  const url = getMetadataString(metadata, 'storageUrl')
+  return url && (/^https?:\/\//i.test(url) || /^\/api\/speech\/pronunciation\/reference\?id=[0-9a-f-]{36}$/i.test(url)) ? url : null
+}
+
+function getHistoryCoach(metadata: Record<string, unknown>): HistoryCoach | null {
+  const coach = getNestedRecord(metadata, 'coach')
+  if (!coach) return null
+  const text = (record: Record<string, unknown>, key: string) => getMetadataString(record, key)?.trim() ?? ''
+  const records = (value: unknown) => Array.isArray(value) ? value.filter(isRecord) : []
+  const summary = text(coach, 'summary') || null
+  const strengths = records(coach.strengths)
+    .map((entry) => ({ title: text(entry, 'title'), evidence: text(entry, 'evidence') }))
+    .filter((entry) => entry.title || entry.evidence)
+  const priorities = records(coach.priorities)
+    .map((entry) => ({
+      category: text(entry, 'category'),
+      title: text(entry, 'title'),
+      evidence: text(entry, 'evidence'),
+      practice: text(entry, 'practice'),
+      confidence: text(entry, 'confidence'),
+    }))
+    .filter((entry) => entry.title || entry.evidence || entry.practice)
+  if (!summary && strengths.length === 0 && priorities.length === 0) return null
+  return { model: text(coach, 'model') || null, reasoningEffort: text(coach, 'reasoningEffort') || null, promptVersion: text(coach, 'promptVersion') || null, summary, strengths, priorities }
+}
+
+function getHistoryScoreBand(score: number) {
+  if (score >= SCORE_EXCELLENT) return { label: 'Strong', style: 'bg-emerald-50 border-emerald-200 text-emerald-700', bar: 'bg-emerald-500' }
+  if (score >= SCORE_GOOD) return { label: 'Developing', style: 'bg-amber-50 border-amber-200 text-amber-700', bar: 'bg-amber-500' }
+  return { label: 'Needs practice', style: 'bg-red-50 border-red-200 text-red-700', bar: 'bg-red-500' }
+}
+
+function isHistoryWordForReview(word: PronWord): boolean {
+  return word.errorType !== 'None' || word.accuracyScore < SCORE_EXCELLENT || getProsodyBreakIssues(word).length > 0
+}
+
+const historyActionClass = 'inline-flex items-center gap-1 rounded-full border border-foreground/10 bg-foreground/5 px-3 py-1.5 text-xs text-foreground/70 hover:bg-foreground/10 hover:text-foreground transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/40'
+const historySectionClass = 'rounded-xl border border-foreground/10 bg-foreground/[0.02] p-3'
+const historySummaryClass = 'cursor-pointer select-none rounded-xl px-3 py-2.5 text-sm font-medium text-foreground/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-foreground/40'
+
+/** Loads on mount through fetch so a missing or expired recording gets a readable error. */
+function HistoryRecordingPlayer({ recordingId, label, autoPlay = false }: { recordingId: string; label: string; autoPlay?: boolean }) {
+  const [attempt, setAttempt] = useState(0)
+  const [audio, setAudio] = useState<{ url: string | null; error: string | null }>({ url: null, error: null })
+  const [playbackFailed, setPlaybackFailed] = useState(false)
+
+  useEffect(() => {
+    const controller = new AbortController()
+    let objectUrl: string | null = null
+    void (async () => {
+      try {
+        const res = await fetch(`/api/speech/recordings/${encodeURIComponent(recordingId)}`, { signal: controller.signal })
+        if (!res.ok) {
+          throw new Error(res.status === 401
+            ? 'Sign in again to play this recording.'
+            : 'This recording couldn’t be loaded. It may have been removed: Speech Lab keeps only the 3 newest saved recordings.')
+        }
+        const blob = await res.blob()
+        if (controller.signal.aborted) return
+        objectUrl = URL.createObjectURL(blob)
+        setAudio({ url: objectUrl, error: null })
+      } catch (error) {
+        if (controller.signal.aborted) return
+        // fetch and blob() reject with TypeError on network failures.
+        const message = error instanceof Error && !(error instanceof TypeError)
+          ? error.message
+          : 'This recording couldn’t be loaded. Check your connection and try again.'
+        setAudio({ url: null, error: message })
+      }
+    })()
+    return () => {
+      controller.abort()
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [recordingId, attempt])
+
+  const retry = () => {
+    setPlaybackFailed(false)
+    setAudio({ url: null, error: null })
+    setAttempt((value) => value + 1)
+  }
+
+  if (audio.error) {
+    return (
+      <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+        <p className="min-w-0 flex-1 basis-48">{audio.error}</p>
+        <button type="button" onClick={retry} className={historyActionClass}>Try again</button>
+      </div>
+    )
+  }
+
+  if (!audio.url) {
+    return <p role="status" className="py-2 text-xs text-foreground/60">Loading recording…</p>
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <audio controls autoPlay={autoPlay} src={audio.url} aria-label={label} onError={() => setPlaybackFailed(true)} className="w-full" />
+      {playbackFailed && (
+        <p role="alert" className="text-xs text-foreground/70">
+          This browser can’t play the saved format.{' '}
+          <a href={audio.url} download={recordingId} className="underline underline-offset-2">Download the recording</a>
+        </p>
+      )}
+    </div>
+  )
+}
+
+function PronunciationHistoryRow({
+  item,
+  onOpen,
+  onRestore,
+  onDelete,
+}: {
+  item: HistoryItem
+  onOpen: () => void
+  onRestore: () => void
+  onDelete: () => void
+}) {
+  const [listening, setListening] = useState(false)
+  const playerId = useId()
+  const metadata = getHistoryMetadata(item)
+  const { pronScore } = getHistoryPronunciationScores(metadata)
+  const synthesized = isSynthesizedReference(metadata)
+  const recording = getHistoryRecording(metadata)
+  const playableUrl = recording ? null : getHistoryPlayableUrl(metadata)
+  const voiceLabel = synthesized ? getHistoryReferenceVoiceLabel(metadata) : null
+  const coach = getHistoryCoach(metadata)
+  const coachFailed = !coach && Boolean(getMetadataString(metadata, 'coachError'))
+  const focus = coach?.priorities.find((priority) => priority.title)?.title
+  const phrase = item.content || getMetadataString(metadata, 'displayText') || item.title
+  const date = formatHistoryDate(item.createdAt)
+  // Reference scores stay neutral so they don't read as the learner's own progress.
+  const scoreStyle = pronScore == null || synthesized
+    ? `${synthesized ? 'border-dashed ' : ''}border-foreground/20 bg-foreground/[0.03] text-foreground/70`
+    : getHistoryScoreBand(pronScore).style
+  const chipClass = 'inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[11px]'
+
+  return (
+    <article className="rounded-xl border border-foreground/10 bg-foreground/[0.02] p-3">
+      <button type="button" onClick={onOpen} className="flex w-full items-start gap-3 rounded-lg text-left cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/40">
+        <span className={`flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-xl border ${scoreStyle}`}>
+          <span className="text-xl font-medium leading-none tabular-nums">
+            {pronScore != null ? Math.round(pronScore) : <><span aria-hidden="true">–</span><span className="sr-only">Not available</span></>}
+          </span>
+          <span className="mt-1 text-[10px] leading-none">{synthesized ? 'Ref score' : 'Score'}</span>
+        </span>
+        <span className="block min-w-0 flex-1">
+          <span className="line-clamp-2 break-words text-sm font-medium text-foreground">{phrase}</span>
+          <span className="mt-0.5 block text-xs text-foreground/60">
+            {date}{getHistoryLanguageLabel(metadata) ? ` · ${getHistoryLanguageLabel(metadata)}` : ''}
+          </span>
+          <span className="mt-1.5 flex flex-wrap gap-1.5">
+            <span className={`${chipClass} ${synthesized ? 'border-dashed border-foreground/25 text-foreground/70' : 'border-foreground/10 bg-foreground/5 text-foreground/70'}`}>
+              <span className="material-symbols-outlined !text-[13px]" aria-hidden="true">{synthesized ? 'record_voice_over' : 'mic'}</span>
+              {getHistorySourceLabel(metadata)}
+            </span>
+            {voiceLabel && <span className={`${chipClass} border-foreground/10 text-foreground/60`}><span className="truncate">{voiceLabel}</span></span>}
+            {coach && (
+              <span className={`${chipClass} border-foreground/10 text-foreground/60`}>
+                <span className="material-symbols-outlined !text-[13px]" aria-hidden="true">auto_awesome</span>
+                <span className="truncate">{coach.model ? `Coaching · ${coach.model}` : 'Coaching saved'}</span>
+              </span>
+            )}
+            {coachFailed && <span className={`${chipClass} border-amber-200 bg-amber-50 text-amber-700`}>Coaching unavailable</span>}
+          </span>
+          {focus && <span className="mt-1.5 block truncate text-xs text-foreground/70"><span className="font-medium">Practice next:</span> {focus}</span>}
+        </span>
+      </button>
+
+      <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+        <button type="button" onClick={onOpen} aria-label={`Review attempt from ${date}`} className={historyActionClass}>
+          <span className="material-symbols-outlined !text-sm" aria-hidden="true">open_in_full</span>
+          Review
+        </button>
+        {(recording || playableUrl) && (
+          <button type="button" onClick={() => setListening((value) => !value)} aria-expanded={listening} aria-controls={listening ? playerId : undefined} className={historyActionClass}>
+            <span className="material-symbols-outlined !text-sm" aria-hidden="true">{listening ? 'close' : 'play_arrow'}</span>
+            {listening ? 'Hide audio' : 'Listen'}
+          </button>
+        )}
+        <button type="button" onClick={onRestore} aria-label={`Restore attempt from ${date}`} className={historyActionClass}>
+          <span className="material-symbols-outlined !text-sm" aria-hidden="true">restore</span>
+          Restore
+        </button>
+        <button type="button" onClick={onDelete} aria-label={`Delete attempt from ${date}`} className="ml-auto inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-3 py-1.5 text-xs text-red-700 hover:bg-red-100 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/40">
+          <span className="material-symbols-outlined !text-sm" aria-hidden="true">delete</span>
+          Delete
+        </button>
+      </div>
+
+      {listening && (recording || playableUrl) && (
+        <div id={playerId} className="mt-2">
+          {recording
+            ? <HistoryRecordingPlayer recordingId={recording.id} label={`${getHistorySourceLabel(metadata)} from ${date}`} autoPlay />
+            : <audio controls autoPlay preload="none" src={playableUrl!} aria-label={`${getHistorySourceLabel(metadata)} from ${date}`} className="w-full" />}
+        </div>
+      )}
+    </article>
+  )
+}
+
+function HistoryPronunciationAudio({ metadata }: { metadata: Record<string, unknown> }) {
+  const synthesized = isSynthesizedReference(metadata)
+  const recording = getHistoryRecording(metadata)
+  const playableUrl = getHistoryPlayableUrl(metadata)
+  const voiceLabel = synthesized ? getHistoryReferenceVoiceLabel(metadata) : null
+  const sourceLabel = getHistorySourceLabel(metadata)
+
+  return (
+    <section aria-label={`${sourceLabel} audio`} className={`${historySectionClass} space-y-2 ${synthesized ? 'border-dashed' : ''}`}>
+      <div className="flex items-start gap-2">
+        <span className="material-symbols-outlined !text-lg text-foreground/60" aria-hidden="true">{synthesized ? 'record_voice_over' : 'mic'}</span>
+        <div className="min-w-0">
+          <h4 className="text-sm font-medium text-foreground">{sourceLabel}</h4>
+          {synthesized && (
+            <p className="break-words text-xs text-foreground/60">
+              Computer-generated speech, not your voice. {voiceLabel ?? 'Voice details were not saved.'}
+            </p>
+          )}
+        </div>
+      </div>
+      {recording ? (
+        <HistoryRecordingPlayer recordingId={recording.id} label={`${sourceLabel} playback`} />
+      ) : playableUrl ? (
+        <audio controls preload="none" src={playableUrl} aria-label={`${sourceLabel} playback`} className="w-full" />
+      ) : (
+        <p className="text-xs text-foreground/60">
+          {synthesized
+            ? 'The generated audio can’t be played from history. Use Rerun to synthesize and assess it again.'
+            : 'No audio was saved with this attempt.'}
+        </p>
+      )}
+    </section>
+  )
+}
+
+function HistoryScoreSummary({ metadata, referenceText }: { metadata: Record<string, unknown>; referenceText: string }) {
+  const scores = getHistoryPronunciationScores(metadata)
+  const synthesized = isSynthesizedReference(metadata)
+  const heard = getMetadataString(metadata, 'displayText')
+  const comparable = (value: string) => value.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '')
+  const heardDiffers = Boolean(heard && referenceText && comparable(heard) !== comparable(referenceText))
+  const subScores = [
+    { label: 'Accuracy', score: scores.accuracyScore, meaning: 'how closely the sounds matched what was expected' },
+    { label: 'Fluency', score: scores.fluencyScore, meaning: 'how naturally the pacing and flow came across' },
+    { label: 'Completeness', score: scores.completenessScore, meaning: 'how much of the phrase was spoken and recognized' },
+    { label: 'Prosody', score: scores.prosodyScore, meaning: 'intonation, stress and naturalness' },
+  ].filter((entry): entry is { label: string; score: number; meaning: string } => entry.score != null)
+  const hasScores = scores.pronScore != null || subScores.length > 0
+  const band = scores.pronScore != null ? getHistoryScoreBand(scores.pronScore) : null
+
+  return (
+    <section aria-label={synthesized ? 'Reference voice scores' : 'Pronunciation scores'} className={historySectionClass}>
+      {!hasScores ? (
+        <p className="text-sm text-foreground/60">No scores were saved with this attempt.</p>
+      ) : (
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+          {scores.pronScore != null && band && (
+            <div className={`shrink-0 rounded-xl border px-4 py-3 text-center sm:w-36 ${synthesized ? 'border-dashed border-foreground/20 text-foreground/70' : band.style}`}>
+              <p className="text-xs">{synthesized ? 'Reference score' : 'Overall score'}</p>
+              <p className="text-4xl font-medium tabular-nums">{Math.round(scores.pronScore)}<span className="text-sm font-normal"> / 100</span></p>
+              <p className="text-xs font-medium">{band.label}</p>
+            </div>
+          )}
+          {subScores.length > 0 && (
+            <dl className="grid flex-1 grid-cols-2 gap-x-4 gap-y-3">
+              {subScores.map(({ label, score }) => (
+                <div key={label}>
+                  <div className="flex items-baseline justify-between gap-2">
+                    <dt className="text-xs text-foreground/60">{label}</dt>
+                    <dd className="text-sm font-medium tabular-nums text-foreground">{Math.round(score)}</dd>
+                  </div>
+                  <div aria-hidden="true" className="mt-1 h-1.5 overflow-hidden rounded-full bg-foreground/10">
+                    <div className={`h-full rounded-full ${synthesized ? 'bg-foreground/40' : getHistoryScoreBand(score).bar}`} style={{ width: `${Math.min(Math.max(score, 0), 100)}%` }} />
+                  </div>
+                </div>
+              ))}
+            </dl>
+          )}
+        </div>
+      )}
+      {heardDiffers && (
+        <p className="mt-3 break-words text-sm text-foreground/70"><span className="font-medium text-foreground">Azure heard:</span> {heard}</p>
+      )}
+      {subScores.length > 0 && (
+        <details className="mt-2 text-xs text-foreground/60">
+          <summary className="cursor-pointer select-none rounded hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/40">What these scores measure</summary>
+          <ul className="mt-1.5 space-y-1">
+            {subScores.map(({ label, meaning }) => <li key={label}><span className="font-medium">{label}:</span> {meaning}.</li>)}
+          </ul>
+        </details>
+      )}
+    </section>
+  )
+}
+
+function HistoryCoachSection({ metadata, live = false, loading = false, onRetry }: { metadata: Record<string, unknown>; live?: boolean; loading?: boolean; onRetry?: () => void }) {
+  const coach = getHistoryCoach(metadata)
+  const coachError = getMetadataString(metadata, 'coachError')
+  const headingId = useId()
+
+  return (
+    <section aria-labelledby={headingId} className={`${historySectionClass} space-y-3`}>
+      <div>
+        <h4 id={headingId} className="text-sm font-medium text-foreground">AI pronunciation coaching</h4>
+        <p className="break-words text-xs text-foreground/60">{coach?.model ?? (live ? 'GPT-6.2 Sol' : 'No model recorded')}{coach?.reasoningEffort ? ` · ${coach.reasoningEffort} reasoning` : live ? ' · medium reasoning' : ''} · Interprets measured evidence, not an independent acoustic score.</p>
+      </div>
+
+      {loading && <p role="status" className="text-sm text-foreground/60">Analyzing pronunciation evidence and preparing practice suggestions…</p>}
+      {coachError && !loading && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+          <p className="font-medium">{coach ? 'Coaching reported a problem.' : 'Coaching wasn’t generated for this attempt.'}</p>
+          <p className="mt-0.5 break-words">{coachError}</p>
+        </div>
+      )}
+      {!coach && !coachError && !loading && <p className="text-sm text-foreground/60">{live ? 'No AI coaching is available for this assessment.' : 'No coaching was saved with this attempt.'}</p>}
+      {live && !loading && onRetry && (!coach || coachError) && <button type="button" onClick={onRetry} className={historyActionClass}>Retry coaching</button>}
+
+      {coach?.summary && <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/80">{coach.summary}</p>}
+
+      {coach && coach.priorities.length > 0 && (
+        <div>
+          <h5 className="mb-1.5 text-xs font-medium uppercase tracking-wider text-foreground/60">Practice next</h5>
+          <ol className="space-y-2">
+            {coach.priorities.map((priority, index) => (
+              <li key={`${priority.title}-${index}`} className="flex gap-2.5 rounded-lg border border-foreground/10 bg-foreground/[0.03] p-3">
+                <span aria-hidden="true" className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-foreground text-[11px] font-medium text-background">{index + 1}</span>
+                <div className="min-w-0 space-y-1 break-words">
+                  <p className="text-sm font-medium text-foreground">{priority.title || priority.category || 'Practice priority'}</p>
+                  {priority.category && priority.title && <p className="text-[11px] uppercase tracking-wider text-foreground/60">{priority.category}{priority.confidence ? ` · ${priority.confidence} confidence` : ''}</p>}
+                  {priority.evidence && <p className="text-xs leading-relaxed text-foreground/60">{priority.evidence}</p>}
+                  {priority.practice && <p className="text-sm leading-relaxed text-foreground/80"><span className="font-medium text-foreground">Try:</span> {priority.practice}</p>}
+                </div>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      {coach && coach.strengths.length > 0 && (
+        <div>
+          <h5 className="mb-1.5 text-xs font-medium uppercase tracking-wider text-foreground/60">What went well</h5>
+          <ul className="space-y-2">
+            {coach.strengths.map((strength, index) => (
+              <li key={`${strength.title}-${index}`} className="flex gap-2">
+                <span className="material-symbols-outlined !text-lg text-emerald-600" aria-hidden="true">check_circle</span>
+                <div className="min-w-0 break-words">
+                  {strength.title && <p className="text-sm font-medium text-foreground">{strength.title}</p>}
+                  {strength.evidence && <p className="text-xs leading-relaxed text-foreground/60">{strength.evidence}</p>}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
+  )
+}
+
+function HistoryWordReview({
+  words,
+  truncated,
+  onSelectWord,
+}: {
+  words: PronWord[]
+  truncated: boolean
+  onSelectWord: (word: PronWord) => void
+}) {
+  const reviewCount = words.filter(isHistoryWordForReview).length
+  const [showAll, setShowAll] = useState(false)
+  const canFilter = reviewCount > 0 && reviewCount < words.length
+  const visibleWords = words
+    .map((word, index) => ({ word, index }))
+    .filter(({ word }) => !canFilter || showAll || isHistoryWordForReview(word))
+  const headingId = useId()
+
+  return (
+    <section aria-labelledby={headingId} className={`${historySectionClass} space-y-2.5`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h4 id={headingId} className="text-sm font-medium text-foreground">Words and sounds</h4>
+          {words.length > 0 && <p className="text-xs text-foreground/60">Select a word for syllable and phoneme scores.</p>}
+        </div>
+        {canFilter && (
+          <div role="group" aria-label="Words shown" className="flex gap-1">
+            {[
+              { all: false, label: `To review (${reviewCount})` },
+              { all: true, label: `All (${words.length})` },
+            ].map((option) => (
+              <button
+                key={option.label}
+                type="button"
+                aria-pressed={showAll === option.all}
+                onClick={() => setShowAll(option.all)}
+                className={`rounded-full px-3 py-1 text-xs cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/40 ${showAll === option.all ? 'bg-foreground text-background' : 'bg-foreground/5 text-foreground/70 hover:bg-foreground/10'}`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {words.length === 0 ? (
+        <p className="text-sm text-foreground/60">Word and phoneme detail wasn’t saved with this attempt.</p>
+      ) : (
+        <>
+          {reviewCount === 0 && <p className="text-xs text-foreground/60">No saved words were flagged for review.</p>}
+          <div className="flex flex-wrap gap-2">
+            {visibleWords.map(({ word, index }) => (
+              <PronunciationWordChip key={`${word.word}-${index}`} word={word} onClick={() => onSelectWord(word)} />
+            ))}
+          </div>
+        </>
+      )}
+      {words.some(isOmittedPronunciationWord) && (
+        <p className="text-xs text-foreground/60">Words marked omitted weren’t matched to the audio, so they have no pronunciation score.</p>
+      )}
+      {truncated && <p className="text-xs text-foreground/60">This attempt stores detail for the first saved words only.</p>}
+    </section>
+  )
+}
+
 function HistoryPronunciationDetails({
   metadata,
+  referenceText,
   onSelectWord,
 }: {
   metadata: Record<string, unknown>
+  referenceText: string
   onSelectWord: (word: PronWord) => void
 }) {
-  const scores = getHistoryPronunciationScores(metadata)
   const words = getHistoryPronunciationWords(metadata)
   const delivery = getHistoryDeliveryAnalysis(metadata)
   const deliveryError = getMetadataString(metadata, 'deliveryError')
   const issueCounts = getNestedRecord(metadata, 'issueCounts')
+  const issues = issueCounts
+    ? [
+        ['Omissions', 'omissionCount'],
+        ['Mispronounced', 'mispronunciationCount'],
+        ['Missing pauses', 'missingBreakCount'],
+        ['Unexpected pauses', 'unexpectedBreakCount'],
+        ['Monotone', 'monotoneCount'],
+      ]
+        .map(([label, key]) => ({ label, count: getMetadataNumber(issueCounts, key) ?? 0 }))
+        .filter((issue) => issue.count > 0)
+    : []
+  const confidence = getMetadataNumber(metadata, 'confidence')
+  const snr = getMetadataNumber(metadata, 'snr')
+  const technicalDetails = [
+    ['Azure heard', getMetadataString(metadata, 'displayText')],
+    ['Lexical form', getMetadataString(metadata, 'lexical')],
+    ['Recognition status', getMetadataString(metadata, 'recognitionStatus')],
+    ['Confidence', confidence != null ? confidence.toFixed(3) : null],
+    ['Signal-to-noise (SNR)', snr != null ? snr.toFixed(1) : null],
+    ['Tracking ID', getMetadataString(metadata, 'requestId')],
+    // Synthesized attempts already show these next to the audio.
+    ['Reference source', getMetadataString(metadata, 'referenceSource') === 'transcription' ? 'Automatic transcription' : getMetadataString(metadata, 'referenceSource') === 'manual' ? 'Fixed script' : null],
+    ['Reference transcription', getMetadataString(metadata, 'referenceTranscriptionModel')],
+    ['Reference provider', isSynthesizedReference(metadata) ? null : getMetadataString(metadata, 'referenceProvider')],
+    ['Reference model', isSynthesizedReference(metadata) ? null : getMetadataString(metadata, 'referenceModel')],
+  ].filter((entry): entry is [string, string] => Boolean(entry[1]))
 
   return (
     <div className="space-y-4">
-      <div className="rounded-xl bg-foreground/[0.03] border border-foreground/10 p-3 space-y-2">
-        <p className="text-xs text-foreground/40 uppercase tracking-wider font-medium">Recognition Snapshot</p>
-        <p className="text-sm text-foreground/70">
-          Recognized: <span className="text-foreground font-medium">{getMetadataString(metadata, 'displayText') ?? 'n/a'}</span>
-        </p>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs text-foreground/50">
-          <div className="rounded-lg bg-foreground/[0.02] border border-foreground/8 px-2.5 py-1.5">Status: {getMetadataString(metadata, 'recognitionStatus') ?? 'n/a'}</div>
-          <div className="rounded-lg bg-foreground/[0.02] border border-foreground/8 px-2.5 py-1.5">Confidence: {getMetadataNumber(metadata, 'confidence')?.toFixed(3) ?? 'n/a'}</div>
-          <div className="rounded-lg bg-foreground/[0.02] border border-foreground/8 px-2.5 py-1.5">SNR: {getMetadataNumber(metadata, 'snr')?.toFixed(1) ?? 'n/a'}</div>
-          <div className="rounded-lg bg-foreground/[0.02] border border-foreground/8 px-2.5 py-1.5 truncate" title={getMetadataString(metadata, 'lexical') ?? undefined}>Lexical: {getMetadataString(metadata, 'lexical') ?? 'n/a'}</div>
-        </div>
-        {getMetadataString(metadata, 'requestId') && (
-          <p className="text-[11px] text-foreground/35">Tracking ID: <span className="font-mono">{getMetadataString(metadata, 'requestId')}</span></p>
-        )}
-      </div>
+      <HistoryPronunciationAudio metadata={metadata} />
+      <HistoryScoreSummary metadata={metadata} referenceText={referenceText} />
+      <HistoryCoachSection metadata={metadata} />
+      <HistoryWordReview words={words} truncated={metadata.wordsTruncated === true} onSelectWord={onSelectWord} />
 
-      {scores.pronScore != null && (
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-          <ScoreCard label="Overall" score={scores.pronScore} />
-          {scores.accuracyScore != null && <ScoreCard label="Accuracy" score={scores.accuracyScore} />}
-          {scores.fluencyScore != null && <ScoreCard label="Fluency" score={scores.fluencyScore} />}
-          {scores.completenessScore != null && <ScoreCard label="Complete" score={scores.completenessScore} />}
-          {scores.prosodyScore != null && <ScoreCard label="Prosody" score={scores.prosodyScore} />}
-        </div>
-      )}
-
-      {issueCounts && (
-        <div className="flex flex-wrap gap-1.5">
-          {[
-            ['Omissions', 'omissionCount'],
-            ['Mispronounced', 'mispronunciationCount'],
-            ['Missing pauses', 'missingBreakCount'],
-            ['Unexpected pauses', 'unexpectedBreakCount'],
-            ['Monotone', 'monotoneCount'],
-          ].map(([label, key]) => (
-            <span key={key} className="rounded-full bg-foreground/5 px-2.5 py-1 text-xs text-foreground/50">
-              {label}: {getMetadataNumber(issueCounts, key) ?? 0}
-            </span>
-          ))}
-        </div>
-      )}
-
-      {words.length > 0 && <ProsodyFeedback words={words} />}
-
-      <DeliveryAnalysisPanel
-        analysis={delivery}
-        loading={false}
-        error={deliveryError}
-      />
-
-      {words.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-xs text-foreground/40 uppercase tracking-wider font-medium">Word Breakdown</p>
-          <div className="flex flex-wrap gap-2">
-            {words.map((word, index) => (
-              <PronunciationWordChip key={`${word.word}-${index}`} word={word} onClick={() => onSelectWord(word)} />
-            ))}
-          </div>
-          {metadata.wordsTruncated === true && (
-            <p className="text-xs text-foreground/35">This history item stores the first saved word details only.</p>
+      <details className="rounded-xl border border-foreground/10 bg-foreground/[0.02]">
+        <summary className={historySummaryClass}>
+          Delivery and pacing
+          {issues.length > 0 && <span className="font-normal text-foreground/60"> · {issues.reduce((total, issue) => total + issue.count, 0)} labeled issues</span>}
+          {!delivery && <span className="font-normal text-foreground/60"> · measurements unavailable</span>}
+        </summary>
+        <div className="space-y-3 px-3 pb-3">
+          {issues.length > 0 && (
+            <ul aria-label="Labeled issues" className="flex flex-wrap gap-1.5">
+              {issues.map((issue) => (
+                <li key={issue.label} className="rounded-full bg-foreground/5 px-2.5 py-1 text-xs text-foreground/70">{issue.label}: {issue.count}</li>
+              ))}
+            </ul>
+          )}
+          <ProsodyFeedback words={words} />
+          {delivery ? (
+            <DeliveryAnalysisPanel analysis={delivery} loading={false} error={deliveryError} />
+          ) : (
+            <p className="break-words text-xs text-foreground/60">
+              {deliveryError ? `Delivery measurements couldn’t be captured: ${deliveryError}` : 'Delivery measurements weren’t saved with this attempt.'}
+            </p>
           )}
         </div>
-      )}
+      </details>
+
+      <details className="rounded-xl border border-foreground/10 bg-foreground/[0.02]">
+        <summary className={historySummaryClass}>Recognition and technical details</summary>
+        <div className="px-3 pb-3">
+          {technicalDetails.length === 0 ? (
+            <p className="text-xs text-foreground/60">No recognition details were saved with this attempt.</p>
+          ) : (
+            <dl className="grid gap-x-4 gap-y-2 sm:grid-cols-2">
+              {technicalDetails.map(([label, value]) => (
+                <div key={label} className="min-w-0">
+                  <dt className="text-[11px] text-foreground/60">{label}</dt>
+                  <dd className="break-words text-xs text-foreground/80">{value}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+        </div>
+      </details>
     </div>
   )
 }
@@ -2457,11 +3073,9 @@ function SttPanel({
 const DELIVERY_ANALYSIS_URL = 'https://speech-tools.onrender.com/analyze-delivery'
 const AZURE_TIME_UNITS_PER_SECOND = 10_000_000
 const PHRASE_BREAK_SECONDS = 0.45
-const LONG_PAUSE_SECONDS = 0.9
-const FILLER_WORDS = new Set(['um', 'uh', 'erm', 'hmm', 'like', 'basically', 'actually'])
 
 function getTtsVoiceLabel(voice: string): string {
-  return voice.replace(/^chirp3:en-US-Chirp3-HD-/, '')
+  return pronunciationReferenceVoiceLabel(voice).replace(/^chirp3:en-US-Chirp3-HD-/, '')
 }
 
 function normalizeAzureWord(word: AzureWord): PronWord {
@@ -2549,7 +3163,7 @@ function getPronWordEndSec(word: PronWord): number | null {
 
 async function fetchDeliveryAnalysis(audioBlob: Blob): Promise<RawDeliveryAnalysis> {
   const controller = new AbortController()
-  const timeout = window.setTimeout(() => controller.abort(), 90_000)
+  const timeout = window.setTimeout(() => controller.abort(), 30_000)
   const formData = new FormData()
   formData.append('audio', audioBlob, 'delivery.wav')
 
@@ -2599,89 +3213,49 @@ function buildDeliveryAnalysis(raw: RawDeliveryAnalysis, words: PronWord[]): Del
     phrase.wpm = Math.round(phrase.wordCount / Math.max(phrase.endSec - phrase.startSec, 0.5) * 60)
   }
 
-  const insights: DeliveryInsight[] = raw.acousticInsights
-    .filter((insight) => insight.code !== 'long-pause')
-    .map((insight) => ({
-      category: 'prosody',
-      severity: insight.severity,
-      message: insight.message,
-    }))
+  // Keep acoustic measurements and timing. Coaching is generated from this evidence by Sol.
+  return { ...raw, speakingRateWpm, phrases, insights: [] }
+}
 
-  for (let index = 1; index < timedWords.length; index += 1) {
-    const previous = timedWords[index - 1]
-    const current = timedWords[index]
-    const pauseSec = current.startSec - previous.endSec
-    if (pauseSec >= LONG_PAUSE_SECONDS) {
-      insights.push({
-        category: 'fluency',
-        severity: 'improve',
-        message: `You paused ${pauseSec.toFixed(1)}s before "${current.word.word}". Try connecting that phrase more smoothly.`,
-      })
+async function normalizePronunciationAudio(audio: Blob): Promise<Blob> {
+  const bytes = await audio.arrayBuffer()
+  // Preserve already-normalized PCM recordings bit-for-bit, including benchmark WAVs.
+  if (bytes.byteLength >= 44) {
+    const view = new DataView(bytes)
+    if (view.getUint32(0) === 0x52494646 && view.getUint32(8) === 0x57415645 && view.getUint32(12) === 0x666d7420 && view.getUint16(20, true) === 1 && view.getUint16(22, true) === 1 && view.getUint32(24, true) === 16000 && view.getUint16(34, true) === 16) {
+      return new Blob([bytes], { type: 'audio/wav' })
     }
   }
-
-  if (speakingRateWpm != null && speakingRateWpm > 180) {
-    insights.push({
-      category: 'fluency',
-      severity: 'improve',
-      message: `Your average pace was ${speakingRateWpm} WPM. Slow down slightly so key phrases have room to land.`,
-    })
-  } else if (speakingRateWpm != null && speakingRateWpm < 100) {
-    insights.push({
-      category: 'fluency',
-      severity: 'consider',
-      message: `Your average pace was ${speakingRateWpm} WPM. Try linking short phrases together to create more forward momentum.`,
-    })
+  const context = new AudioContext()
+  try {
+    const decoded = await context.decodeAudioData(bytes.slice(0))
+    const resampler = new OfflineAudioContext(1, Math.max(1, Math.ceil(decoded.duration * 16000)), 16000)
+    const source = resampler.createBufferSource()
+    source.buffer = decoded
+    source.connect(resampler.destination)
+    source.start()
+    return audioBufferToWavBlob(await resampler.startRendering())
+  } finally {
+    await context.close()
   }
+}
 
-  const fastestPhrase = phrases.reduce<DeliveryPhrase | null>(
-    (fastest, phrase) => !fastest || phrase.wpm > fastest.wpm ? phrase : fastest,
-    null
-  )
-  if (
-    fastestPhrase &&
-    speakingRateWpm != null &&
-    fastestPhrase.wordCount >= 3 &&
-    fastestPhrase.wpm > Math.max(170, speakingRateWpm * 1.25)
-  ) {
-    insights.push({
-      category: 'fluency',
-      severity: 'consider',
-      message: `The phrase "${fastestPhrase.text}" accelerated to about ${fastestPhrase.wpm} WPM. Practice it once with a steadier pace.`,
-    })
+async function fetchPronunciationCoach(result: PronResult, referenceText: string, language: string, subject: AssessmentSubject, referenceSource: 'manual' | 'transcription'): Promise<PronunciationCoach> {
+  const d = result.delivery
+  const input: PronunciationCoachInput = {
+    referenceText, recognizedText: result.displayText, language, source: subject.type, referenceSource,
+    scores: { pronunciation: result.pronScore, accuracy: result.accuracyScore, fluency: result.fluencyScore, completeness: result.completenessScore, prosody: result.prosodyScore },
+    recognitionStatus: result.recognitionStatus, snr: result.snr, words: result.words.slice(0, 220),
+    ...(d ? { delivery: {
+      speakingRateWpm: d.speakingRateWpm, durationSec: d.summary.durationSec, pauseCount: d.summary.pauseCount, totalPauseSec: d.summary.totalPauseSec,
+      pitchRangeSemitones: d.pitch.rangeSemitones, intensityRangeDb: d.intensity.rangeDb,
+      pauses: d.pauses.slice(0, 80), phrases: d.phrases.slice(0, 80).map(p => ({ ...p, text: p.text.slice(0, 500) })),
+    } } : {}),
   }
-
-  const fillerCounts = new Map<string, number>()
-  for (const { word } of timedWords) {
-    const normalized = word.word.toLowerCase().replace(/[^a-z']/g, '')
-    if (FILLER_WORDS.has(normalized)) fillerCounts.set(normalized, (fillerCounts.get(normalized) ?? 0) + 1)
-  }
-  if (fillerCounts.size > 0) {
-    const summary = Array.from(fillerCounts.entries()).map(([word, count]) => `"${word}" ×${count}`).join(', ')
-    insights.push({
-      category: 'fluency',
-      severity: 'consider',
-      message: `Review filler words: ${summary}. Replacing them with a brief intentional pause can make the delivery clearer.`,
-    })
-  }
-
-  if (insights.length === 0) {
-    insights.push({
-      category: 'overall',
-      severity: 'strength',
-      message: 'Your pacing and acoustic variation were balanced in this recording. Keep the same delivery and compare across a longer sample.',
-    })
-  }
-
-  const priority = { improve: 0, consider: 1, strength: 2 }
-  insights.sort((a, b) => priority[a.severity] - priority[b.severity])
-
-  return {
-    ...raw,
-    speakingRateWpm,
-    phrases,
-    insights: insights.slice(0, 5),
-  }
+  const res = await fetch('/api/speech/pronunciation/coach', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok || !data.coach) throw speechLabRequestError(data, 'AI coaching unavailable.')
+  return data.coach as PronunciationCoach
 }
 
 function countPronunciationIssues(words: PronWord[]) {
@@ -2737,19 +3311,28 @@ function buildPronunciationHistoryMetadata(args: {
   subject: AssessmentSubject
   deliveryError?: string | null
   recording?: SavedRecording | null
+  referenceSource?: 'manual' | 'transcription'
+  referenceTranscriptionModel?: string
 }) {
-  const { result, referenceText, language, subject, deliveryError, recording } = args
+  const { result, referenceText, language, subject, deliveryError, recording, referenceSource, referenceTranscriptionModel } = args
   const wordsLimit = 220
   const issueCounts = countPronunciationIssues(result.words)
 
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     requestId: result.requestId ?? null,
     language,
     source: subject.type,
+    referenceSource: referenceSource ?? 'manual',
+    referenceTranscriptionModel,
+    audio: result.audio,
+    coach: result.coach,
+    coachError: result.coachError,
     ...(subject.type === 'reference-voice'
       ? {
           voice: subject.voice,
+          referenceProvider: subject.provider,
+          referenceModel: subject.model,
           ...(subject.storageUrl ? { storageUrl: subject.storageUrl } : {}),
         }
       : {}),
@@ -2809,6 +3392,9 @@ function pronResultFromHistoryItem(item: HistoryItem): PronResult | null {
     snr: getMetadataNumber(metadata, 'snr') ?? undefined,
     words: getHistoryPronunciationWords(metadata),
     delivery: getHistoryDeliveryAnalysis(metadata),
+    coach: getHistoryCoach(metadata) ?? undefined,
+    coachError: getMetadataString(metadata, 'coachError') ?? undefined,
+    historyId: item.id,
   }
 }
 
@@ -2845,9 +3431,11 @@ function PronunciationPanel({
   const [result, setResult] = useState<PronResult | null>(null)
   const [deliveryLoading, setDeliveryLoading] = useState(false)
   const [deliveryError, setDeliveryError] = useState<string | null>(null)
+  const [coachLoading, setCoachLoading] = useState(false)
+  const assessmentSequence = useRef(0)
   const [selectedWord, setSelectedWord] = useState<PronWord | null>(null)
   const [assessmentSubject, setAssessmentSubject] = useState<AssessmentSubject>({ type: 'recording' })
-  const [referenceVoice, setReferenceVoice] = useState('Gacrux')
+  const [referenceVoice, setReferenceVoice] = useState<string>(DEFAULT_PRONUNCIATION_REFERENCE_VOICE)
   const [referenceVoiceAudioUrl, setReferenceVoiceAudioUrl] = useState<string | null>(null)
   const [generatedReferenceVoice, setGeneratedReferenceVoice] = useState<string | null>(null)
   const [loadingMessage, setLoadingMessage] = useState('Assessing pronunciation…')
@@ -2856,7 +3444,7 @@ function PronunciationPanel({
 
   useEffect(() => {
     return () => {
-      if (referenceVoiceAudioUrl) URL.revokeObjectURL(referenceVoiceAudioUrl)
+      if (referenceVoiceAudioUrl?.startsWith('blob:')) URL.revokeObjectURL(referenceVoiceAudioUrl)
     }
   }, [referenceVoiceAudioUrl])
 
@@ -2864,26 +3452,31 @@ function PronunciationPanel({
     audioBlob: Blob,
     overrideReferenceText?: string,
     subject: AssessmentSubject = { type: 'recording' },
-    options: { recordingPromise?: Promise<SavedRecording | null>; recording?: SavedRecording | null } = {}
+    options: { recordingPromise?: Promise<SavedRecording | null>; recording?: SavedRecording | null; language?: string; referenceSource?: 'manual' | 'transcription' } = {}
   ) => {
+    const resolvedLanguage = options.language ?? language
+    const resolvedReferenceSource = options.referenceSource ?? (subject.type === 'reference-voice' ? 'manual' : referenceSource)
     const resolvedReferenceText = (overrideReferenceText ?? referenceText).trim()
     if (!resolvedReferenceText) {
       setError('Reference text is required')
       return
     }
+    const sequence = ++assessmentSequence.current
+    const isCurrent = () => sequence === assessmentSequence.current
     setLoading(true)
     setError(null)
     setErrorRequestId(null)
     setResult(null)
     setSelectedWord(null)
+    setCoachLoading(true)
     setDeliveryLoading(true)
     setDeliveryError(null)
     setAssessmentSubject(subject)
     setLoadingMessage(subject.type === 'reference-voice' ? 'Assessing reference voice…' : 'Assessing pronunciation…')
 
     try {
-      const wavBlob = await convertRecordedBlobToWav(audioBlob)
-      const attempt = { audioBlob: wavBlob, referenceText: resolvedReferenceText, subject }
+      const wavBlob = await normalizePronunciationAudio(audioBlob)
+      const attempt = { audioBlob: wavBlob, referenceText: resolvedReferenceText, subject, language: resolvedLanguage, referenceSource: resolvedReferenceSource }
       setLastAssessmentAttempt(attempt)
       setRetryAction({ type: 'assessment', attempt })
       const deliveryPromise = fetchDeliveryAnalysis(wavBlob)
@@ -2894,7 +3487,7 @@ function PronunciationPanel({
       const formData = new FormData()
       formData.append('audio', wavBlob, 'pronunciation.wav')
       formData.append('referenceText', resolvedReferenceText)
-      formData.append('language', language)
+      formData.append('language', resolvedLanguage)
       formData.append('source', subject.type)
 
       const res = await fetch('/api/speech/pronunciation', {
@@ -2929,8 +3522,9 @@ function PronunciationPanel({
       const words = nbestTop?.Words || data.Words || []
 
       if (assessment) {
-        const nextResult = {
+        const nextResult: PronResult = {
           requestId: data._requestId ?? null,
+          audio: data._audio,
           accuracyScore: assessment.AccuracyScore,
           fluencyScore: assessment.FluencyScore,
           completenessScore: assessment.CompletenessScore,
@@ -2943,42 +3537,67 @@ function PronunciationPanel({
           snr: data.SNR,
           words: words.map(normalizeAzureWord),
         }
-        setResult(nextResult)
-        setRetryAction(null)
-        void deliveryPromise.then(async (outcome) => {
-          let resultForHistory: PronResult = nextResult
+        if (isCurrent()) {
+          setResult(nextResult)
+          setRetryAction(null)
+        }
+        // Save the measured result before potentially slow acoustic and AI requests.
+        const historyPromise = (async () => {
+          const recording = options.recording ?? await options.recordingPromise?.catch(() => null) ?? null
+          try {
+            const saved = await saveSpeechHistory({ modality: 'pronunciation', title: `Pronunciation · ${resolvedLanguage}`, content: resolvedReferenceText,
+              metadata: buildPronunciationHistoryMetadata({ result: nextResult, referenceText: resolvedReferenceText, language: resolvedLanguage, subject, recording, referenceSource: resolvedReferenceSource, referenceTranscriptionModel: resolvedReferenceSource === 'transcription' ? transcriptionModel : undefined }) })
+            if (saved) {
+              if (isCurrent()) setResult(current => current ? { ...current, historyId: saved.id } : current)
+              await onHistorySaved()
+            }
+            return { id: saved?.id, recording }
+          } catch (error) {
+            console.warn('Failed to save initial pronunciation history', error)
+            return { id: undefined, recording }
+          }
+        })()
+        void (async () => {
+          let final: PronResult = nextResult
           let deliveryErrorForHistory: string | null = null
+          const outcome = await deliveryPromise
           if ('error' in outcome) {
-            setDeliveryError(outcome.error)
             deliveryErrorForHistory = outcome.error
+            if (isCurrent()) setDeliveryError(outcome.error)
           } else {
             const delivery = buildDeliveryAnalysis(outcome.analysis, nextResult.words)
-            resultForHistory = { ...nextResult, delivery }
-            setResult((current) => current ? { ...current, delivery } : current)
+            final = { ...final, delivery }
+            if (isCurrent()) setResult(current => current ? { ...current, delivery } : current)
           }
-
+          if (isCurrent()) setDeliveryLoading(false)
           try {
-            const recording = options.recording ?? await options.recordingPromise?.catch(() => null) ?? null
-            const saved = await saveSpeechHistory({
-              modality: 'pronunciation',
-              title: `Pronunciation · ${language}`,
-              content: resolvedReferenceText,
-              metadata: buildPronunciationHistoryMetadata({
-                result: resultForHistory,
-                referenceText: resolvedReferenceText,
-                language,
-                subject,
-                deliveryError: deliveryErrorForHistory,
-                recording,
-              }),
-            })
-            if (saved) await onHistorySaved()
-          } catch (historyError) {
-            console.warn('Failed to save pronunciation history', historyError)
+            const coach = await fetchPronunciationCoach(final, resolvedReferenceText, resolvedLanguage, subject, resolvedReferenceSource)
+            final = { ...final, coach }
+            if (isCurrent()) setResult(current => current ? { ...current, coach, coachError: undefined } : current)
+          } catch (error) {
+            const coachError = error instanceof Error ? error.message : 'AI coaching unavailable.'
+            final = { ...final, coachError }
+            if (isCurrent()) setResult(current => current ? { ...current, coachError } : current)
+          } finally {
+            if (isCurrent()) setCoachLoading(false)
           }
-        }).finally(() => setDeliveryLoading(false))
-      } else {
+          const history = await historyPromise
+          try {
+            if (history.id) {
+              await patchPronunciationHistory(history.id, { coach: final.coach ?? null, coachError: final.coachError ?? null, delivery: trimDeliveryAnalysisForHistory(final.delivery) ?? null, deliveryError: deliveryErrorForHistory })
+            } else {
+              const saved = await saveSpeechHistory({ modality: 'pronunciation', title: `Pronunciation · ${resolvedLanguage}`, content: resolvedReferenceText,
+                metadata: buildPronunciationHistoryMetadata({ result: final, referenceText: resolvedReferenceText, language: resolvedLanguage, subject, recording: history.recording, deliveryError: deliveryErrorForHistory, referenceSource: resolvedReferenceSource, referenceTranscriptionModel: resolvedReferenceSource === 'transcription' ? transcriptionModel : undefined }) })
+              if (saved && isCurrent()) setResult(current => current ? { ...current, historyId: saved.id } : current)
+            }
+            await onHistorySaved()
+          } catch (historyError) {
+            console.warn('Failed to update pronunciation history', historyError)
+          }
+        })()
+      } else if (isCurrent()) {
         setDeliveryLoading(false)
+        setCoachLoading(false)
         setErrorRequestId(data._requestId ?? null)
         const recognitionStatus = data.RecognitionStatus
         const recognizedText = (nbestTop?.Display || data.DisplayText)?.trim()
@@ -2996,24 +3615,22 @@ function PronunciationPanel({
         }
       }
     } catch (err) {
-      setDeliveryLoading(false)
-      setError(err instanceof Error ? err.message : 'Unknown error')
-      setErrorRequestId(getSpeechLabRequestId(err))
+      if (isCurrent()) { setDeliveryLoading(false); setCoachLoading(false); setError(err instanceof Error ? err.message : 'Unknown error'); setErrorRequestId(getSpeechLabRequestId(err)) }
     } finally {
-      setLoading(false)
+      if (isCurrent()) setLoading(false)
     }
   }
 
-  const assessReferenceVoiceWith = async (inputReferenceText: string, selectedVoice: string) => {
+  const assessReferenceVoiceWith = async (inputReferenceText: string, selectedVoice: string, assessmentLanguage = language) => {
     const trimmedReferenceText = inputReferenceText.trim()
     if (!trimmedReferenceText) {
       setError('Reference text is required before generating a reference voice')
       return
     }
 
-    const selectedVoiceIsChirp3 = selectedVoice.startsWith('chirp3:')
+    const voice = isPronunciationReferenceVoice(selectedVoice) ? selectedVoice : DEFAULT_PRONUNCIATION_REFERENCE_VOICE
     setReferenceText(trimmedReferenceText)
-    setReferenceVoice(selectedVoice)
+    setReferenceVoice(voice)
     setLoading(true)
     setError(null)
     setErrorRequestId(null)
@@ -3021,15 +3638,9 @@ function PronunciationPanel({
     setLoadingMessage('Generating reference voice…')
 
     try {
-      const res = await fetch('/api/speech/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: trimmedReferenceText,
-          voice: selectedVoice,
-          provider: selectedVoiceIsChirp3 ? 'chirp3' : 'gemini',
-          purpose: 'pronunciation-reference-voice',
-        }),
+      const res = await fetch('/api/speech/pronunciation/reference', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: trimmedReferenceText, voice }),
       })
 
       if (!res.ok) {
@@ -3042,10 +3653,10 @@ function PronunciationPanel({
         throw new Error('Reference voice generation returned no audio')
       }
 
-      const wavBlob = await convertRecordedBlobToWav(ttsPayloadToBlob(data.audio, data.mimeType))
+      const wavBlob = await normalizePronunciationAudio(ttsPayloadToBlob(data.audio, data.mimeType))
       setReferenceVoiceAudioUrl(URL.createObjectURL(wavBlob))
-      setGeneratedReferenceVoice(selectedVoice)
-      await handleAssess(wavBlob, trimmedReferenceText, { type: 'reference-voice', voice: selectedVoice, storageUrl: data.storageUrl })
+      setGeneratedReferenceVoice(voice)
+      await handleAssess(wavBlob, trimmedReferenceText, { type: 'reference-voice', voice, provider: PRONUNCIATION_REFERENCE_PROVIDER, model: PRONUNCIATION_REFERENCE_MODEL, storageUrl: data.storageUrl }, { language: assessmentLanguage, referenceSource: 'manual' })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
       setErrorRequestId(getSpeechLabRequestId(err))
@@ -3061,7 +3672,7 @@ function PronunciationPanel({
   const transcribeReferenceText = async (audioBlob: Blob) => {
     const formData = new FormData()
     if (transcriptionModel === 'mai-transcribe-2') {
-      formData.append('audio', await convertRecordedBlobToWav(audioBlob), 'reference.wav')
+      formData.append('audio', await normalizePronunciationAudio(audioBlob), 'reference.wav')
     } else {
       formData.append('audio', audioBlob, 'reference.webm')
     }
@@ -3094,9 +3705,10 @@ function PronunciationPanel({
     setErrorRequestId(null)
     setRetryAction({ type: 'transcription', audioBlob })
     try {
-      const nextReferenceText = await transcribeReferenceText(audioBlob)
+      const assessmentAudio = transcriptionModel === 'mai-transcribe-2' ? await normalizePronunciationAudio(audioBlob) : audioBlob
+      const nextReferenceText = await transcribeReferenceText(assessmentAudio)
       setReferenceText(nextReferenceText)
-      await handleAssess(audioBlob, nextReferenceText, { type: 'recording' }, { recordingPromise })
+      await handleAssess(assessmentAudio, nextReferenceText, { type: 'recording' }, { recordingPromise, referenceSource: 'transcription' })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
       setErrorRequestId(getSpeechLabRequestId(err))
@@ -3151,7 +3763,7 @@ function PronunciationPanel({
   const retryPronunciationAction = () => {
     if (!retryAction) return
     if (retryAction.type === 'assessment') {
-      void handleAssess(retryAction.attempt.audioBlob, retryAction.attempt.referenceText, retryAction.attempt.subject)
+      void handleAssess(retryAction.attempt.audioBlob, retryAction.attempt.referenceText, retryAction.attempt.subject, { language: retryAction.attempt.language, referenceSource: retryAction.attempt.referenceSource })
     } else if (retryAction.type === 'reference-voice') {
       void assessReferenceVoice()
     } else if (retryAction.type === 'transcription') {
@@ -3161,17 +3773,43 @@ function PronunciationPanel({
     }
   }
 
+  const retryCoaching = async (evidence = result) => {
+    if (!evidence) return
+    const sequence = assessmentSequence.current
+    const attempt = lastAssessmentAttempt
+    setCoachLoading(true)
+    setResult(current => current ? { ...current, coachError: undefined } : current)
+    try {
+      const coach = await fetchPronunciationCoach(evidence, attempt?.referenceText ?? referenceText, attempt?.language ?? language, attempt?.subject ?? assessmentSubject, attempt?.referenceSource ?? referenceSource)
+      if (sequence === assessmentSequence.current) setResult(current => current ? { ...current, coach, coachError: undefined } : current)
+      if (evidence.historyId) {
+        await patchPronunciationHistory(evidence.historyId, { coach, coachError: null })
+        await onHistorySaved()
+      }
+    } catch (error) {
+      const coachError = error instanceof Error ? error.message : 'AI coaching unavailable.'
+      if (sequence === assessmentSequence.current) setResult(current => current ? { ...current, coachError } : current)
+      if (evidence.historyId) await patchPronunciationHistory(evidence.historyId, { coachError }).catch(() => {})
+    } finally {
+      if (sequence === assessmentSequence.current) setCoachLoading(false)
+    }
+  }
+
   const retryDeliveryAnalysis = async () => {
-    if (!lastAssessmentAttempt) return
+    if (!lastAssessmentAttempt || !result) return
+    const sequence = assessmentSequence.current
     setDeliveryLoading(true)
     setDeliveryError(null)
     try {
       const analysis = await fetchDeliveryAnalysis(lastAssessmentAttempt.audioBlob)
-      setResult((current) => current ? { ...current, delivery: buildDeliveryAnalysis(analysis, current.words) } : current)
+      const delivery = buildDeliveryAnalysis(analysis, result.words)
+      if (sequence === assessmentSequence.current) setResult(current => current ? { ...current, delivery } : current)
+      if (result.historyId) await patchPronunciationHistory(result.historyId, { delivery: trimDeliveryAnalysisForHistory(delivery), deliveryError: null }).catch(() => {})
+      if (sequence === assessmentSequence.current) void retryCoaching({ ...result, delivery })
     } catch (deliveryFailure) {
-      setDeliveryError(deliveryFailure instanceof Error ? deliveryFailure.message : 'Delivery analysis failed')
+      if (sequence === assessmentSequence.current) setDeliveryError(deliveryFailure instanceof Error ? deliveryFailure.message : 'Delivery analysis failed')
     } finally {
-      setDeliveryLoading(false)
+      if (sequence === assessmentSequence.current) setDeliveryLoading(false)
     }
   }
 
@@ -3184,25 +3822,34 @@ function PronunciationPanel({
     const voice = getMetadataString(metadata, 'voice') ?? referenceVoice
     const savedResult = pronResultFromHistoryItem(item)
     const deliveryErrorFromHistory = getMetadataString(metadata, 'deliveryError')
-
+    const restoredReferenceSource = getMetadataString(metadata, 'referenceSource') === 'transcription' ? 'transcription' : 'manual'
+    const historicTranscriptionModel = getMetadataString(metadata, 'referenceTranscriptionModel')
+    const restoredTranscriptionModel = PRONUNCIATION_TRANSCRIPTION_MODELS.find(model => model === historicTranscriptionModel)
+    if (restoredTranscriptionModel) setTranscriptionModel(restoredTranscriptionModel)
+    assessmentSequence.current += 1
+    setLastAssessmentAttempt(null)
+    setCoachLoading(false)
+    setLoading(false)
     setReferenceText(item.content)
     setLanguage(restoredLanguage)
-    setReferenceSource('manual')
-    setReferenceVoice(voice)
+    setReferenceSource(restoredReferenceSource)
+    setReferenceVoice(isPronunciationReferenceVoice(voice) ? voice : DEFAULT_PRONUNCIATION_REFERENCE_VOICE)
+    setReferenceVoiceAudioUrl(source === 'reference-voice' ? getHistoryPlayableUrl(metadata) : null)
+    setGeneratedReferenceVoice(source === 'reference-voice' ? voice : null)
     setSelectedWord(null)
     setError(null)
     setErrorRequestId(null)
     setDeliveryError(deliveryErrorFromHistory)
     setDeliveryLoading(false)
     setAssessmentSubject(source === 'reference-voice'
-      ? { type: 'reference-voice', voice, storageUrl: getMetadataString(metadata, 'storageUrl') ?? undefined }
+      ? { type: 'reference-voice', voice, provider: getMetadataString(metadata, 'referenceProvider') ?? undefined, model: getMetadataString(metadata, 'referenceModel') ?? undefined, storageUrl: getMetadataString(metadata, 'storageUrl') ?? undefined }
       : { type: 'recording' }
     )
-    if (savedResult) setResult(savedResult)
+    setResult(savedResult)
 
     if (historyActionRequest.action === 'rerun') {
       if (source === 'reference-voice') {
-        void assessReferenceVoiceWith(item.content, voice)
+        void assessReferenceVoiceWith(item.content, voice, restoredLanguage)
         return
       }
 
@@ -3217,7 +3864,7 @@ function PronunciationPanel({
           const audioRes = await fetch(`/api/speech/recordings/${encodeURIComponent(recording.id)}`)
           if (!audioRes.ok) throw new Error('Saved recording is no longer available')
           const blob = await audioRes.blob()
-          await handleAssess(blob, item.content, { type: 'recording' }, { recording })
+          await handleAssess(blob, item.content, { type: 'recording' }, { recording, language: restoredLanguage, referenceSource: restoredReferenceSource })
         } catch (err) {
           setError(err instanceof Error ? err.message : 'History rerun failed')
           setErrorRequestId(getSpeechLabRequestId(err))
@@ -3233,7 +3880,7 @@ function PronunciationPanel({
         <span className="material-symbols-outlined text-foreground/40">spellcheck</span>
         <div>
           <h3 className="font-medium text-foreground">Pronunciation Assessment</h3>
-          <p className="text-xs text-foreground/40">Powered by Microsoft Azure Speech — phoneme-level accuracy scoring</p>
+          <p className="text-xs text-foreground/40">Azure acoustic scores · GPT-6.2 Sol medium coaching · Eleven v4 references</p>
         </div>
       </div>
 
@@ -3310,19 +3957,8 @@ function PronunciationPanel({
           onChange={(e) => setReferenceVoice(e.target.value)}
           className="w-full rounded-xl bg-foreground/[0.03] border border-foreground/10 px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20 transition-all appearance-none cursor-pointer"
         >
-          <optgroup label="Gemini 2.5 Flash Voices">
-            {geminiVoices.map((voice) => (
-              <option key={voice.name} value={voice.name}>
-                {voice.name} — {voice.style}
-              </option>
-            ))}
-          </optgroup>
-          <optgroup label="Chirp 3 HD Voices">
-            {chirp3Voices.map((voice) => (
-              <option key={voice.name} value={`chirp3:${voice.name}`}>
-                {voice.name.replace('en-US-Chirp3-HD-', '')} — {voice.style}
-              </option>
-            ))}
+          <optgroup label="Eleven v4 · Vercel AI Gateway">
+            {PRONUNCIATION_REFERENCE_VOICES.map(voice => <option key={voice.id} value={voice.id}>{voice.name} — {voice.description}</option>)}
           </optgroup>
         </select>
         <p className="text-xs text-foreground/40">
@@ -3471,6 +4107,9 @@ function PronunciationPanel({
             <ProsodyFeedback words={result.words} />
           )}
 
+          <HistoryCoachSection metadata={{ coach: result.coach, coachError: result.coachError }} live loading={coachLoading} onRetry={() => void retryCoaching()} />
+          <PhoneticPronunciation words={result.words} onSelectWord={setSelectedWord} />
+
           <DeliveryAnalysisPanel
             analysis={result.delivery}
             loading={deliveryLoading}
@@ -3538,8 +4177,8 @@ function ProsodyFeedback({ words }: { words: PronWord[] }) {
   return (
     <div className="rounded-xl bg-foreground/[0.02] border border-foreground/10 p-3 space-y-2.5">
       <div>
-        <p className="text-xs text-foreground/40 uppercase tracking-wider font-medium">Prosody Feedback</p>
-        <p className="text-xs text-foreground/40 mt-0.5">English (US) guidance for pauses and intonation.</p>
+        <p className="text-xs text-foreground/40 uppercase tracking-wider font-medium">Azure prosody observations</p>
+        <p className="text-xs text-foreground/40 mt-0.5">Measured flags; the AI coaching interprets their significance.</p>
       </div>
 
       {breakIssues.map((issue, index) => (
@@ -3550,8 +4189,8 @@ function ProsodyFeedback({ words }: { words: PronWord[] }) {
           <span className="material-symbols-outlined text-lg">pause_circle</span>
           <p>
             {issue.type === 'unexpected-break'
-              ? <>Avoid pausing before <span className="font-medium">{issue.word}</span>.</>
-              : <>Add a short pause before <span className="font-medium">{issue.word}</span>.</>}
+              ? <>Unexpected break before <span className="font-medium">{issue.word}</span>.</>
+              : <>Missing break before <span className="font-medium">{issue.word}</span>.</>}
             <span className="ml-1 text-xs opacity-70">({formatConfidence(issue.confidence)})</span>
           </p>
         </div>
@@ -3560,12 +4199,12 @@ function ProsodyFeedback({ words }: { words: PronWord[] }) {
       {monotoneDetected && (
         <div className="flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-700">
           <span className="material-symbols-outlined text-lg">graphic_eq</span>
-          <p>Your pitch stayed relatively flat across this sentence. Vary emphasis and intonation around the key words.</p>
+          <p>Azure flagged a potentially monotone segment.</p>
         </div>
       )}
 
       <p className="text-[11px] text-foreground/35">
-        Pause suggestions appear only when Azure explicitly labels a missing or unexpected break.
+        Pause observations appear only when Azure explicitly labels a missing or unexpected break.
       </p>
     </div>
   )
@@ -3612,7 +4251,7 @@ function DeliveryAnalysisPanel({
   return (
     <div className="rounded-xl bg-foreground/[0.02] border border-foreground/10 p-3 space-y-3">
       <div>
-        <p className="text-xs text-foreground/40 uppercase tracking-wider font-medium">Actionable Delivery Analysis</p>
+        <p className="text-xs text-foreground/40 uppercase tracking-wider font-medium">Acoustic delivery measurements</p>
         <p className="text-xs text-foreground/40 mt-0.5">Praat acoustic measurements combined with Azure word timing.</p>
       </div>
 
@@ -3624,6 +4263,7 @@ function DeliveryAnalysisPanel({
       </div>
 
       <div className="space-y-1.5">
+        {analysis.insights.length > 0 && <p className="text-[11px] text-foreground/50">Legacy rule-based observations</p>}
         {analysis.insights.map((insight, index) => (
           <div
             key={`${insight.category}-${index}`}
@@ -3818,6 +4458,26 @@ function PronunciationWordModal({ word, onClose }: { word: PronWord; onClose: ()
   )
 }
 
+function PhoneticPronunciation({ words, onSelectWord }: { words: PronWord[]; onSelectWord: (word: PronWord) => void }) {
+  const available = words.filter(word => word.phonemes.some(phone => Boolean(phone.phoneme)) && !isOmittedPronunciationWord(word))
+  if (!available.length) return null
+  return <section className="rounded-xl border border-foreground/10 bg-foreground/[0.02] p-3 space-y-3" aria-label="Phonetic pronunciation">
+    <div><p className="text-xs font-medium uppercase tracking-wider text-foreground/50">Phonetic pronunciation</p><p className="text-xs text-foreground/50 mt-1">Expected IPA versus Azure’s most likely sound candidates. These are alignment-based estimates, not a definitive phonetic transcription.</p></div>
+    <div className="grid gap-1.5 sm:grid-cols-2">
+      {available.map((word, index) => {
+        const candidate = word.phonemes.map(phone => phone.nBestPhonemes[0]?.phoneme ?? '·')
+        const hasCandidates = candidate.some(phone => phone !== '·')
+        const differs = word.phonemes.some((phone, i) => candidate[i] !== '·' && candidate[i] !== phone.phoneme)
+        return <button type="button" key={`${word.word}-${index}`} onClick={() => onSelectWord(word)} className="rounded-lg border border-foreground/10 bg-foreground/[0.02] p-2 text-left hover:bg-foreground/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/40">
+          <span className="flex justify-between gap-2 text-sm text-foreground"><span>{word.word}</span><span className="tabular-nums text-xs text-foreground/60">{Math.round(word.accuracyScore)}</span></span>
+          <span className="block text-xs text-foreground/55">Target <span className="font-mono text-foreground/80">/{word.phonemes.map(phone => phone.phoneme || '·').join(' ')}/</span></span>
+          <span className="block text-xs text-foreground/55">Candidate <span className={`font-mono ${differs ? 'text-amber-600' : 'text-foreground/80'}`}>{hasCandidates ? `[${candidate.join(' ')}]` : 'Unavailable'}</span></span>
+        </button>
+      })}
+    </div>
+  </section>
+}
+
 function PronunciationWordDetailBody({ word }: { word: PronWord }) {
   const start = formatAzureTime(word.offset)
   const duration = formatAzureTime(word.duration)
@@ -3873,7 +4533,7 @@ function PronunciationWordDetailBody({ word }: { word: PronWord }) {
                       <span className="text-foreground/50">Score {Math.round(phoneme.accuracyScore)}</span>
                       {likelySpoken && (
                         <span className={likelySpoken.phoneme === phoneme.phoneme ? 'text-emerald-700' : 'text-red-700'}>
-                          Heard <span className="font-medium">{likelySpoken.phoneme}</span>
+                          Top candidate <span className="font-medium">{likelySpoken.phoneme}</span>
                         </span>
                       )}
                     </div>
@@ -3999,12 +4659,14 @@ function ScoreCard({ label, score, tooltip }: { label: string; score: number; to
 /* ─── Types ─── */
 type AssessmentSubject =
   | { type: 'recording' }
-  | { type: 'reference-voice'; voice: string; storageUrl?: string }
+  | { type: 'reference-voice'; voice: string; storageUrl?: string; provider?: string; model?: string }
 
 interface PronunciationAssessmentAttempt {
   audioBlob: Blob
   referenceText: string
   subject: AssessmentSubject
+  language: string
+  referenceSource: 'manual' | 'transcription'
 }
 
 type PronunciationRetryAction =
@@ -4027,6 +4689,10 @@ interface PronResult {
   snr?: number
   words: PronWord[]
   delivery?: DeliveryAnalysis
+  coach?: HistoryCoach | PronunciationCoach
+  coachError?: string
+  historyId?: string
+  audio?: { sha256: string; sampleRate?: number; normalized: boolean }
 }
 
 interface DeliveryPoint {
@@ -4201,6 +4867,7 @@ interface AzureWord {
 
 interface AzurePronunciationResponse {
   _requestId?: string
+  _audio?: { sha256: string; sampleRate?: number; normalized: boolean }
   RecognitionStatus?: string
   DisplayText?: string
   SNR?: number
