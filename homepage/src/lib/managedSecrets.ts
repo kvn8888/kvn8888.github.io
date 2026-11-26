@@ -82,6 +82,8 @@ export const MANAGED_SECRET_GROUPS: ManagedSecretGroup[] = [
     keys: [
       { key: 'AZURE_SPEECH_KEY', description: 'Speech Service pronunciation assessment' },
       { key: 'AZURE_SPEECH_REGION', description: 'Speech Service region (for example eastus)' },
+      { key: 'MAI_TRANSCRIBE_ENDPOINT', description: 'Azure Speech/Foundry base endpoint for MAI-Transcribe-2 reference transcription', inputType: 'text' },
+      { key: 'MAI_TRANSCRIBE_KEY', description: 'Azure Speech resource key for MAI-Transcribe-2 reference transcription' },
       { key: 'AZURE_OPENAI_API_KEY', description: 'Azure OpenAI STT key' },
       { key: 'AZURE_OPENAI_ENDPOINT', description: 'Azure OpenAI endpoint URL' },
       { key: 'AZURE_OPENAI_API_VERSION', description: 'Azure OpenAI transcription API version' },

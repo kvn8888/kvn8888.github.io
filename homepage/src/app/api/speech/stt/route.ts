@@ -45,13 +45,14 @@ export async function POST(req: NextRequest) {
       audioFile = file
     }
 
+    const isMaiModel = model === 'mai-transcribe-2'
     const isAzureOpenAiModel = model.startsWith('gpt-4o') || model.startsWith('gpt-realtime')
-    const mistralApiKey = await getSecret('MISTRAL_API_KEY')
-    const azureOpenAiApiKey = await getSecret('AZURE_OPENAI_API_KEY')
-    const azureOpenAiEndpoint = (await getSecret('AZURE_OPENAI_ENDPOINT'))?.replace(/\/+$/, '')
-    const azureOpenAiApiVersion = (await getSecret('AZURE_OPENAI_API_VERSION')) || '2025-03-01-preview'
+    const mistralApiKey = isMaiModel ? undefined : await getSecret('MISTRAL_API_KEY')
+    const azureOpenAiApiKey = isMaiModel ? undefined : await getSecret('AZURE_OPENAI_API_KEY')
+    const azureOpenAiEndpoint = isMaiModel ? undefined : (await getSecret('AZURE_OPENAI_ENDPOINT'))?.replace(/\/+$/, '')
+    const azureOpenAiApiVersion = isMaiModel ? undefined : (await getSecret('AZURE_OPENAI_API_VERSION')) || '2025-03-01-preview'
 
-    if (!isAzureOpenAiModel && !mistralApiKey) {
+    if (!isMaiModel && !isAzureOpenAiModel && !mistralApiKey) {
       console.error('STT request missing Mistral API key', {
         model,
         userEmail,
@@ -77,12 +78,32 @@ export async function POST(req: NextRequest) {
     }
 
     const upstreamForm = new FormData()
-    upstreamForm.append('file', audioFile)
-
     let url = 'https://api.mistral.ai/v1/audio/transcriptions'
 
     let headers: Record<string, string> = {}
-    if (isAzureOpenAiModel) {
+    if (isMaiModel) {
+      const [endpoint, key] = await Promise.all([
+        getSecret('MAI_TRANSCRIBE_ENDPOINT'),
+        getSecret('MAI_TRANSCRIBE_KEY'),
+      ])
+      if (!endpoint?.trim() || !key) {
+        return NextResponse.json({ error: 'MAI-Transcribe-2 is not configured' }, { status: 500 })
+      }
+
+      url = `${endpoint.trim().replace(/\/+$/, '')}/speechtotext/transcriptions:transcribe?api-version=2025-10-15`
+      headers = { 'Ocp-Apim-Subscription-Key': key }
+      upstreamForm.append('audio', audioFile)
+      // Preserve the spoken reference, including disfluencies, for assessment.
+      // Omit locales so multilingual recordings can still be auto-detected.
+      upstreamForm.append('definition', JSON.stringify({
+        enhancedMode: {
+          enabled: true,
+          model: 'MAI-Transcribe-2',
+          modelOptions: { transcribeStyle: 'verbatim' },
+        },
+      }))
+    } else if (isAzureOpenAiModel) {
+      upstreamForm.append('file', audioFile)
       const gpt4oTranscribeDeployment =
         (await getSecret('AZURE_OPENAI_STT_DEPLOYMENT_GPT4O_TRANSCRIBE')) || 'gpt-4o-transcribe'
       const gpt4oTranscribeDiarizeDeployment =
@@ -99,10 +120,11 @@ export async function POST(req: NextRequest) {
               ? gpt4oMiniTranscribeDeployment
               : model
 
-      url = `${azureOpenAiEndpoint}/openai/deployments/${encodeURIComponent(deployment)}/audio/transcriptions?api-version=${encodeURIComponent(azureOpenAiApiVersion)}`
+      url = `${azureOpenAiEndpoint}/openai/deployments/${encodeURIComponent(deployment)}/audio/transcriptions?api-version=${encodeURIComponent(azureOpenAiApiVersion!)}`
       headers = { 'api-key': azureOpenAiApiKey! }
       upstreamForm.append('response_format', model === 'gpt-4o-transcribe-diarize' ? 'diarized_json' : 'json')
     } else {
+      upstreamForm.append('file', audioFile)
       headers = { Authorization: `Bearer ${mistralApiKey!}` }
       upstreamForm.append('model', model)
       upstreamForm.append('timestamp_granularities', 'segment')
@@ -118,7 +140,7 @@ export async function POST(req: NextRequest) {
       const err = await res.text()
       console.error('STT provider error:', {
         model,
-        provider: isAzureOpenAiModel ? 'azure-openai' : 'mistral',
+        provider: isMaiModel ? 'mai-transcribe-2' : isAzureOpenAiModel ? 'azure-openai' : 'mistral',
         status: res.status,
         statusText: res.statusText,
         fileName: audioFile.name,
@@ -146,7 +168,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Transcription failed' }, { status: res.status })
     }
 
-    const data = await res.json()
+    const providerData = await res.json()
+    const data = isMaiModel
+      ? {
+          text: (Array.isArray(providerData?.combinedPhrases) ? providerData.combinedPhrases : [])
+            .map((phrase: { text?: unknown }) => typeof phrase?.text === 'string' ? phrase.text.trim() : '')
+            .filter(Boolean)
+            .join(' '),
+        }
+      : providerData
 
     // Clean up S3 object after successful transcription
     if (s3Key) deleteFromS3(s3Key).catch(() => {})
