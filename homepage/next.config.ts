@@ -12,6 +12,9 @@ const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_COMMIT_SHA: process.env.VERCEL_GIT_COMMIT_SHA ?? 'dev',
   },
+  outputFileTracingIncludes: {
+    "/api/cron/pronunciation-canary": ["./src/lib/fixtures/pronunciation-canary.wav", "./src/lib/fixtures/pronunciation-canary-baseline.json"],
+  },
   turbopack: {
     root: path.resolve(__dirname),
   },

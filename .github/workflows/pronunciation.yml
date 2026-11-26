@@ -1,0 +1,23 @@
+name: Pronunciation assessment
+on:
+  pull_request:
+    paths: ['homepage/src/**', 'homepage/tests/pronunciation-ai.test.cjs', 'homepage/tests/fixtures/pronunciation/**', 'speech-tools/**', 'homepage/vercel.json', '.github/workflows/pronunciation.yml']
+  push:
+    branches: [dia-design]
+    paths: ['homepage/src/**', 'homepage/tests/pronunciation-ai.test.cjs', 'homepage/tests/fixtures/pronunciation/**', 'speech-tools/**', 'homepage/vercel.json', '.github/workflows/pronunciation.yml']
+permissions:
+  contents: read
+jobs:
+  pronunciation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: 22}
+      - run: npm ci --prefix homepage && npm ci --prefix speech-tools
+      - run: npm run typecheck --prefix homepage
+      - run: node --test homepage/tests/pronunciation-ai.test.cjs homepage/tests/speech-stt.test.cjs
+      - run: npm run build --prefix speech-tools && node --test speech-tools/tests/access.test.cjs
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - run: python -m pip install -r speech-tools/requirements.txt && python speech-tools/tests/test_acoustic.py

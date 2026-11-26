@@ -21,3 +21,6 @@ services:
         value: "2025-03-01-preview"
       - key: AZURE_OPENAI_DIARIZE_DEPLOYMENT
         value: "gpt-4o-transcribe-diarize"
+
+      - key: SPEECH_SERVICE_SECRET
+        sync: false

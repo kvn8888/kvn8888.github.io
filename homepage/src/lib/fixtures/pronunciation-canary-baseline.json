@@ -1,0 +1,208 @@
+{
+  "audioSha256": "f53f4b4661d6721c0679530c49f9366f89b5ee62f7806774804414bc097c77e5",
+  "normalizationVersion": "pcm16k-rms23-pad200-v1",
+  "scores": {
+    "pronunciation": 95.7,
+    "accuracy": 98,
+    "fluency": 98,
+    "completeness": 100,
+    "prosody": 91.3
+  },
+  "phones": [
+    {
+      "id": "w0.p0",
+      "phoneme": "ð",
+      "score": 76
+    },
+    {
+      "id": "w0.p1",
+      "phoneme": "ʌ",
+      "score": 100
+    },
+    {
+      "id": "w1.p0",
+      "phoneme": "w",
+      "score": 97
+    },
+    {
+      "id": "w1.p1",
+      "phoneme": "ɛ",
+      "score": 97
+    },
+    {
+      "id": "w1.p2",
+      "phoneme": "ð",
+      "score": 97
+    },
+    {
+      "id": "w1.p3",
+      "phoneme": "ɚ",
+      "score": 97
+    },
+    {
+      "id": "w2.p0",
+      "phoneme": "ɪ",
+      "score": 100
+    },
+    {
+      "id": "w2.p1",
+      "phoneme": "z",
+      "score": 100
+    },
+    {
+      "id": "w3.p0",
+      "phoneme": "g",
+      "score": 100
+    },
+    {
+      "id": "w3.p1",
+      "phoneme": "ɛ",
+      "score": 100
+    },
+    {
+      "id": "w3.p2",
+      "phoneme": "t",
+      "score": 100
+    },
+    {
+      "id": "w3.p3",
+      "phoneme": "ɪ",
+      "score": 100
+    },
+    {
+      "id": "w3.p4",
+      "phoneme": "ŋ",
+      "score": 100
+    },
+    {
+      "id": "w4.p0",
+      "phoneme": "w",
+      "score": 100
+    },
+    {
+      "id": "w4.p1",
+      "phoneme": "ɔɹ",
+      "score": 100
+    },
+    {
+      "id": "w4.p2",
+      "phoneme": "m",
+      "score": 100
+    },
+    {
+      "id": "w4.p3",
+      "phoneme": "ɚ",
+      "score": 100
+    },
+    {
+      "id": "w5.p0",
+      "phoneme": "s",
+      "score": 91
+    },
+    {
+      "id": "w5.p1",
+      "phoneme": "oʊ",
+      "score": 100
+    },
+    {
+      "id": "w6.p0",
+      "phoneme": "aɪ",
+      "score": 100
+    },
+    {
+      "id": "w7.p0",
+      "phoneme": "θ",
+      "score": 100
+    },
+    {
+      "id": "w7.p1",
+      "phoneme": "ɪ",
+      "score": 100
+    },
+    {
+      "id": "w7.p2",
+      "phoneme": "ŋ",
+      "score": 100
+    },
+    {
+      "id": "w7.p3",
+      "phoneme": "k",
+      "score": 100
+    },
+    {
+      "id": "w8.p0",
+      "phoneme": "w",
+      "score": 100
+    },
+    {
+      "id": "w8.p1",
+      "phoneme": "i",
+      "score": 100
+    },
+    {
+      "id": "w9.p0",
+      "phoneme": "ʃ",
+      "score": 97
+    },
+    {
+      "id": "w9.p1",
+      "phoneme": "ʊ",
+      "score": 97
+    },
+    {
+      "id": "w9.p2",
+      "phoneme": "d",
+      "score": 97
+    },
+    {
+      "id": "w10.p0",
+      "phoneme": "w",
+      "score": 100
+    },
+    {
+      "id": "w10.p1",
+      "phoneme": "ɔ",
+      "score": 100
+    },
+    {
+      "id": "w10.p2",
+      "phoneme": "k",
+      "score": 100
+    },
+    {
+      "id": "w11.p0",
+      "phoneme": "t",
+      "score": 100
+    },
+    {
+      "id": "w11.p1",
+      "phoneme": "ə",
+      "score": 100
+    },
+    {
+      "id": "w12.p0",
+      "phoneme": "ð",
+      "score": 97
+    },
+    {
+      "id": "w12.p1",
+      "phoneme": "ʌ",
+      "score": 97
+    },
+    {
+      "id": "w13.p0",
+      "phoneme": "p",
+      "score": 94
+    },
+    {
+      "id": "w13.p1",
+      "phoneme": "ɑɹ",
+      "score": 94
+    },
+    {
+      "id": "w13.p2",
+      "phoneme": "k",
+      "score": 94
+    }
+  ]
+}

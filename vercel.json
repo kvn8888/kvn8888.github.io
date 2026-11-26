@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/usage-snapshots",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/pronunciation-canary",
+      "schedule": "0 7 * * 1"
     }
   ],
   "rewrites": [
