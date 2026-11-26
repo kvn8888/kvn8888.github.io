@@ -2812,6 +2812,14 @@ function pronResultFromHistoryItem(item: HistoryItem): PronResult | null {
   }
 }
 
+const PRONUNCIATION_TRANSCRIPTION_MODELS = [
+  'mai-transcribe-2',
+  'gpt-4o-transcribe-diarize',
+  'voxtral-mini-transcribe-2507',
+  'voxtral-mini-latest',
+] as const
+type PronunciationTranscriptionModel = (typeof PRONUNCIATION_TRANSCRIPTION_MODELS)[number]
+
 function PronunciationPanel({
   onHistorySaved,
   historyActionRequest,
@@ -2821,13 +2829,13 @@ function PronunciationPanel({
 }) {
   const [referenceText, setReferenceText] = useState('')
   const [referenceSource, setReferenceSource] = useState<'manual' | 'transcription'>('transcription')
-  const [transcriptionModel, setTranscriptionModelRaw] = useState<SttModel>(() => {
-    if (typeof window === 'undefined') return 'gpt-4o-transcribe'
+  const [transcriptionModel, setTranscriptionModelRaw] = useState<PronunciationTranscriptionModel>(() => {
+    if (typeof window === 'undefined') return 'mai-transcribe-2'
     const saved = localStorage.getItem('speech-lab-pron-model')
-    if (saved && ['voxtral-mini-transcribe-2507','voxtral-mini-latest','gpt-4o-transcribe','gpt-4o-transcribe-diarize'].includes(saved)) return saved as SttModel
-    return 'gpt-4o-transcribe'
+    if (saved === 'gpt-4o-transcribe') localStorage.setItem('speech-lab-pron-model', 'mai-transcribe-2')
+    return PRONUNCIATION_TRANSCRIPTION_MODELS.find((m) => m === saved) ?? 'mai-transcribe-2'
   })
-  const setTranscriptionModel = (m: SttModel) => { setTranscriptionModelRaw(m); localStorage.setItem('speech-lab-pron-model', m) }
+  const setTranscriptionModel = (m: PronunciationTranscriptionModel) => { setTranscriptionModelRaw(m); localStorage.setItem('speech-lab-pron-model', m) }
   const [language, setLanguage] = useState('en-US')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -3052,7 +3060,11 @@ function PronunciationPanel({
 
   const transcribeReferenceText = async (audioBlob: Blob) => {
     const formData = new FormData()
-    formData.append('audio', audioBlob, 'reference.webm')
+    if (transcriptionModel === 'mai-transcribe-2') {
+      formData.append('audio', await convertRecordedBlobToWav(audioBlob), 'reference.wav')
+    } else {
+      formData.append('audio', audioBlob, 'reference.webm')
+    }
     formData.append('model', transcriptionModel)
 
     const res = await fetch('/api/speech/stt', {
@@ -3243,10 +3255,10 @@ function PronunciationPanel({
           <label className="text-sm font-medium text-foreground/70">Transcription Service</label>
           <select
             value={transcriptionModel}
-            onChange={(e) => setTranscriptionModel(e.target.value as SttModel)}
+            onChange={(e) => setTranscriptionModel(e.target.value as PronunciationTranscriptionModel)}
             className="w-full rounded-xl bg-foreground/[0.03] border border-foreground/10 px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20 transition-all appearance-none cursor-pointer"
           >
-            <option value="gpt-4o-transcribe">GPT‑4o Transcribe (default)</option>
+            <option value="mai-transcribe-2">MAI-Transcribe-2 (default)</option>
             <option value="gpt-4o-transcribe-diarize">GPT‑4o Transcribe Diarize</option>
             <option value="voxtral-mini-transcribe-2507">Mistral Voxtral Transcribe (2507)</option>
             <option value="voxtral-mini-latest">Mistral Voxtral Mini Latest</option>
