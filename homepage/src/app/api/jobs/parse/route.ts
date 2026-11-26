@@ -1,11 +1,10 @@
 import { requestSchemas } from '@/lib/jobApiDefinition'
-import { auth } from '@/auth'
+import { getJobsIdentity } from '@/lib/jobsRequestAuth'
 import { NextRequest, NextResponse } from 'next/server'
 import { getSecret } from '@/lib/secrets'
 
 export async function POST(req: NextRequest) {
-  const session = await auth()
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!(await getJobsIdentity(req))) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const apiKey = await getSecret('GEMINI_API_KEY')
   if (!apiKey) return NextResponse.json({ error: 'GEMINI_API_KEY not configured' }, { status: 500 })

@@ -54,14 +54,20 @@ test('tracker authentication, writes, retries, and browser compatibility', async
     for (const header of [null, '', 'Basic abc', 'Bearer wrong', `Bearer ${key} extra`]) assert.equal(matchesJobsApiKey(header, key), false)
     assert.equal(matchesJobsApiKey('Bearer short', 'short'), false)
     assert.equal(matchesJobsApiKey(`Bearer ${key}`, undefined), false)
-    for (const pathname of ['/api/jobs/parse', '/api/jobs/stats', '/api/secrets', '/tools', '/api/jobs/1/other']) assert.equal(isJobsAgentRequest(pathname, 'POST'), false)
+    for (const pathname of ['/api/jobs/stats', '/api/secrets', '/tools', '/api/jobs/1/other']) assert.equal(isJobsAgentRequest(pathname, 'POST'), false)
+    // Agent parity (2026-11-05): keys may use the same parse/stats routes as Kevin's session.
+    assert.equal(isJobsAgentRequest('/api/jobs/parse', 'POST'), true)
+    assert.equal(isJobsAgentRequest('/api/jobs/stats', 'GET'), true)
     // Exercise the actual proxy authorization callback as well as route guards.
     load('src/auth.ts')
     const { callbacks } = authConfig
     const authorize = (pathname, method = 'GET', token = key) => callbacks.authorized({ auth: null, request: { url: `http://localhost${pathname}`, nextUrl: new URL(`http://localhost${pathname}`), method, headers: new Headers({ Authorization: `Bearer ${token}` }) } })
     assert.equal(await authorize('/api/jobs'), true)
     assert.equal((await authorize('/api/jobs', 'GET', 'wrong')).status, 401)
-    for (const p of ['/api/secrets', '/api/jobs/parse', '/api/jobs/stats']) assert.equal((await authorize(p)).status, 401)
+    for (const p of ['/api/secrets', '/api/jobs/parse']) assert.equal((await authorize(p)).status, 401)
+    assert.equal(await authorize('/api/jobs/stats'), true)
+    assert.equal(await authorize('/api/jobs/parse', 'POST'), true)
+    assert.equal((await authorize('/api/jobs/stats', 'POST')).status, 401)
 
     const { GET, POST } = load('src/app/api/jobs/route.ts')
     const { PATCH } = load('src/app/api/jobs/[id]/route.ts')
@@ -152,7 +158,7 @@ test('tracker authentication, writes, retries, and browser compatibility', async
     const filtered = await (await GET(request('GET','/api/jobs?view=applied&limit=200'))).json()
     assert.ok(filtered.jobs.every(job => !job.status?.trim() || ['submitted','applied'].includes(job.status.trim().toLowerCase())))
     session = {user:{email:'owner@example.com'}}
-    const stats = await (await load('src/app/api/jobs/stats/route.ts').GET()).json()
+    const stats = await (await load('src/app/api/jobs/stats/route.ts').GET(new Request('http://localhost/api/jobs/stats'))).json()
     assert.equal(stats.total,filtered.total)
     const localDay=d=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(d))
     assert.equal(stats.today,filtered.jobs.filter(job => (job.submitted_at?localDay(job.submitted_at):job.date) === localDay(new Date())).length)

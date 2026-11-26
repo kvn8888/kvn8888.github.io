@@ -63,14 +63,14 @@ test('atomic queued handoffs, human ownership, completion and expiry preserve hi
   const q=await h.queueHandoff(db,a.id,body,'tracker-agent');assert.equal((await h.queueHandoff(db,a.id,body,'tracker-agent')).replayed,true);
   assert.equal((await h.listHandoffs(db,new URLSearchParams())).total,1);assert.equal((await db.execute('SELECT count(*) n FROM job_applications')).rows[0].n,0);
   assert.equal((await h.getHandoff(db,body.id)).document.packets[0].fields[0].value,'Synthetic Applicant');
-  await assert.rejects(w.resolveBlocker(db,body.id,{version:1,action:'retry',notes:'Agent cannot bypass the human queue'},'tracker-agent'),/Human-gated/);
+  await assert.rejects(w.resolveBlocker(db,body.id,{version:1,action:'retry',notes:'Reader cannot write'},'tracker-reader'),/read-only/);
   const history=await w.workflowDetail(db,j.id),manual={id:randomUUID(),version:history.job.version,claim_token:randomUUID()+randomUUID()};
-  await assert.rejects(h.claimHandoff(db,body.id,manual,'tracker-agent'),/extension credential/);
-  await assert.rejects(w.claimAttempt(db,{...manual,collection_id:j.id,manual:true},'tracker-agent'),/extension credential/);
-  await h.claimHandoff(db,body.id,manual,'tracker-extension');
+  await assert.rejects(h.claimHandoff(db,body.id,manual,'tracker-reader'),/read-only/);
+  // Agents have the same handoff permissions as Kevin's extension and website session.
+  await h.claimHandoff(db,body.id,manual,'tracker-agent');
   await assert.rejects(h.claimHandoff(db,body.id,{...manual,id:randomUUID()},'user@example.com'),/changed|owns/);
   // Release before submit keeps the queued blocker and job consistent.
-  await w.finishOutcome(db,manual.id,{claim_token:manual.claim_token,outcome:'cancelled',notes:'Back to queue'},'tracker-extension');
+  await w.finishOutcome(db,manual.id,{claim_token:manual.claim_token,outcome:'cancelled',notes:'Back to queue'},'tracker-agent');
   assert.equal((await w.workflowDetail(db,j.id)).job.status,'blocked');
   const next={...manual,id:randomUUID(),version:(await w.workflowDetail(db,j.id)).job.version};await h.claimHandoff(db,body.id,next,'tracker-extension');
   await w.heartbeat(db,next.id,{claim_token:next.claim_token,stage:'submit_started'},'tracker-extension');
@@ -87,5 +87,18 @@ test('atomic queued handoffs, human ownership, completion and expiry preserve hi
   assert.equal((await c.listCollection(db,new URLSearchParams({availability:'expired'}))).total,2);
   const j3=await job(3);await db.execute({sql:"INSERT INTO job_applications(company,role,status,application_url,date) VALUES(?,?,'submitted',?,'2026-10-02')",args:[j3.company,j3.role,j3.source_url]});
   await assert.rejects(claim(j3),/submitted application already exists/);
+  // Kevin tells an agent "I submitted it": the agent completes the queued handoff itself, with the agent recorded as actor.
+  const j4=await job(4),a4=await claim(j4),hb={...body,id:randomUUID(),claim_token:a4.claim_token,reason_code:'manual_review',packets:[{...packet,id:randomUUID(),application_url:j4.source_url}]};
+  const q4=await h.queueHandoff(db,a4.id,hb,'tracker-agent');
+  const m4={id:randomUUID(),version:(await w.workflowDetail(db,j4.id)).job.version,claim_token:randomUUID()+randomUUID()};
+  await h.claimHandoff(db,hb.id,m4,'tracker-agent');
+  const r4=await w.completeAttempt(db,m4.id,{claim_token:m4.claim_token,confirmed:true,confirmation_kind:'user_confirmed',submitted_at:new Date().toISOString(),capture_id:q4.handoff.handoff_capture_id},'tracker-agent');
+  assert.ok(r4.application_id);const d4=await w.workflowDetail(db,j4.id);
+  assert.equal(d4.job.status,'applied');assert.equal(d4.blockers[0].status,'resolved');
+  // Agents can also resolve or dismiss a human-gated blocker directly; the reader key still cannot.
+  const j5=await job(5),a5=await claim(j5),hb5={...body,id:randomUUID(),claim_token:a5.claim_token,reason_code:'captcha',packets:[{...packet,id:randomUUID(),application_url:j5.source_url}]};
+  await h.queueHandoff(db,a5.id,hb5,'tracker-agent');
+  await w.resolveBlocker(db,hb5.id,{version:1,action:'dismiss',notes:'Kevin: posting no longer wanted'},'tracker-agent');
+  const b5=(await w.workflowDetail(db,j5.id)).blockers[0];assert.equal(b5.status,'dismissed');assert.equal(b5.resolved_by,'tracker-agent');
  }finally{db.close();fs.rmSync(dir,{recursive:true,force:true});}
 });
