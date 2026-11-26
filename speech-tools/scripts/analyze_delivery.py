@@ -6,8 +6,6 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import subprocess
-import tempfile
 import wave
 from pathlib import Path
 from typing import Any
@@ -27,27 +25,6 @@ def finite_float(value: float | np.floating[Any] | None, digits: int = 3) -> flo
     if value is None or not math.isfinite(float(value)):
         return None
     return round(float(value), digits)
-
-
-def normalize_wav(input_path: Path, output_path: Path) -> None:
-    command = [
-        "ffmpeg",
-        "-v",
-        "error",
-        "-y",
-        "-i",
-        str(input_path),
-        "-ac",
-        "1",
-        "-ar",
-        str(SAMPLE_RATE),
-        "-c:a",
-        "pcm_s16le",
-        str(output_path),
-    ]
-    result = subprocess.run(command, capture_output=True, text=True, check=False)
-    if result.returncode != 0:
-        raise RuntimeError(f"ffmpeg normalization failed: {result.stderr[-500:]}")
 
 
 def smooth_flags(flags: list[bool], frame_sec: float) -> list[bool]:
@@ -158,7 +135,7 @@ def percentile_range(values: np.ndarray, low: float = 5, high: float = 95) -> fl
     return float(np.percentile(finite_values, high) - np.percentile(finite_values, low))
 
 
-def collect_acoustic_metrics(wav_path: Path) -> dict[str, Any]:
+def collect_acoustic_metrics(wav_path: Path, alignment: dict[str, Any]) -> dict[str, Any]:
     sound = parselmouth.Sound(str(wav_path))
     duration_sec = sound.get_total_duration()
 
@@ -189,8 +166,62 @@ def collect_acoustic_metrics(wav_path: Path) -> dict[str, Any]:
     finite_intensity = intensity_values[np.isfinite(intensity_values)]
     intensity_stddev = float(np.std(finite_intensity)) if len(finite_intensity) else None
 
+    # Azure-aligned vowel formants: descriptive only, use the middle 50% to reduce boundaries.
+    # A clip needs several vowel categories before within-speaker z-scores are meaningful.
+    vowels = []
+    phonemes = alignment.get("phonemes", [])[:300]
+    formants = sound.to_formant_burg(time_step=0.01, max_number_of_formants=5,
+                                    maximum_formant=5500, window_length=0.025) if phonemes else None
+    for segment in phonemes:
+        if not isinstance(segment, dict):
+            continue
+        phoneme = str(segment.get("phoneme", ""))
+        if not any(symbol in phoneme for symbol in "aeiouɑɐɒæəɛɜɞɪʊɔʌɨʉɚɝøœy"):
+            continue
+        try:
+            start, end = float(segment["startSec"]), float(segment["endSec"])
+        except (KeyError, ValueError, TypeError):
+            continue
+        if not (0 <= start < end <= duration_sec + 0.01 and end - start >= 0.045):
+            continue
+        times = np.linspace(start + (end-start)*0.25, start + (end-start)*0.75, 5)
+        pairs = [(formants.get_value_at_time(1, t), formants.get_value_at_time(2, t)) for t in times]
+        pairs = [(f1, f2) for f1, f2 in pairs if math.isfinite(f1) and math.isfinite(f2) and 150 < f1 < 1200 and f1 + 100 < f2 < 4000]
+        if len(pairs) < 3:
+            continue
+        vowels.append({"id": str(segment.get("id", "")), "phoneme": phoneme,
+                       "f1Hz": finite_float(np.median([p[0] for p in pairs]), 1),
+                       "f2Hz": finite_float(np.median([p[1] for p in pairs]), 1),
+                       "f1Z": None, "f2Z": None})
+    if len(vowels) >= 8 and len({v["phoneme"] for v in vowels}) >= 3:
+        for field, zfield in [("f1Hz", "f1Z"), ("f2Hz", "f2Z")]:
+            values = np.array([v[field] for v in vowels])
+            std = np.std(values)
+            if std > 0:
+                for vowel, val in zip(vowels, (values-np.mean(values))/std):
+                    vowel[zfield] = finite_float(val)
+
+    # Normalize pitch by each clip's voiced median, then sample equivalent fractions of aligned phrases.
+    phrase_pitch = []
+    pitch_times = pitch.xs()
+    for phrase in alignment.get("phrases", [])[:80]:
+        try:
+            start, end = float(phrase["startSec"]), float(phrase["endSec"])
+        except (KeyError, ValueError, TypeError):
+            continue
+        if not 0 <= start < end <= duration_sec + 0.01:
+            continue
+        contour = []
+        for left, right in zip(np.linspace(start, end, 6)[:-1], np.linspace(start, end, 6)[1:]):
+            values = semitones[(pitch_times >= left) & (pitch_times < right) & np.isfinite(semitones)]
+            contour.append(finite_float(np.median(values), 1) if len(values) >= 2 else None)
+        valid = [value for value in contour if value is not None]
+        phrase_pitch.append({"id": str(phrase.get("id", "")), "contourSemitones": contour,
+                             "endingDeltaSemitones": finite_float(valid[-1]-valid[0], 1) if len(valid) >= 3 else None})
     return {
         "durationSec": finite_float(duration_sec),
+        "vowels": vowels,
+        "phrasePitch": phrase_pitch,
         "pitch": {
             "medianHz": finite_float(median_f0, 1),
             "rangeSemitones": finite_float(pitch_range, 1),
@@ -206,76 +237,37 @@ def collect_acoustic_metrics(wav_path: Path) -> dict[str, Any]:
     }
 
 
-def build_acoustic_insights(metrics: dict[str, Any], pauses: list[dict[str, float]]) -> list[dict[str, str]]:
-    insights: list[dict[str, str]] = []
-    pitch = metrics["pitch"]
-    intensity = metrics["intensity"]
-
-    if pitch["rangeSemitones"] is not None and pitch["rangeSemitones"] < 4:
-        insights.append(
-            {
-                "code": "narrow-pitch-range",
-                "severity": "improve",
-                "message": "Your pitch range was narrow. Emphasize the important words and vary your sentence shape more clearly.",
-            }
-        )
-    if intensity["rangeDb"] is not None and intensity["rangeDb"] < 6:
-        insights.append(
-            {
-                "code": "limited-intensity-range",
-                "severity": "improve",
-                "message": "Your volume stayed fairly even. Add a little more energy to the words you want listeners to remember.",
-            }
-        )
-    if pitch["endingDeltaSemitones"] is not None and abs(pitch["endingDeltaSemitones"]) < 1:
-        insights.append(
-            {
-                "code": "flat-ending",
-                "severity": "consider",
-                "message": "Your ending stayed relatively level. Let your pitch settle more clearly at the end of the thought.",
-            }
-        )
-    if any(pause["durationSec"] >= 1 for pause in pauses):
-        insights.append(
-            {
-                "code": "long-pause",
-                "severity": "improve",
-                "message": "One or more pauses were long enough to interrupt the flow. Review the highlighted pause locations.",
-            }
-        )
-
-    return insights
-
-
-def analyze(input_path: Path) -> dict[str, Any]:
-    with tempfile.TemporaryDirectory(prefix="delivery-analysis-") as temp_dir:
-        wav_path = Path(temp_dir) / "normalized.wav"
-        normalize_wav(input_path, wav_path)
-        speech_segments, pauses, voiced_duration = collect_vad_metrics(wav_path)
-        metrics = collect_acoustic_metrics(wav_path)
-
+def analyze(input_path: Path, alignment: dict[str, Any]) -> dict[str, Any]:
+    # Only canonical PCM is accepted; this is exactly the audio sent to Azure.
+    with wave.open(str(input_path), "rb") as sound_file:
+        if sound_file.getnchannels() != 1 or sound_file.getsampwidth() != 2 or sound_file.getframerate() != SAMPLE_RATE:
+            raise ValueError("Expected mono 16 kHz PCM")
+        if not 0 < sound_file.getnframes() <= 30 * SAMPLE_RATE:
+            raise ValueError("Audio must be 30 seconds or shorter")
+    speech_segments, pauses, voiced_duration = collect_vad_metrics(input_path)
+    metrics = collect_acoustic_metrics(input_path, alignment)
     return {
-        "version": 1,
-        "summary": {
-            "durationSec": metrics["durationSec"],
-            "voicedDurationSec": voiced_duration,
-            "pauseCount": len(pauses),
-            "totalPauseSec": finite_float(sum(pause["durationSec"] for pause in pauses)),
-            "longPauseCount": sum(1 for pause in pauses if pause["durationSec"] >= 1),
-        },
+        "version": 2,
+        "summary": {"durationSec": metrics["durationSec"], "voicedDurationSec": voiced_duration,
+                    "pauseCount": len(pauses), "totalPauseSec": finite_float(sum(p["durationSec"] for p in pauses)),
+                    "longPauseCount": sum(1 for p in pauses if p["durationSec"] >= 1)},
         "pitch": metrics["pitch"],
         "intensity": metrics["intensity"],
         "speechSegments": speech_segments,
         "pauses": pauses,
-        "acousticInsights": build_acoustic_insights(metrics, pauses),
+        "vowels": metrics["vowels"],
+        "phrasePitch": metrics["phrasePitch"],
+        "acousticInsights": [],
     }
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", required=True, type=Path)
+    parser.add_argument("--alignment", type=Path)
     args = parser.parse_args()
-    print(json.dumps(analyze(args.input), separators=(",", ":"), allow_nan=False))
+    alignment = json.loads(args.alignment.read_text()) if args.alignment else {}
+    print(json.dumps(analyze(args.input, alignment), separators=(",", ":"), allow_nan=False))
 
 
 if __name__ == "__main__":

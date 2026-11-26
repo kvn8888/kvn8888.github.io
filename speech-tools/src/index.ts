@@ -22,10 +22,20 @@ import { runTranscribe, isSupportedTranscribeModel } from "./transcribe.js";
 import { analyzeDelivery } from "./delivery.js";
 import type { SseEvent } from "./types.js";
 import { logger } from "./logger.js";
+import { requireSpeechAccess } from "./access.js";
 
 const app = express();
 // multer stores uploaded files in memory as Buffers — no temp disk writes for the raw upload
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 200 * 1024 * 1024 } }); // 200MB max
+
+const deliveryUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 1_000_000, fields: 1, fieldSize: 128_000, files: 1 } });
+app.use((_req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  next();
+});
+app.options(["/transcribe", "/diarize", "/analyze-delivery"], (_req, res) => { res.sendStatus(204); });
 
 const PORT = parseInt(process.env.PORT ?? "8080", 10);
 
@@ -33,7 +43,7 @@ const PORT = parseInt(process.env.PORT ?? "8080", 10);
 // Health check — Render pings this to confirm the service is alive
 // ---------------------------------------------------------------------------
 app.get("/health", (_req: Request, res: Response) => {
-  res.json({ status: "ok", service: "speech-tools" });
+  res.json({ status: "ok", service: "speech-tools", analysisVersion: 2, authConfigured: Boolean(process.env.SPEECH_SERVICE_SECRET) });
 });
 
 // ---------------------------------------------------------------------------
@@ -47,7 +57,7 @@ app.get("/health", (_req: Request, res: Response) => {
 //   Each event is JSON-encoded and follows the SseEvent discriminated union
 //   (see types.ts). Listen for: started, chunk_start, chunk_done, complete, error
 // ---------------------------------------------------------------------------
-app.post("/diarize", upload.single("audio"), async (req: Request, res: Response): Promise<void> => {
+app.post("/diarize", requireSpeechAccess("diarize"), upload.single("audio"), async (req: Request, res: Response): Promise<void> => {
   if (!req.file) {
     res.status(400).json({ error: "No audio file provided. Send as multipart field 'audio'." });
     return;
@@ -74,6 +84,7 @@ app.post("/diarize", upload.single("audio"), async (req: Request, res: Response)
   };
 
   try {
+    res.locals.speechProcessing = true;
     await runDiarize(req.file.buffer, req.file.originalname, maxWorkers, send);
     reqLog.info({ durationMs: Date.now() - reqStart }, "diarize complete");
   } catch (err) {
@@ -81,6 +92,7 @@ app.post("/diarize", upload.single("audio"), async (req: Request, res: Response)
     reqLog.error({ err: String(err), durationMs: Date.now() - reqStart }, "diarize error");
     send({ type: "error", message: String(err) });
   } finally {
+    res.locals.releaseSpeechAccess?.();
     res.end();
   }
 });
@@ -100,7 +112,7 @@ app.post("/diarize", upload.single("audio"), async (req: Request, res: Response)
 //   { type: "done",  text: "...", segments? }  — final transcript
 //   { type: "error", message: "..." }          — failure
 // ---------------------------------------------------------------------------
-app.post("/transcribe", upload.single("audio"), async (req: Request, res: Response): Promise<void> => {
+app.post("/transcribe", requireSpeechAccess("transcribe"), upload.single("audio"), async (req: Request, res: Response): Promise<void> => {
   if (!req.file) {
     res.status(400).json({ error: "No audio file provided. Send as multipart field 'audio'." });
     return;
@@ -130,12 +142,14 @@ app.post("/transcribe", upload.single("audio"), async (req: Request, res: Respon
   };
 
   try {
+    res.locals.speechProcessing = true;
     await runTranscribe(req.file.buffer, req.file.originalname, model, send);
     reqLog.info({ durationMs: Date.now() - reqStart }, "transcribe complete");
   } catch (err) {
     reqLog.error({ err: String(err), durationMs: Date.now() - reqStart }, "transcribe error");
     send({ type: "error", message: String(err) });
   } finally {
+    res.locals.releaseSpeechAccess?.();
     res.end();
   }
 });
@@ -143,7 +157,7 @@ app.post("/transcribe", upload.single("audio"), async (req: Request, res: Respon
 // ---------------------------------------------------------------------------
 // POST /analyze-delivery — return Praat + VAD acoustic coaching measurements
 // ---------------------------------------------------------------------------
-app.post("/analyze-delivery", upload.single("audio"), async (req: Request, res: Response): Promise<void> => {
+app.post("/analyze-delivery", requireSpeechAccess("analyze-delivery"), deliveryUpload.single("audio"), async (req: Request, res: Response): Promise<void> => {
   res.setHeader("Access-Control-Allow-Origin", "*");
 
   if (!req.file) {
@@ -156,18 +170,24 @@ app.post("/analyze-delivery", upload.single("audio"), async (req: Request, res: 
   const reqStart = Date.now();
 
   try {
-    const analysis = await analyzeDelivery(req.file.buffer, req.file.originalname);
+    const alignment = JSON.parse(req.body?.alignment ?? "{}");
+    res.locals.speechProcessing = true;
+    const analysis = await analyzeDelivery(req.file.buffer, req.file.originalname, alignment);
     reqLog.info({ durationMs: Date.now() - reqStart }, "delivery analysis complete");
     res.json(analysis);
   } catch (err) {
     reqLog.error({ err: String(err), durationMs: Date.now() - reqStart }, "delivery analysis error");
     res.status(500).json({ error: "Delivery analysis failed" });
-  }
+  } finally { res.locals.releaseSpeechAccess?.(); }
 });
 
 // ---------------------------------------------------------------------------
 // Start listening
 // ---------------------------------------------------------------------------
+app.use((err: unknown, _req: Request, res: Response, _next: express.NextFunction) => {
+  if (err instanceof multer.MulterError) { res.status(413).json({ error: "Upload exceeds service limits" }); return; }
+  res.status(400).json({ error: "Invalid upload" });
+});
 app.listen(PORT, () => {
   logger.info({
     port: PORT,

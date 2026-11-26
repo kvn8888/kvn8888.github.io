@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from 'node:crypto'
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { getSecret } from '@/lib/secrets'
@@ -93,83 +94,71 @@ export async function uploadToS3(
   }
 }
 
-/* ── Saved recordings (max 3, stored under recordings/ prefix) ── */
+/* ── Durable, owner-scoped saved recordings ── */
 
-// S3 prefix for saved mic recordings
 const RECORDINGS_PREFIX = 'recordings/'
-// Hard limit on stored recordings — oldest is auto-evicted when exceeded
-const MAX_RECORDINGS = 3
+const RECORDING_ID = /^\d{10,16}-[a-f0-9-]{6,36}\.[a-z0-9]{1,8}$/i
 
-// Shape returned to the client for each saved recording
+export function speechOwnerHash(email: string) {
+  return createHash('sha256').update(email.toLowerCase()).digest('hex')
+}
+
+function recordingPrefix(email: string) { return RECORDINGS_PREFIX + speechOwnerHash(email) + '/' }
+function canReadLegacy(email: string) {
+  return (process.env.ALLOWED_EMAILS || '').split(',').some(value => value.trim().toLowerCase() === email.toLowerCase())
+}
 export interface SavedRecording {
-  id: string         // filename without prefix, e.g. "1712678400000-abc123.webm"
-  key: string        // full S3 key, e.g. "recordings/1712678400000-abc123.webm"
+  id: string
+  key: string
   sizeBytes: number
-  createdAt: string  // ISO 8601 timestamp from S3 LastModified
+  createdAt: string
 }
 
-/**
- * List all saved recordings, sorted oldest-first.
- * Returns at most MAX_RECORDINGS items.
- */
-export async function listRecordings(): Promise<SavedRecording[]> {
+export async function listRecordings(email: string): Promise<SavedRecording[]> {
   const { client, bucket } = await getSpeechS3Client()
-  const res = await client.send(
-    new ListObjectsV2Command({ Bucket: bucket, Prefix: RECORDINGS_PREFIX })
-  )
-  if (!res.Contents) return []
-
-  return res.Contents
-    .filter((obj) => obj.Key && obj.Key !== RECORDINGS_PREFIX)
-    .map((obj) => ({
-      id: obj.Key!.replace(RECORDINGS_PREFIX, ''),
-      key: obj.Key!,
-      sizeBytes: obj.Size ?? 0,
-      createdAt: obj.LastModified?.toISOString() ?? new Date().toISOString(),
-    }))
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  const collect = async (prefix: string) => {
+    const items: SavedRecording[] = []
+    let token: string | undefined
+    do {
+      const response = await client.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, Delimiter: '/', ContinuationToken: token }))
+      for (const obj of response.Contents ?? []) {
+        const id = obj.Key?.slice(prefix.length) ?? ''
+        if (RECORDING_ID.test(id)) items.push({ id, key: obj.Key!, sizeBytes: obj.Size ?? 0, createdAt: obj.LastModified?.toISOString() ?? new Date().toISOString() })
+      }
+      token = response.NextContinuationToken
+    } while (token)
+    return items
+  }
+  const items = await collect(recordingPrefix(email))
+  if (canReadLegacy(email)) items.push(...await collect(RECORDINGS_PREFIX))
+  return items.sort((a,b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 50)
 }
 
-/**
- * Upload a new recording to S3. If we already have MAX_RECORDINGS,
- * the oldest one is automatically deleted to make room.
- * Returns the metadata of the newly saved recording.
- */
-export async function uploadRecording(
-  body: Buffer,
-  filename: string,
-  contentType: string
-): Promise<SavedRecording> {
-  const existing = await listRecordings()
-
-  // Auto-evict oldest recordings until we have room for one more
-  while (existing.length >= MAX_RECORDINGS) {
-    const oldest = existing.shift()!
-    await deleteFromS3(oldest.key)
-  }
-
-  // Generate a unique key: timestamp + 6-char random hex
+export async function uploadRecording(email: string, body: Buffer, filename: string, contentType: string): Promise<SavedRecording> {
   const timestamp = Date.now()
-  const rand = Math.random().toString(16).slice(2, 8)
-  const ext = filename.split('.').pop() || 'webm'
-  const key = `${RECORDINGS_PREFIX}${timestamp}-${rand}.${ext}`
-
+  const candidate = filename.split('.').pop() || 'webm'
+  const ext = /^[a-z0-9]{1,8}$/i.test(candidate) ? candidate : 'webm'
+  const id = `${timestamp}-${randomUUID()}.${ext}`
+  const key = recordingPrefix(email) + id
   const { client, bucket } = await getSpeechS3Client()
-  await client.send(
-    new PutObjectCommand({
-      Bucket: bucket,
-      Key: key,
-      Body: body,
-      ContentType: contentType,
-    })
-  )
+  await client.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: body, ContentType: contentType }))
+  return { id, key, sizeBytes: body.byteLength, createdAt: new Date(timestamp).toISOString() }
+}
 
-  return {
-    id: key.replace(RECORDINGS_PREFIX, ''),
-    key,
-    sizeBytes: body.byteLength,
-    createdAt: new Date(timestamp).toISOString(),
+export async function downloadRecording(email: string, id: string) {
+  if (!RECORDING_ID.test(id)) throw new Error('Invalid recording ID')
+  try { return await downloadFromS3(recordingPrefix(email) + id) }
+  catch (error) {
+    if (!canReadLegacy(email)) throw error
+    return downloadFromS3(RECORDINGS_PREFIX + id)
   }
+}
+
+export async function removeRecording(email: string, id: string) {
+  if (!RECORDING_ID.test(id)) throw new Error('Invalid recording ID')
+  const { client, bucket } = await getSpeechS3Client()
+  await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: recordingPrefix(email) + id }))
+  if (canReadLegacy(email)) await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: RECORDINGS_PREFIX + id }))
 }
 
 /**

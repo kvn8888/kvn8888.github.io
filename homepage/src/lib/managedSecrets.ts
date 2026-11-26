@@ -73,6 +73,7 @@ export const MANAGED_SECRET_GROUPS: ManagedSecretGroup[] = [
     keys: [
       { key: 'OPENAI_API_KEY', description: 'GPT-6.2 Sol medium pronunciation coaching' },
       { key: 'AI_GATEWAY_API_KEY', description: 'Vercel AI Gateway Eleven v4 reference voice' },
+      { key: 'SPEECH_SERVICE_SECRET', description: 'Server-only shared signing key for Render speech service', strategy:'env-sync-only', note:'Rotate in Doppler and synchronize to Vercel and Render together.' },
     ],
   },
   {

@@ -1,0 +1,242 @@
+[
+  {
+    "file": "elevenlabs__eleven_v4__Eric__consonants.json",
+    "referenceText": "Three thin thieves thought they could steal the red leather jacket and the rubber boots.",
+    "scores": {
+      "AccuracyScore": 99.0,
+      "FluencyScore": 100.0,
+      "CompletenessScore": 100.0,
+      "ProsodyScore": 90.2,
+      "PronScore": 95.9
+    },
+    "source": "synthetic"
+  },
+  {
+    "file": "elevenlabs__eleven_v4__Sarah__consonants.json",
+    "referenceText": "Three thin thieves thought they could steal the red leather jacket and the rubber boots.",
+    "scores": {
+      "AccuracyScore": 99.0,
+      "FluencyScore": 100.0,
+      "CompletenessScore": 100.0,
+      "ProsodyScore": 89.9,
+      "PronScore": 95.8
+    },
+    "source": "synthetic"
+  },
+  {
+    "file": "elevenlabs__eleven_v4_turbo__Sarah__consonants.json",
+    "referenceText": "Three thin thieves thought they could steal the red leather jacket and the rubber boots.",
+    "scores": {
+      "AccuracyScore": 98.0,
+      "FluencyScore": 100.0,
+      "CompletenessScore": 100.0,
+      "ProsodyScore": 89.8,
+      "PronScore": 95.5
+    },
+    "source": "synthetic"
+  },
+  {
+    "file": "openai__gpt-realtime-2.1-mini__cedar__consonants.json",
+    "referenceText": "Three thin thieves thought they could steal the red leather jacket and the rubber boots.",
+    "scores": {
+      "AccuracyScore": 96.0,
+      "FluencyScore": 100.0,
+      "CompletenessScore": 100.0,
+      "ProsodyScore": 90.5,
+      "PronScore": 95.4
+    },
+    "source": "synthetic"
+  },
+  {
+    "file": "elevenlabs__eleven_v4__Eric__everyday.json",
+    "referenceText": "The weather is getting warmer, so I think we should walk to the park.",
+    "scores": {
+      "AccuracyScore": 98.0,
+      "FluencyScore": 99.0,
+      "CompletenessScore": 100.0,
+      "ProsodyScore": 91.3,
+      "PronScore": 95.9
+    },
+    "source": "synthetic"
+  },
+  {
+    "file": "elevenlabs__eleven_v4__Sarah__everyday.json",
+    "referenceText": "The weather is getting warmer, so I think we should walk to the park.",
+    "scores": {
+      "AccuracyScore": 94.0,
+      "FluencyScore": 100.0,
+      "CompletenessScore": 100.0,
+      "ProsodyScore": 91.2,
+      "PronScore": 95.3
+    },
+    "source": "synthetic"
+  },
+  {
+    "file": "elevenlabs__eleven_v4_turbo__Sarah__everyday.json",
+    "referenceText": "The weather is getting warmer, so I think we should walk to the park.",
+    "scores": {
+      "AccuracyScore": 96.0,
+      "FluencyScore": 99.0,
+      "CompletenessScore": 100.0,
+      "ProsodyScore": 91.2,
+      "PronScore": 95.5
+    },
+    "source": "synthetic"
+  },
+  {
+    "file": "openai__gpt-realtime-2.1-mini__cedar__everyday.json",
+    "referenceText": "The weather is getting warmer, so I think we should walk to the park.",
+    "scores": {
+      "AccuracyScore": 98.0,
+      "FluencyScore": 93.0,
+      "CompletenessScore": 100.0,
+      "ProsodyScore": 91.2,
+      "PronScore": 94.7
+    },
+    "source": "synthetic"
+  },
+  {
+    "file": "elevenlabs__eleven_v4__Eric__intonation.json",
+    "referenceText": "Did you really mean to leave today? I thought you were staying until tomorrow.",
+    "scores": {
+      "AccuracyScore": 96.0,
+      "FluencyScore": 97.0,
+      "CompletenessScore": 100.0,
+      "ProsodyScore": 91.4,
+      "PronScore": 95.2
+    },
+    "source": "synthetic"
+  },
+  {
+    "file": "elevenlabs__eleven_v4__Sarah__intonation.json",
+    "referenceText": "Did you really mean to leave today? I thought you were staying until tomorrow.",
+    "scores": {
+      "AccuracyScore": 96.0,
+      "FluencyScore": 96.0,
+      "CompletenessScore": 100.0,
+      "ProsodyScore": 91.2,
+      "PronScore": 94.9
+    },
+    "source": "synthetic"
+  },
+  {
+    "file": "elevenlabs__eleven_v4__Sarah__intonation__repeat.json",
+    "referenceText": "Did you really mean to leave today? I thought you were staying until tomorrow.",
+    "scores": {
+      "AccuracyScore": 94.0,
+      "FluencyScore": 97.0,
+      "CompletenessScore": 93.0,
+      "ProsodyScore": 91.4,
+      "PronScore": 93.4
+    },
+    "source": "synthetic"
+  },
+  {
+    "file": "elevenlabs__eleven_v4_turbo__Sarah__intonation.json",
+    "referenceText": "Did you really mean to leave today? I thought you were staying until tomorrow.",
+    "scores": {
+      "AccuracyScore": 96.0,
+      "FluencyScore": 97.0,
+      "CompletenessScore": 100.0,
+      "ProsodyScore": 91.3,
+      "PronScore": 95.1
+    },
+    "source": "synthetic"
+  },
+  {
+    "file": "elevenlabs__eleven_v4__Eric__passage.json",
+    "referenceText": "On Saturday morning, I walked through the neighborhood and stopped at a small coffee shop. The owner asked whether I wanted a hot drink or something cold. I chose a cup of tea, found a quiet table, and read a few pages before heading home.",
+    "scores": {
+      "AccuracyScore": 97.0,
+      "FluencyScore": 94.0,
+      "CompletenessScore": 98.0,
+      "ProsodyScore": 90.0,
+      "PronScore": 93.8
+    },
+    "source": "synthetic"
+  },
+  {
+    "file": "elevenlabs__eleven_v4__Sarah__passage.json",
+    "referenceText": "On Saturday morning, I walked through the neighborhood and stopped at a small coffee shop. The owner asked whether I wanted a hot drink or something cold. I chose a cup of tea, found a quiet table, and read a few pages before heading home.",
+    "scores": {
+      "AccuracyScore": 98.0,
+      "FluencyScore": 96.0,
+      "CompletenessScore": 100.0,
+      "ProsodyScore": 89.8,
+      "PronScore": 94.7
+    },
+    "source": "synthetic"
+  },
+  {
+    "file": "elevenlabs__eleven_v4_turbo__Sarah__passage.json",
+    "referenceText": "On Saturday morning, I walked through the neighborhood and stopped at a small coffee shop. The owner asked whether I wanted a hot drink or something cold. I chose a cup of tea, found a quiet table, and read a few pages before heading home.",
+    "scores": {
+      "AccuracyScore": 99.0,
+      "FluencyScore": 95.0,
+      "CompletenessScore": 100.0,
+      "ProsodyScore": 89.8,
+      "PronScore": 94.7
+    },
+    "source": "synthetic"
+  },
+  {
+    "file": "openai__gpt-realtime-2.1-mini__cedar__passage.json",
+    "referenceText": "On Saturday morning, I walked through the neighborhood and stopped at a small coffee shop. The owner asked whether I wanted a hot drink or something cold. I chose a cup of tea, found a quiet table, and read a few pages before heading home.",
+    "scores": {
+      "AccuracyScore": 98.0,
+      "FluencyScore": 93.0,
+      "CompletenessScore": 98.0,
+      "ProsodyScore": 89.8,
+      "PronScore": 93.7
+    },
+    "source": "synthetic"
+  },
+  {
+    "file": "elevenlabs__eleven_v4__Eric__vowels.json",
+    "referenceText": "She bought a blue shirt and a brown sweater before driving her car across the river.",
+    "scores": {
+      "AccuracyScore": 99.0,
+      "FluencyScore": 100.0,
+      "CompletenessScore": 100.0,
+      "ProsodyScore": 91.0,
+      "PronScore": 96.2
+    },
+    "source": "synthetic"
+  },
+  {
+    "file": "elevenlabs__eleven_v4__Sarah__vowels.json",
+    "referenceText": "She bought a blue shirt and a brown sweater before driving her car across the river.",
+    "scores": {
+      "AccuracyScore": 99.0,
+      "FluencyScore": 100.0,
+      "CompletenessScore": 100.0,
+      "ProsodyScore": 91.0,
+      "PronScore": 96.2
+    },
+    "source": "synthetic"
+  },
+  {
+    "file": "elevenlabs__eleven_v4_turbo__Sarah__vowels.json",
+    "referenceText": "She bought a blue shirt and a brown sweater before driving her car across the river.",
+    "scores": {
+      "AccuracyScore": 97.0,
+      "FluencyScore": 100.0,
+      "CompletenessScore": 100.0,
+      "ProsodyScore": 90.9,
+      "PronScore": 95.8
+    },
+    "source": "synthetic"
+  },
+  {
+    "file": "openai__gpt-realtime-2.1-mini__cedar__vowels.json",
+    "referenceText": "She bought a blue shirt and a brown sweater before driving her car across the river.",
+    "scores": {
+      "AccuracyScore": 96.0,
+      "FluencyScore": 95.0,
+      "CompletenessScore": 100.0,
+      "ProsodyScore": 91.0,
+      "PronScore": 94.6
+    },
+    "source": "synthetic"
+  }
+]

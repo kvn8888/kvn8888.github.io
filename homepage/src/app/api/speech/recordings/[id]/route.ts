@@ -1,9 +1,7 @@
 import { auth } from '@/auth'
-import { deleteFromS3, downloadFromS3 } from '@/lib/speechStorage'
+import { removeRecording, downloadRecording } from '@/lib/speechStorage'
 import { NextResponse } from 'next/server'
 
-// The S3 prefix used for recordings — must match speechStorage.ts
-const RECORDINGS_PREFIX = 'recordings/'
 
 /**
  * GET /api/speech/recordings/[id]
@@ -15,23 +13,23 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await auth()
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!session?.user?.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id } = await params
-  const key = `${RECORDINGS_PREFIX}${id}`
 
   try {
-    const { buffer, contentType } = await downloadFromS3(key)
+    const { buffer, contentType } = await downloadRecording(session.user.email, id)
     return new NextResponse(new Uint8Array(buffer), {
       headers: {
         'Content-Type': contentType,
         'Content-Length': String(buffer.byteLength),
+        'Cache-Control': 'private, no-store',
       },
     })
   } catch (error) {
     return NextResponse.json(
-      { error: 'Failed to download recording', details: String(error) },
-      { status: 500 }
+      { error: 'Recording unavailable' },
+      { status: 404 }
     )
   }
 }
@@ -45,13 +43,12 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await auth()
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!session?.user?.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id } = await params
-  const key = `${RECORDINGS_PREFIX}${id}`
 
   try {
-    await deleteFromS3(key)
+    await removeRecording(session.user.email, id)
     return NextResponse.json({ ok: true })
   } catch (error) {
     return NextResponse.json(

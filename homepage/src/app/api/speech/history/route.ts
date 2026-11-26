@@ -1,5 +1,6 @@
 import { auth } from '@/auth'
 import { reportServerEvent } from '@/lib/axiom'
+import { ensureSpeechTables } from '@/lib/pronunciationDb'
 import { getTursoClient } from '@/lib/turso'
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -160,25 +161,7 @@ async function ensureTable() {
     return null
   }
 
-  await client.execute(`
-    CREATE TABLE IF NOT EXISTS speech_history (
-      id TEXT PRIMARY KEY,
-      user_email TEXT NOT NULL,
-      modality TEXT NOT NULL,
-      title TEXT NOT NULL,
-      content TEXT,
-      metadata_json TEXT,
-      created_at INTEGER NOT NULL
-    )
-  `)
-  await client.execute(`
-    CREATE INDEX IF NOT EXISTS idx_speech_history_user_created
-    ON speech_history (user_email, created_at DESC, id DESC)
-  `)
-  await client.execute(`
-    CREATE INDEX IF NOT EXISTS idx_speech_history_user_modality_created
-    ON speech_history (user_email, modality, created_at DESC, id DESC)
-  `)
+  await ensureSpeechTables(client)
 
   return client
 }
@@ -287,8 +270,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid modality' }, { status: 400 })
     }
 
-    const id = crypto.randomUUID()
-    const createdAt = Date.now()
+    let id = crypto.randomUUID()
+    let createdAt = Date.now()
+    // Undo must restore the same canonical attempt, not create an unrelated history row.
+    if (modality === 'pronunciation' && isRecord(metadata) && typeof metadata.attemptId === 'string') {
+      const original = await client.execute({ sql: 'SELECT id,created_at FROM pronunciation_attempt WHERE id=? AND user_email=?', args: [metadata.attemptId,email] })
+      if (original.rows[0]) { id=String(original.rows[0].id); createdAt=Number(original.rows[0].created_at) }
+    }
     const normalizedTitle = String(title).slice(0, MAX_TITLE_LENGTH)
     const normalizedContent = String(content).slice(0, MAX_CONTENT_LENGTH)
     const metadataJson = serializeMetadata(metadata)
@@ -373,9 +361,10 @@ export async function PATCH(req: NextRequest) {
     })
     if (!existing.rows[0]) return NextResponse.json({ error: 'History item not found' }, { status: 404 })
     const metadata = { ...(parseMetadata(existing.rows[0].metadata_json) ?? {}), ...metadataPatch }
+    serializeMetadata(metadata) // enforce size before merging
     const updated = await client.execute({
-      sql: "UPDATE speech_history SET metadata_json = ? WHERE id = ? AND user_email = ? AND modality = 'pronunciation'",
-      args: [serializeMetadata(metadata), id, email],
+      sql: "UPDATE speech_history SET metadata_json = json_patch(COALESCE(metadata_json,'{}'), ?) WHERE id = ? AND user_email = ? AND modality = 'pronunciation'",
+      args: [serializeMetadata(metadataPatch), id, email],
     })
     if (!updated.rowsAffected) return NextResponse.json({ error: 'History item not found' }, { status: 404 })
     return NextResponse.json({ ok: true })

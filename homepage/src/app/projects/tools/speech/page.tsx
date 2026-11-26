@@ -5,6 +5,8 @@ import { FFmpeg } from '@ffmpeg/ffmpeg'
 import { fetchFile, toBlobURL } from '@ffmpeg/util'
 import { buildTtsBatches, textSize, createIntlSegmenter } from '@/lib/tts/sentenceSplitter'
 import { DEFAULT_PRONUNCIATION_REFERENCE_VOICE, PRONUNCIATION_REFERENCE_VOICES, PRONUNCIATION_REFERENCE_MODEL, PRONUNCIATION_REFERENCE_PROVIDER, isPronunciationReferenceVoice, pronunciationReferenceVoiceLabel } from '@/lib/pronunciationVoices'
+import PronunciationCalibration from '@/components/speech/PronunciationCalibration'
+import type { CalibrationReport } from '@/lib/pronunciationCalibrationTypes'
 import type { PronunciationCoach, PronunciationCoachInput } from '@/lib/pronunciationCoach'
 
 // The segmenter instance is created once at module load time (browser-safe).
@@ -610,7 +612,7 @@ function canRerunHistoryItem(item: HistoryItem): boolean {
   if (item.modality === 'stt') return Boolean(getHistoryRecording(metadata))
   if (item.modality === 'pronunciation') {
     const source = getMetadataString(metadata, 'source')
-    return source === 'reference-voice' || Boolean(getHistoryRecording(metadata))
+    return source === 'reference-voice' || Boolean(getHistoryRecording(metadata) || getMetadataString(metadata,'assessmentSourceUrl'))
   }
   return false
 }
@@ -907,8 +909,8 @@ function getHistoryReferenceVoiceLabel(metadata: Record<string, unknown>): strin
 
 /** Only web URLs can be played by the browser; stored s3:// locations cannot. */
 function getHistoryPlayableUrl(metadata: Record<string, unknown>): string | null {
-  const url = getMetadataString(metadata, 'storageUrl')
-  return url && (/^https?:\/\//i.test(url) || /^\/api\/speech\/pronunciation\/reference\?id=[0-9a-f-]{36}$/i.test(url)) ? url : null
+  const url = getMetadataString(metadata, 'assessmentAudioUrl') || getMetadataString(metadata, 'storageUrl')
+  return url && (/^https?:\/\//i.test(url) || /^\/api\/speech\/pronunciation\/(?:reference|audio)\?id=[0-9a-f-]{36}$/i.test(url)) ? url : null
 }
 
 function getHistoryCoach(metadata: Record<string, unknown>): HistoryCoach | null {
@@ -962,7 +964,7 @@ function HistoryRecordingPlayer({ recordingId, label, autoPlay = false }: { reco
         if (!res.ok) {
           throw new Error(res.status === 401
             ? 'Sign in again to play this recording.'
-            : 'This recording couldn’t be loaded. It may have been removed: Speech Lab keeps only the 3 newest saved recordings.')
+            : 'This recording couldn’t be loaded. It may have been removed: The original file may have been deleted or removed under the former retention policy.')
         }
         const blob = await res.blob()
         if (controller.signal.aborted) return
@@ -1032,7 +1034,7 @@ function PronunciationHistoryRow({
   const { pronScore } = getHistoryPronunciationScores(metadata)
   const synthesized = isSynthesizedReference(metadata)
   const recording = getHistoryRecording(metadata)
-  const playableUrl = recording ? null : getHistoryPlayableUrl(metadata)
+  const playableUrl = getHistoryPlayableUrl(metadata)
   const voiceLabel = synthesized ? getHistoryReferenceVoiceLabel(metadata) : null
   const coach = getHistoryCoach(metadata)
   const coachFailed = !coach && Boolean(getMetadataString(metadata, 'coachError'))
@@ -1100,9 +1102,9 @@ function PronunciationHistoryRow({
 
       {listening && (recording || playableUrl) && (
         <div id={playerId} className="mt-2">
-          {recording
-            ? <HistoryRecordingPlayer recordingId={recording.id} label={`${getHistorySourceLabel(metadata)} from ${date}`} autoPlay />
-            : <audio controls autoPlay preload="none" src={playableUrl!} aria-label={`${getHistorySourceLabel(metadata)} from ${date}`} className="w-full" />}
+          {playableUrl
+            ? <audio controls autoPlay preload="none" src={playableUrl} aria-label={`${getHistorySourceLabel(metadata)} from ${date}`} className="w-full" />
+            : <HistoryRecordingPlayer recordingId={recording!.id} label={`${getHistorySourceLabel(metadata)} from ${date}`} autoPlay />}
         </div>
       )}
     </article>
@@ -1129,10 +1131,10 @@ function HistoryPronunciationAudio({ metadata }: { metadata: Record<string, unkn
           )}
         </div>
       </div>
-      {recording ? (
+      {playableUrl ? (
+        <audio controls preload="none" src={playableUrl} aria-label={`${sourceLabel} assessed audio playback`} className="w-full" />
+      ) : recording ? (
         <HistoryRecordingPlayer recordingId={recording.id} label={`${sourceLabel} playback`} />
-      ) : playableUrl ? (
-        <audio controls preload="none" src={playableUrl} aria-label={`${sourceLabel} playback`} className="w-full" />
       ) : (
         <p className="text-xs text-foreground/60">
           {synthesized
@@ -1364,6 +1366,8 @@ function HistoryPronunciationDetails({
     ['Confidence', confidence != null ? confidence.toFixed(3) : null],
     ['Signal-to-noise (SNR)', snr != null ? snr.toFixed(1) : null],
     ['Tracking ID', getMetadataString(metadata, 'requestId')],
+    ['Assessment profile',getMetadataString(metadata,'providerProfile')],
+    ['Exercise ID',getMetadataString(metadata,'exerciseId')],
     // Synthesized attempts already show these next to the audio.
     ['Reference source', getMetadataString(metadata, 'referenceSource') === 'transcription' ? 'Automatic transcription' : getMetadataString(metadata, 'referenceSource') === 'manual' ? 'Fixed script' : null],
     ['Reference transcription', getMetadataString(metadata, 'referenceTranscriptionModel')],
@@ -2242,6 +2246,7 @@ function SttPanel({
 
       const res = await fetch('https://speech-tools.onrender.com/diarize', {
         method: 'POST',
+        headers: { Authorization: 'Bearer ' + await fetchSpeechServiceToken('diarize') },
         body: formData,
       })
 
@@ -2390,6 +2395,7 @@ function SttPanel({
 
       const res = await fetch('https://speech-tools.onrender.com/transcribe', {
         method: 'POST',
+        headers: { Authorization: 'Bearer ' + await fetchSpeechServiceToken('transcribe') },
         body: formData,
       })
 
@@ -3070,9 +3076,12 @@ function SttPanel({
 }
 
 /* ─── Pronunciation Panel ─── */
-const DELIVERY_ANALYSIS_URL = 'https://speech-tools.onrender.com/analyze-delivery'
-const AZURE_TIME_UNITS_PER_SECOND = 10_000_000
-const PHRASE_BREAK_SECONDS = 0.45
+async function fetchSpeechServiceToken(scope: 'transcribe' | 'diarize'): Promise<string> {
+  const res = await fetch('/api/speech/stt/token', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scope }) })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok || typeof data.token !== 'string') throw new Error(data.error || 'Speech service authorization unavailable')
+  return data.token
+}
 
 function getTtsVoiceLabel(voice: string): string {
   return pronunciationReferenceVoiceLabel(voice).replace(/^chirp3:en-US-Chirp3-HD-/, '')
@@ -3152,69 +3161,21 @@ function hasMonotoneFeedback(word: PronWord): boolean {
   return word.errorType === 'Monotone' || Boolean(word.prosody?.intonationErrorTypes.includes('Monotone'))
 }
 
-function getPronWordStartSec(word: PronWord): number | null {
-  return word.offset == null ? null : word.offset / AZURE_TIME_UNITS_PER_SECOND
-}
-
-function getPronWordEndSec(word: PronWord): number | null {
-  const start = getPronWordStartSec(word)
-  return start == null || word.duration == null ? null : start + word.duration / AZURE_TIME_UNITS_PER_SECOND
-}
-
-async function fetchDeliveryAnalysis(audioBlob: Blob): Promise<RawDeliveryAnalysis> {
-  const controller = new AbortController()
-  const timeout = window.setTimeout(() => controller.abort(), 30_000)
-  const formData = new FormData()
-  formData.append('audio', audioBlob, 'delivery.wav')
-
-  try {
-    const res = await fetch(DELIVERY_ANALYSIS_URL, {
-      method: 'POST',
-      body: formData,
-      signal: controller.signal,
-    })
-    if (!res.ok) throw new Error(`Delivery analysis failed (HTTP ${res.status})`)
-    return await res.json() as RawDeliveryAnalysis
-  } finally {
-    window.clearTimeout(timeout)
+async function postAssessmentPhase(url:string, body:unknown) {
+  // A server-side background worker may already own the phase; wait for its persisted result.
+  for (let i=0;i<45;i++) {
+    const response=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    const data=await response.json().catch(()=>({}))
+    if (response.status===202) { await new Promise(resolve=>setTimeout(resolve,2000)); continue }
+    if (!response.ok) throw speechLabRequestError(data,'Assessment enrichment unavailable')
+    return data
   }
+  throw new Error('Analysis is still processing. Try restoring the saved attempt to refresh it.')
 }
-
-function buildDeliveryAnalysis(raw: RawDeliveryAnalysis, words: PronWord[]): DeliveryAnalysis {
-  const timedWords = words
-    .map((word) => ({ word, startSec: getPronWordStartSec(word), endSec: getPronWordEndSec(word) }))
-    .filter((item): item is { word: PronWord; startSec: number; endSec: number } => item.startSec != null && item.endSec != null)
-  const firstWord = timedWords[0]
-  const lastWord = timedWords[timedWords.length - 1]
-  const spokenSpanSec = firstWord && lastWord ? Math.max(lastWord.endSec - firstWord.startSec, 0.5) : raw.summary.voicedDurationSec
-  const speakingRateWpm = timedWords.length > 0 && spokenSpanSec > 0
-    ? Math.round(timedWords.length / spokenSpanSec * 60)
-    : null
-  const phrases: DeliveryPhrase[] = []
-
-  for (const item of timedWords) {
-    const current = phrases[phrases.length - 1]
-    if (!current || item.startSec - current.endSec >= PHRASE_BREAK_SECONDS) {
-      phrases.push({
-        text: item.word.word,
-        startSec: item.startSec,
-        endSec: item.endSec,
-        wordCount: 1,
-        wpm: 0,
-      })
-      continue
-    }
-    current.text += ` ${item.word.word}`
-    current.endSec = item.endSec
-    current.wordCount += 1
-  }
-
-  for (const phrase of phrases) {
-    phrase.wpm = Math.round(phrase.wordCount / Math.max(phrase.endSec - phrase.startSec, 0.5) * 60)
-  }
-
-  // Keep acoustic measurements and timing. Coaching is generated from this evidence by Sol.
-  return { ...raw, speakingRateWpm, phrases, insights: [] }
+async function fetchDeliveryAnalysis(attemptId: string): Promise<DeliveryAnalysis> {
+  const data=await postAssessmentPhase('/api/speech/pronunciation/delivery',{attemptId})
+  if (!data.delivery) throw new Error('Delivery analysis unavailable')
+  return data.delivery as DeliveryAnalysis
 }
 
 async function normalizePronunciationAudio(audio: Blob): Promise<Blob> {
@@ -3252,9 +3213,8 @@ async function fetchPronunciationCoach(result: PronResult, referenceText: string
       pauses: d.pauses.slice(0, 80), phrases: d.phrases.slice(0, 80).map(p => ({ ...p, text: p.text.slice(0, 500) })),
     } } : {}),
   }
-  const res = await fetch('/api/speech/pronunciation/coach', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok || !data.coach) throw speechLabRequestError(data, 'AI coaching unavailable.')
+  const data=await postAssessmentPhase('/api/speech/pronunciation/coach',result.attemptId?{attemptId:result.attemptId}:input)
+  if (!data.coach) throw speechLabRequestError(data, 'AI coaching unavailable.')
   return data.coach as PronunciationCoach
 }
 
@@ -3395,6 +3355,10 @@ function pronResultFromHistoryItem(item: HistoryItem): PronResult | null {
     coach: getHistoryCoach(metadata) ?? undefined,
     coachError: getMetadataString(metadata, 'coachError') ?? undefined,
     historyId: item.id,
+    attemptId: getMetadataString(metadata, 'attemptId') ?? undefined,
+    assessmentReferenceText:item.content,
+    assessmentLanguage:getMetadataString(metadata,'language')??undefined,
+    audio: getNestedRecord(metadata, 'audio') as PronResult['audio'],
   }
 }
 
@@ -3441,6 +3405,31 @@ function PronunciationPanel({
   const [loadingMessage, setLoadingMessage] = useState('Assessing pronunciation…')
   const [lastAssessmentAttempt, setLastAssessmentAttempt] = useState<PronunciationAssessmentAttempt | null>(null)
   const [retryAction, setRetryAction] = useState<PronunciationRetryAction | null>(null)
+  const [calibration, setCalibration] = useState<CalibrationReport | null>(null)
+  const [calibrationLoading, setCalibrationLoading] = useState(false)
+  const [calibrationError, setCalibrationError] = useState<string | null>(null)
+  const [buildingReferences, setBuildingReferences] = useState(false)
+  const [referenceProgress, setReferenceProgress] = useState<string | null>(null)
+  const calibrationSequence = useRef(0)
+  const refreshCalibration = useCallback(async (attemptId?: string) => {
+    const seq = ++calibrationSequence.current
+    if (!attemptId) {setCalibration(null);setCalibrationLoading(false);setCalibrationError(null);return}
+    setCalibrationLoading(true);setCalibrationError(null)
+    try {
+      const res = await fetch('/api/speech/pronunciation/calibration?id=' + encodeURIComponent(attemptId))
+      const data = await res.json()
+      if (!res.ok || !data.report) throw new Error(data.error || 'Calibration unavailable')
+      if (seq === calibrationSequence.current) setCalibration(data.report)
+      return data.report as CalibrationReport
+    } catch (err) {
+      if (seq === calibrationSequence.current) setCalibrationError(err instanceof Error ? err.message : 'Calibration unavailable')
+    } finally { if (seq === calibrationSequence.current) setCalibrationLoading(false) }
+  }, [])
+  useEffect(() => {
+    setCalibration(null)
+    void refreshCalibration(result?.attemptId)
+  }, [result?.attemptId, result?.delivery?.version, refreshCalibration])
+
 
   useEffect(() => {
     return () => {
@@ -3479,16 +3468,18 @@ function PronunciationPanel({
       const attempt = { audioBlob: wavBlob, referenceText: resolvedReferenceText, subject, language: resolvedLanguage, referenceSource: resolvedReferenceSource }
       setLastAssessmentAttempt(attempt)
       setRetryAction({ type: 'assessment', attempt })
-      const deliveryPromise = fetchDeliveryAnalysis(wavBlob)
-        .then((analysis) => ({ analysis }))
-        .catch((deliveryFailure: unknown) => ({
-          error: deliveryFailure instanceof Error ? deliveryFailure.message : 'Delivery analysis failed',
-        }))
       const formData = new FormData()
       formData.append('audio', wavBlob, 'pronunciation.wav')
       formData.append('referenceText', resolvedReferenceText)
       formData.append('language', resolvedLanguage)
       formData.append('source', subject.type)
+      formData.append('autoEnrich','true')
+      formData.append('referenceSource', resolvedReferenceSource)
+      if (resolvedReferenceSource === 'transcription') formData.append('referenceTranscriptionModel',transcriptionModel)
+      if (subject.type === 'reference-voice') {
+        formData.append('voice',subject.voice)
+        if (subject.storageUrl) formData.append('referenceUrl',subject.storageUrl)
+      }
 
       const res = await fetch('/api/speech/pronunciation', {
         method: 'POST',
@@ -3525,6 +3516,10 @@ function PronunciationPanel({
         const nextResult: PronResult = {
           requestId: data._requestId ?? null,
           audio: data._audio,
+          attemptId: data._attemptId,
+          assessmentReferenceText:resolvedReferenceText,
+          assessmentLanguage:resolvedLanguage,
+          historyId: data._historyId,
           accuracyScore: assessment.AccuracyScore,
           fluencyScore: assessment.FluencyScore,
           completenessScore: assessment.CompletenessScore,
@@ -3541,59 +3536,50 @@ function PronunciationPanel({
           setResult(nextResult)
           setRetryAction(null)
         }
-        // Save the measured result before potentially slow acoustic and AI requests.
+        // The server persisted measured evidence and history before returning.
+        // Keep the original microphone file linked when its upload succeeds.
         const historyPromise = (async () => {
           const recording = options.recording ?? await options.recordingPromise?.catch(() => null) ?? null
           try {
-            const saved = await saveSpeechHistory({ modality: 'pronunciation', title: `Pronunciation · ${resolvedLanguage}`, content: resolvedReferenceText,
-              metadata: buildPronunciationHistoryMetadata({ result: nextResult, referenceText: resolvedReferenceText, language: resolvedLanguage, subject, recording, referenceSource: resolvedReferenceSource, referenceTranscriptionModel: resolvedReferenceSource === 'transcription' ? transcriptionModel : undefined }) })
-            if (saved) {
-              if (isCurrent()) setResult(current => current ? { ...current, historyId: saved.id } : current)
+            if (data._historyId) {
+              if (recording) await patchPronunciationHistory(data._historyId, {recording})
               await onHistorySaved()
+              return {id:data._historyId,recording}
             }
-            return { id: saved?.id, recording }
-          } catch (error) {
-            console.warn('Failed to save initial pronunciation history', error)
-            return { id: undefined, recording }
-          }
+            // Legacy/failure fallback: save measured results even if evidence archival failed.
+            const saved = await saveSpeechHistory({ modality:'pronunciation',title:'Pronunciation · '+resolvedLanguage,content:resolvedReferenceText,metadata:buildPronunciationHistoryMetadata({result:nextResult,referenceText:resolvedReferenceText,language:resolvedLanguage,subject,recording,referenceSource:resolvedReferenceSource,referenceTranscriptionModel:resolvedReferenceSource==='transcription'?transcriptionModel:undefined}) })
+            if (saved && isCurrent()) setResult(current=>current?{...current,historyId:saved.id}:current)
+            await onHistorySaved()
+            return {id:saved?.id,recording}
+          } catch { return {id:data._historyId,recording} }
         })()
         void (async () => {
           let final: PronResult = nextResult
           let deliveryErrorForHistory: string | null = null
-          const outcome = await deliveryPromise
-          if ('error' in outcome) {
-            deliveryErrorForHistory = outcome.error
-            if (isCurrent()) setDeliveryError(outcome.error)
-          } else {
-            const delivery = buildDeliveryAnalysis(outcome.analysis, nextResult.words)
-            final = { ...final, delivery }
-            if (isCurrent()) setResult(current => current ? { ...current, delivery } : current)
-          }
-          if (isCurrent()) setDeliveryLoading(false)
           try {
-            const coach = await fetchPronunciationCoach(final, resolvedReferenceText, resolvedLanguage, subject, resolvedReferenceSource)
-            final = { ...final, coach }
-            if (isCurrent()) setResult(current => current ? { ...current, coach, coachError: undefined } : current)
-          } catch (error) {
-            const coachError = error instanceof Error ? error.message : 'AI coaching unavailable.'
-            final = { ...final, coachError }
-            if (isCurrent()) setResult(current => current ? { ...current, coachError } : current)
-          } finally {
-            if (isCurrent()) setCoachLoading(false)
-          }
-          const history = await historyPromise
+            if (!nextResult.attemptId) throw new Error('Assessment evidence storage unavailable; acoustic analysis cannot run.')
+            const delivery = await fetchDeliveryAnalysis(nextResult.attemptId)
+            final={...final,delivery}
+            if (isCurrent()) setResult(current=>current?{...current,delivery}:current)
+          } catch (err) {
+            deliveryErrorForHistory=err instanceof Error?err.message:'Delivery analysis failed'
+            if (isCurrent()) setDeliveryError(deliveryErrorForHistory)
+          } finally { if (isCurrent()) setDeliveryLoading(false) }
           try {
-            if (history.id) {
-              await patchPronunciationHistory(history.id, { coach: final.coach ?? null, coachError: final.coachError ?? null, delivery: trimDeliveryAnalysisForHistory(final.delivery) ?? null, deliveryError: deliveryErrorForHistory })
-            } else {
-              const saved = await saveSpeechHistory({ modality: 'pronunciation', title: `Pronunciation · ${resolvedLanguage}`, content: resolvedReferenceText,
-                metadata: buildPronunciationHistoryMetadata({ result: final, referenceText: resolvedReferenceText, language: resolvedLanguage, subject, recording: history.recording, deliveryError: deliveryErrorForHistory, referenceSource: resolvedReferenceSource, referenceTranscriptionModel: resolvedReferenceSource === 'transcription' ? transcriptionModel : undefined }) })
-              if (saved && isCurrent()) setResult(current => current ? { ...current, historyId: saved.id } : current)
-            }
+            const coach=await fetchPronunciationCoach(final,resolvedReferenceText,resolvedLanguage,subject,resolvedReferenceSource)
+            final={...final,coach}
+            if (isCurrent()) setResult(current=>current?{...current,coach,coachError:undefined}:current)
+          } catch (err) {
+            const coachError=err instanceof Error?err.message:'AI coaching unavailable.'
+            final={...final,coachError}
+            if (isCurrent()) setResult(current=>current?{...current,coachError}:current)
+          } finally { if (isCurrent()) setCoachLoading(false) }
+          const history=await historyPromise
+          try {
+            // Canonical delivery/coach routes already update the stored attempt.
+            if (history.id && !nextResult.attemptId) await patchPronunciationHistory(history.id,{coach:final.coach??null,coachError:final.coachError??null,delivery:trimDeliveryAnalysisForHistory(final.delivery)??null,deliveryError:deliveryErrorForHistory})
             await onHistorySaved()
-          } catch (historyError) {
-            console.warn('Failed to update pronunciation history', historyError)
-          }
+          } catch { /* assessment remains usable */ }
         })()
       } else if (isCurrent()) {
         setDeliveryLoading(false)
@@ -3667,6 +3653,47 @@ function PronunciationPanel({
 
   const assessReferenceVoice = async () => {
     await assessReferenceVoiceWith(referenceText, referenceVoice)
+  }
+
+  const buildReferenceRange = async () => {
+    if (!result?.attemptId || buildingReferences) return
+    const attemptId=result.attemptId
+    const text=(result.assessmentReferenceText ?? lastAssessmentAttempt?.referenceText ?? referenceText).trim()
+    const targetLanguage=result.assessmentLanguage ?? lastAssessmentAttempt?.language ?? language
+    const seq=assessmentSequence.current
+    setBuildingReferences(true);setCalibrationError(null)
+    try {
+      const existing=await refreshCalibration(attemptId)
+      const accepted=new Set(existing?.referenceVoiceCount && existing.referenceVoiceCount >= 2 ? [] : existing?.referenceSamples.filter(s=>s.accepted && s.id!==attemptId).map(s=>s.voice)??[])
+      for (const voice of PRONUNCIATION_REFERENCE_VOICES) {
+        if (accepted.has(voice.id)) continue
+        for (let retry=0;retry<2;retry++) {
+          if (seq!==assessmentSequence.current) return
+          setReferenceProgress('Generating '+voice.name+(retry?' · retrying quality check':''))
+          const gen=await fetch('/api/speech/pronunciation/reference',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,voice:voice.id})})
+          const audio=await gen.json()
+          if (!gen.ok || !audio.audio) throw new Error(audio.error || 'Unable to generate reference')
+          const wav=await normalizePronunciationAudio(ttsPayloadToBlob(audio.audio,audio.mimeType))
+          const form=new FormData()
+          form.append('audio',wav,'reference.wav');form.append('referenceText',text);form.append('language',targetLanguage);form.append('source','reference-voice');form.append('referenceSource','manual');form.append('voice',voice.id)
+          if (audio.storageUrl) form.append('referenceUrl',audio.storageUrl)
+          const res=await fetch('/api/speech/pronunciation',{method:'POST',body:form})
+          const assessed=await res.json()
+          if (!res.ok || !assessed._attemptId) throw new Error(assessed.error || 'Unable to archive reference assessment')
+          if (assessed._referenceQuality?.accepted) {
+            setReferenceProgress('Analyzing '+voice.name+' acoustics')
+            await fetchDeliveryAnalysis(assessed._attemptId).catch(()=>{})
+            break
+          }
+        }
+      }
+      if (seq===assessmentSequence.current) {
+        await refreshCalibration(attemptId)
+        void retryCoaching(result)
+      }
+      await onHistorySaved()
+    } catch (err) { if (seq===assessmentSequence.current) setCalibrationError(err instanceof Error?err.message:'Reference range unavailable') }
+    finally {setBuildingReferences(false);setReferenceProgress(null)}
   }
 
   const transcribeReferenceText = async (audioBlob: Blob) => {
@@ -3782,29 +3809,28 @@ function PronunciationPanel({
     try {
       const coach = await fetchPronunciationCoach(evidence, attempt?.referenceText ?? referenceText, attempt?.language ?? language, attempt?.subject ?? assessmentSubject, attempt?.referenceSource ?? referenceSource)
       if (sequence === assessmentSequence.current) setResult(current => current ? { ...current, coach, coachError: undefined } : current)
-      if (evidence.historyId) {
+      if (evidence.historyId && !evidence.attemptId) {
         await patchPronunciationHistory(evidence.historyId, { coach, coachError: null })
-        await onHistorySaved()
       }
+      await onHistorySaved()
     } catch (error) {
       const coachError = error instanceof Error ? error.message : 'AI coaching unavailable.'
       if (sequence === assessmentSequence.current) setResult(current => current ? { ...current, coachError } : current)
-      if (evidence.historyId) await patchPronunciationHistory(evidence.historyId, { coachError }).catch(() => {})
+      if (evidence.historyId && !evidence.attemptId) await patchPronunciationHistory(evidence.historyId, { coachError }).catch(() => {})
     } finally {
       if (sequence === assessmentSequence.current) setCoachLoading(false)
     }
   }
 
   const retryDeliveryAnalysis = async () => {
-    if (!lastAssessmentAttempt || !result) return
+    if (!result?.attemptId) return
     const sequence = assessmentSequence.current
     setDeliveryLoading(true)
     setDeliveryError(null)
     try {
-      const analysis = await fetchDeliveryAnalysis(lastAssessmentAttempt.audioBlob)
-      const delivery = buildDeliveryAnalysis(analysis, result.words)
+      const delivery = await fetchDeliveryAnalysis(result.attemptId)
       if (sequence === assessmentSequence.current) setResult(current => current ? { ...current, delivery } : current)
-      if (result.historyId) await patchPronunciationHistory(result.historyId, { delivery: trimDeliveryAnalysisForHistory(delivery), deliveryError: null }).catch(() => {})
+      await onHistorySaved()
       if (sequence === assessmentSequence.current) void retryCoaching({ ...result, delivery })
     } catch (deliveryFailure) {
       if (sequence === assessmentSequence.current) setDeliveryError(deliveryFailure instanceof Error ? deliveryFailure.message : 'Delivery analysis failed')
@@ -3854,14 +3880,16 @@ function PronunciationPanel({
       }
 
       const recording = getHistoryRecording(metadata)
-      if (!recording) {
+      const rawSource = getMetadataString(metadata,'assessmentSourceUrl')
+      const savedSource = rawSource && /^\/api\/speech\/pronunciation\/audio\?id=[a-f0-9-]{36}&variant=source$/i.test(rawSource) ? rawSource : null
+      if (!recording && !savedSource) {
         setError('No saved audio is available for this history item. Restore the diagnostic view or record again.')
         return
       }
 
       void (async () => {
         try {
-          const audioRes = await fetch(`/api/speech/recordings/${encodeURIComponent(recording.id)}`)
+          const audioRes = await fetch(savedSource || `/api/speech/recordings/${encodeURIComponent(recording!.id)}`)
           if (!audioRes.ok) throw new Error('Saved recording is no longer available')
           const blob = await audioRes.blob()
           await handleAssess(blob, item.content, { type: 'recording' }, { recording, language: restoredLanguage, referenceSource: restoredReferenceSource })
@@ -3880,7 +3908,7 @@ function PronunciationPanel({
         <span className="material-symbols-outlined text-foreground/40">spellcheck</span>
         <div>
           <h3 className="font-medium text-foreground">Pronunciation Assessment</h3>
-          <p className="text-xs text-foreground/40">Azure acoustic scores · GPT-6.2 Sol medium coaching · Eleven v4 references</p>
+          <p className="text-xs text-foreground/40">Azure acoustic scores · GPT-6.2 Sol medium · same-phrase Eleven v4 reference ranges</p>
         </div>
       </div>
 
@@ -3970,7 +3998,7 @@ function PronunciationPanel({
       <div className="flex flex-wrap items-center gap-2">
         <button
           onClick={recording ? stopRecording : startRecording}
-          disabled={loading || (referenceSource === 'manual' && !referenceText.trim())}
+          disabled={buildingReferences || loading || (referenceSource === 'manual' && !referenceText.trim())}
           className={`inline-flex items-center gap-2 px-6 py-2.5 rounded-full font-medium text-sm transition-all cursor-pointer ${
             recording
               ? 'bg-red-500 text-white hover:bg-red-600'
@@ -3985,7 +4013,7 @@ function PronunciationPanel({
 
         <button
           onClick={assessReferenceVoice}
-          disabled={loading || recording || !referenceText.trim()}
+          disabled={buildingReferences || loading || recording || !referenceText.trim()}
           className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full border border-foreground/15 bg-foreground/[0.03] text-foreground/70 font-medium text-sm hover:bg-foreground/[0.08] hover:text-foreground transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <span className="material-symbols-outlined text-lg">record_voice_over</span>
@@ -4066,6 +4094,13 @@ function PronunciationPanel({
             </div>
           </div>
 
+          {result.audio?.storageId && assessmentSubject.type === 'recording' && <div className="rounded-xl border border-foreground/10 bg-foreground/[0.02] p-3 space-y-1"><p className="text-xs font-medium text-foreground/70">Assessed recording · normalized audio</p><audio controls preload="none" aria-label="Listen to the assessed recording" className="w-full" src={'/api/speech/pronunciation/audio?id='+encodeURIComponent(result.audio.storageId)} /></div>}
+          {result.attemptId && <PronunciationCalibration
+            report={calibration?.attemptId === result.attemptId ? calibration : null} loading={calibrationLoading || deliveryLoading || coachLoading} error={calibrationError}
+            building={buildingReferences} progress={referenceProgress}
+            onBuild={() => void buildReferenceRange()} onRefresh={() => void refreshCalibration(result.attemptId)}
+          />}
+
           {/* Overall score — semi-circle gauge */}
           <div className="flex justify-center py-2">
             <SemiCircleGauge label="Overall" score={result.pronScore} size={180} />
@@ -4114,7 +4149,7 @@ function PronunciationPanel({
             analysis={result.delivery}
             loading={deliveryLoading}
             error={deliveryError}
-            onRetry={lastAssessmentAttempt ? retryDeliveryAnalysis : undefined}
+            onRetry={result.attemptId ? retryDeliveryAnalysis : undefined}
           />
 
           {/* Word-level breakdown */}
@@ -4692,7 +4727,10 @@ interface PronResult {
   coach?: HistoryCoach | PronunciationCoach
   coachError?: string
   historyId?: string
-  audio?: { sha256: string; sampleRate?: number; normalized: boolean }
+  attemptId?: string
+  assessmentReferenceText?: string
+  assessmentLanguage?: string
+  audio?: { sha256: string; sampleRate?: number; normalized: boolean; storageId?:string; normalizationVersion?:string; durationSeconds?:number }
 }
 
 interface DeliveryPoint {
@@ -4867,7 +4905,9 @@ interface AzureWord {
 
 interface AzurePronunciationResponse {
   _requestId?: string
-  _audio?: { sha256: string; sampleRate?: number; normalized: boolean }
+  _historyId?: string
+  _attemptId?: string
+  _audio?: { sha256: string; sampleRate?: number; normalized: boolean; storageId?:string; normalizationVersion?:string; durationSeconds?:number }
   RecognitionStatus?: string
   DisplayText?: string
   SNR?: number

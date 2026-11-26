@@ -42,19 +42,22 @@ export interface DeliveryAnalysis {
   };
   speechSegments: Array<{ startSec: number; endSec: number; durationSec: number }>;
   pauses: DeliveryPause[];
+  vowels?: Array<{ id: string; phoneme: string; f1Hz: number; f2Hz: number; f1Z: number | null; f2Z: number | null }>;
+  phrasePitch?: Array<{ id: string; contourSemitones: (number | null)[]; endingDeltaSemitones: number | null }>;
   acousticInsights: Array<{ code: string; severity: "improve" | "consider"; message: string }>;
 }
 
-export async function analyzeDelivery(audioBuffer: Buffer, originalName: string): Promise<DeliveryAnalysis> {
+export async function analyzeDelivery(audioBuffer: Buffer, _originalName: string, alignment: unknown = {}): Promise<DeliveryAnalysis> {
   const workDir = mkdtempSync(path.join(tmpdir(), "speech-tools-delivery-"));
-  const extension = path.extname(originalName) || ".wav";
-  const inputPath = path.join(workDir, `source${extension}`);
+  const inputPath = path.join(workDir, "source.wav");
+  const alignmentPath = path.join(workDir, "alignment.json");
   const scriptPath = path.resolve(process.cwd(), "scripts", "analyze_delivery.py");
   writeFileSync(inputPath, audioBuffer);
+  writeFileSync(alignmentPath, JSON.stringify(alignment));
 
   try {
     return await new Promise<DeliveryAnalysis>((resolve, reject) => {
-      const proc = spawn("python3", [scriptPath, "--input", inputPath]);
+      const proc = spawn("python3", [scriptPath, "--input", inputPath, "--alignment", alignmentPath]);
       const stdout: Buffer[] = [];
       const stderr: Buffer[] = [];
       const timeout = setTimeout(() => {

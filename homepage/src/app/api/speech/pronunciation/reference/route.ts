@@ -46,8 +46,10 @@ export async function POST(req: NextRequest) {
     const mimeType = result.audio.mediaType || 'audio/mpeg'
     // Persist generated audio under a private, owner-scoped key, not a public S3 URL.
     const stored = await uploadToS3(bytes, referenceKey(email, requestId), mimeType)
+    const generation = { id:requestId, model:PRONUNCIATION_REFERENCE_MODEL, provider:PRONUNCIATION_REFERENCE_PROVIDER, voice, settings:{outputFormat:'mp3'}, textSha256:createHash('sha256').update(text.trim()).digest('hex'), audioSha256:createHash('sha256').update(bytes).digest('hex'), generatedAt:Date.now() }
+    if (stored) await uploadToS3(Buffer.from(JSON.stringify(generation)),referenceKey(email,requestId).replace(/\.mp3$/,'.json'),'application/json')
     return NextResponse.json({
-      audio: bytes.toString('base64'), mimeType, voice,
+      audio: bytes.toString('base64'), mimeType, voice, generation,
       provider: PRONUNCIATION_REFERENCE_PROVIDER, model: PRONUNCIATION_REFERENCE_MODEL,
       ...(stored ? { storageUrl: `/api/speech/pronunciation/reference?id=${requestId}` } : {}),
     })
